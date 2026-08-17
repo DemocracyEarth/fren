@@ -62,8 +62,9 @@ architecture as though it were built.
                                                      └───────────────────────────────┘
 ```
 
-Two processes. The desktop app never holds provider API keys; the gateway never
-touches the database or the screen.
+Two processes. The desktop app scrubs provider API keys from its environment
+at startup and never calls the provider; the gateway never touches the
+database or the screen.
 
 ## Modules
 
@@ -173,8 +174,9 @@ defined as JSDoc typedefs in `packages/shared/types.js`.
 
 1. User types a question in the chat panel; renderer sends it to the main
    process over IPC. Mascot switches to `thinking`.
-2. Main process loads relevant memories from SQLite and
-   `POST /v1/chat` — the question plus memory context — to the gateway.
+2. Main process loads context from SQLite — recent memories (last 8h) plus
+   the recent raw timeline (up to 50 newest observations) — and sends
+   `POST /v1/chat` with the question and that context to the gateway.
 3. Gateway calls the model (or mock) and returns the reply.
 4. Renderer shows the answer; mascot returns to its previous state.
 

@@ -1,5 +1,5 @@
 // Periodically turns raw observations into compact semantic memories via the
-// gateway, then prunes old observations and screenshot files. Only the
+// gateway, and prunes old observations and screenshot files. Only the
 // app/window timeline is sent — screenshots stay on disk, always.
 const fs = require('fs');
 const { config } = require('../../../packages/shared');
@@ -10,6 +10,26 @@ function createSummarizer({ memory, log = console.log }) {
   let timer = null;
   let running = false;
 
+  // Retention runs unconditionally — pausing observation or losing the
+  // gateway must never suspend the data-retention promise.
+  function runCleanup() {
+    try {
+      const { deletedObservations, screenshotPathsToDelete } = memory.cleanup({
+        retentionDays: config.OBSERVATION_RETENTION_DAYS,
+        maxScreenshots: config.MAX_SCREENSHOTS_KEPT,
+      });
+      for (const p of screenshotPathsToDelete) fs.rm(p, { force: true }, () => {});
+      if (deletedObservations > 0 || screenshotPathsToDelete.length > 0) {
+        log(
+          `[summarizer] pruned ${deletedObservations} observations, ` +
+            `${screenshotPathsToDelete.length} screenshot files`
+        );
+      }
+    } catch (err) {
+      log(`[summarizer] cleanup failed: ${err.message}`);
+    }
+  }
+
   async function runOnce() {
     if (running) return;
     running = true;
@@ -17,10 +37,10 @@ function createSummarizer({ memory, log = console.log }) {
       const observations = memory.getUnsummarizedObservations();
       if (observations.length < config.SUMMARIZE_MIN_OBSERVATIONS) return;
 
-      if (state.get().observing) state.set({ mascot: 'thinking' });
+      state.beginWork();
       try {
         const summary = await gateway.summarize(
-          observations.map(({ ts, activeApp, windowTitle }) => ({ ts, activeApp, windowTitle })),
+          observations.map(({ ts, activeApp, windowTitle }) => ({ ts, activeApp, windowTitle }))
         );
         memory.addMemory({
           tsStart: observations[0].ts,
@@ -31,18 +51,13 @@ function createSummarizer({ memory, log = console.log }) {
           rawCount: observations.length,
         });
         memory.markSummarized(observations.map((o) => o.id));
-        log(`[summarizer] memory: ${summary.activity} (${observations.length} obs)`);
+        // PRIVACY: counts only — the activity text is derived from window
+        // titles and must not end up in logs.
+        log(`[summarizer] created a memory from ${observations.length} observations`);
+        state.flashIdea();
       } finally {
-        if (state.get().mascot === 'thinking') {
-          state.set({ mascot: state.get().observing ? 'watching' : 'sleeping' });
-        }
+        state.endWork();
       }
-
-      const { screenshotPathsToDelete } = memory.cleanup({
-        retentionDays: config.OBSERVATION_RETENTION_DAYS,
-        maxScreenshots: config.MAX_SCREENSHOTS_KEPT,
-      });
-      for (const p of screenshotPathsToDelete) fs.rm(p, { force: true }, () => {});
     } catch (err) {
       log(`[summarizer] skipped: ${err.message}`);
     } finally {
@@ -53,7 +68,9 @@ function createSummarizer({ memory, log = console.log }) {
   return {
     start() {
       if (timer) return;
+      runCleanup();
       timer = setInterval(() => {
+        runCleanup();
         if (state.get().observing) runOnce();
       }, config.SUMMARIZE_INTERVAL_MS);
     },
@@ -62,6 +79,7 @@ function createSummarizer({ memory, log = console.log }) {
       timer = null;
     },
     runOnce,
+    runCleanup,
   };
 }
 

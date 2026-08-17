@@ -10,6 +10,10 @@ const { createObserver } = require('./observer');
 const { createSummarizer } = require('./summarizer');
 
 loadEnv();
+// The desktop process must never hold provider credentials — only the gateway
+// talks to the LLM provider. .env is shared with the gateway, so scrub here.
+delete process.env.ANTHROPIC_API_KEY;
+delete process.env.ANTHROPIC_AUTH_TOKEN;
 
 const ORB_SIZE = { width: 96, height: 96 };
 const PANEL_SIZE = { width: 340, height: 520 };
@@ -54,12 +58,12 @@ function createWindow() {
 
 function startObserving() {
   observer.start();
-  state.set({ observing: true, mascot: 'watching' });
+  state.set({ observing: true }); // mascot is computed from this
 }
 
 function stopObserving() {
   observer.stop();
-  state.set({ observing: false, mascot: 'sleeping' });
+  state.set({ observing: false });
 }
 
 app.whenReady().then(() => {
@@ -97,8 +101,21 @@ app.whenReady().then(() => {
     return state.get();
   });
 
+  // Preserve wherever the user dragged the orb: grow/shrink around the
+  // current top-left corner (clamped into the current display's work area)
+  // instead of teleporting back to the bottom-right default.
+  let savedOrbPos = null;
   ipcMain.handle('fren:setPanelOpen', (_e, open) => {
-    positionWindow(open ? PANEL_SIZE : ORB_SIZE);
+    const cur = win.getBounds();
+    if (open) {
+      savedOrbPos = { x: cur.x, y: cur.y };
+      const { workArea } = screen.getDisplayMatching(cur);
+      const x = Math.min(Math.max(cur.x, workArea.x), workArea.x + workArea.width - PANEL_SIZE.width);
+      const y = Math.min(Math.max(cur.y, workArea.y), workArea.y + workArea.height - PANEL_SIZE.height);
+      win.setBounds({ x, y, ...PANEL_SIZE });
+    } else {
+      win.setBounds({ ...(savedOrbPos ?? { x: cur.x, y: cur.y }), ...ORB_SIZE });
+    }
     state.set({ panelOpen: !!open });
   });
 
@@ -107,7 +124,7 @@ app.whenReady().then(() => {
   ipcMain.handle('fren:chat', async (_e, text) => {
     const question = String(text ?? '').trim().slice(0, 2000);
     if (!question) return { reply: '…' };
-    state.set({ mascot: 'thinking' });
+    state.beginWork();
     try {
       const eightHoursAgo = Date.now() - 8 * 60 * 60 * 1000;
       const memories = memory.getRecentMemories({ sinceMs: eightHoursAgo });
@@ -123,7 +140,7 @@ app.whenReady().then(() => {
           "I can't reach my thinking half (the local gateway). Is it running? Try: npm run gateway",
       };
     } finally {
-      state.set({ mascot: state.get().observing ? 'watching' : 'sleeping' });
+      state.endWork();
     }
   });
 });

@@ -92,8 +92,11 @@ npm run desktop    # desktop app only (expects a gateway on 127.0.0.1:4519)
 npm test           # node --test suites for memory, intelligence, gateway
 ```
 
-macOS will ask for permissions the first time (in dev the app shows up as
-"Electron" in System Settings, because it runs under the stock Electron binary):
+The first time you wake fren up, macOS will prompt for Accessibility and
+register the app under Screen Recording in System Settings (newer macOS
+versions prompt for it too; on older ones, enable it manually and restart).
+In dev the app shows up as "Electron", because it runs under the stock
+Electron binary:
 
 - **Screen Recording** — needed for screenshots. Without it, fren degrades
   gracefully to app + window title only.
@@ -121,7 +124,8 @@ Only this, and only via the local gateway:
 
 - app names, window titles, and timestamps (the activity timeline)
 - your typed chat questions
-- derived activity summaries
+- derived activity summaries and the recent raw timeline (up to the last 50
+  observed app/title entries), sent as context with each chat message
 
 What **never** leaves your machine:
 

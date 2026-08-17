@@ -33,7 +33,11 @@ network requests with your data.
 |---|---|
 | App names, window titles, timestamps (the activity timeline) | Summarize cycle, every 2 minutes while observing |
 | Your typed chat questions | When you send a chat message |
-| Derived activity summaries (as context for chat) | When you send a chat message |
+| Derived activity summaries **and the recent raw timeline** (up to the last 50 observed app/title entries) as context | When you send a chat message |
+
+Chat context is drawn from what was captured earlier: asking a question while
+paused still sends recent history that was recorded while the eyes were open.
+Pausing stops new capture; it does not redact what you already let fren see.
 
 **Never sent, to anyone, ever:**
 
@@ -44,9 +48,11 @@ network requests with your data.
 - **The SQLite database.** It never leaves the userData folder.
 - **Keystrokes.** Not captured at all (see above), so there is nothing to send.
 
-The Anthropic API key exists only in the gateway process (via `.env` /
-environment). The desktop app never holds provider credentials, so it could not
-call the provider even by mistake.
+The Anthropic API key is used only by the gateway process. The desktop app
+reads the shared `.env` for its own settings but deletes
+`ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` from its environment at startup
+(`apps/desktop/main/index.js`), so provider credentials never live in the
+process that captures your screen.
 
 ## Storage locations
 
@@ -66,16 +72,18 @@ Everything is local, under Electron's userData folder:
 | Screenshots | Newest 200 kept, older ones deleted automatically |
 | Memories (semantic summaries) | Kept until you delete the data folder |
 
-Pruning runs as part of the regular summarize cycle — retention does not depend
-on you remembering to clean up.
+Pruning runs on its own timer inside the desktop app, every couple of minutes
+for as long as fren is running — it does not depend on observation being on,
+on the gateway being reachable, or on you remembering to clean up.
 
 (Tunables: `OBSERVATION_RETENTION_DAYS` and `MAX_SCREENSHOTS_KEPT` in
 `packages/shared/config.js`.)
 
 ## How to pause
 
-**One click on the orb.** Eyes close, everything stops. Click again to resume.
-There is no partial state and no background trickle while paused.
+Click the orb to open the panel, then click **"pause watching"**. Eyes close,
+everything stops. Same two clicks to resume ("wake up"). There is no partial
+state and no background trickle while paused.
 
 ## How to delete everything
 
@@ -89,12 +97,18 @@ fren sends nothing there beyond the categories listed above.
 
 ## macOS permissions
 
-fren asks for two permissions, and works with degraded data if you decline:
+fren uses two permissions, and works with degraded data if you decline:
 
 | Permission | Used for | Without it |
 |---|---|---|
 | Screen Recording | Screenshots | No screenshots; app names + window titles only |
 | Accessibility | Window titles (via System Events) | App names only |
+
+How they are requested: the first time you wake fren up, the window-title
+lookup triggers the Accessibility/Automation prompt, and fren makes one
+throwaway capture attempt so macOS registers it in the Screen Recording pane
+(newer macOS versions show a prompt; older ones only list the app there —
+enable it manually).
 
 In development the app appears as **"Electron"** in System Settings → Privacy &
 Security, because it runs under the stock Electron binary. Permission changes

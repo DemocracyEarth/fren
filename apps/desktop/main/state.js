@@ -1,24 +1,55 @@
-// Single source of truth for app state. The observer, summarizer, IPC handlers
-// and renderer all read from here. The privacy invariant (eyes open <=> capture
-// running) holds because `observing` is only ever changed together with the
-// observer start/stop calls in index.js.
+// Single source of truth for app state. The privacy invariant (eyes open <=>
+// observation running) is structural here: `mascot` is computed, and no
+// non-sleeping look is possible unless `observing` is true.
 const listeners = new Set();
 
-const state = {
+const base = {
   observing: false,
-  mascot: 'sleeping', // 'sleeping' | 'watching' | 'thinking' | 'idea'
   panelOpen: false,
   gatewayOk: false,
 };
 
+let busyCount = 0; // in-flight LLM work (chat, summarize)
+let ideaUntil = 0; // transient "just understood something" flash
+let ideaTimer = null;
+
+function mascot() {
+  if (!base.observing) return 'sleeping'; // eyes never open while paused
+  if (busyCount > 0) return 'thinking';
+  if (Date.now() < ideaUntil) return 'idea';
+  return 'watching';
+}
+
 function get() {
-  return { ...state };
+  return { ...base, mascot: mascot() };
+}
+
+function emit() {
+  const snapshot = get();
+  for (const fn of listeners) fn(snapshot);
 }
 
 function set(patch) {
-  Object.assign(state, patch);
-  const snapshot = get();
-  for (const fn of listeners) fn(snapshot);
+  Object.assign(base, patch);
+  emit();
+}
+
+function beginWork() {
+  busyCount += 1;
+  emit();
+}
+
+function endWork() {
+  busyCount = Math.max(0, busyCount - 1);
+  emit();
+}
+
+function flashIdea(ms = 2500) {
+  ideaUntil = Date.now() + ms;
+  clearTimeout(ideaTimer);
+  ideaTimer = setTimeout(emit, ms + 20); // re-emit so the flash visibly ends
+  if (ideaTimer.unref) ideaTimer.unref();
+  emit();
 }
 
 function subscribe(fn) {
@@ -26,4 +57,4 @@ function subscribe(fn) {
   return () => listeners.delete(fn);
 }
 
-module.exports = { get, set, subscribe };
+module.exports = { get, set, subscribe, beginWork, endWork, flashIdea };

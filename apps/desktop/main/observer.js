@@ -83,7 +83,21 @@ function createObserver({ onObservation, log = console.error }) {
     if (systemPreferences.getMediaAccessStatus('screen') !== 'granted') {
       if (!warnedNoScreenPermission) {
         warnedNoScreenPermission = true;
-        log('observer: screenshots disabled until Screen Recording permission is granted');
+        // One throwaway capture attempt so macOS registers the app in the
+        // Screen Recording privacy pane (and prompts on newer macOS).
+        // getMediaAccessStatus alone never triggers registration.
+        try {
+          await desktopCapturer.getSources({
+            types: ['screen'],
+            thumbnailSize: { width: 1, height: 1 },
+          });
+        } catch (_err) {
+          // expected while permission is missing
+        }
+        log(
+          'observer: screenshots disabled — enable Screen Recording for this app in ' +
+            'System Settings > Privacy & Security, then restart fren'
+        );
       }
       return undefined;
     }
@@ -94,6 +108,7 @@ function createObserver({ onObservation, log = console.error }) {
         height: Math.round(config.SCREENSHOT_MAX_WIDTH * 0.72),
       },
     });
+    if (!timer) return undefined; // stopped while the capture was in flight
     const thumbnail = sources && sources[0] && sources[0].thumbnail;
     if (!thumbnail || thumbnail.isEmpty()) return undefined;
 
@@ -136,7 +151,12 @@ function createObserver({ onObservation, log = console.error }) {
 
     if (sampleCount % config.SCREENSHOT_EVERY_N_SAMPLES === 0) {
       const screenshotPath = await captureScreenshot(ts);
-      if (!timer) return; // stopped while capturing: never report it
+      if (!timer) {
+        // Stopped while capturing: never report it, and never keep an
+        // untracked file that retention could not reach.
+        if (screenshotPath) fs.rmSync(screenshotPath, { force: true });
+        return;
+      }
       if (screenshotPath) obs.screenshotPath = screenshotPath;
     }
 

@@ -92,7 +92,7 @@ async function sendMessage() {
   showTyping(true);
   try {
     const reply = await window.fren.chat(text);
-    const replyText = typeof reply === 'string' ? reply : (reply && reply.text) || '(no reply)';
+    const replyText = typeof reply === 'string' ? reply : (reply && reply.reply) || '(no reply)';
     addBubble('fren', replyText);
   } catch (err) {
     addBubble('fren', 'something went wrong: ' + (err && err.message ? err.message : String(err)));

@@ -56,8 +56,9 @@ test('getRecentObservations honors sinceMs and limit, ascending order', () => {
   const since = mem.getRecentObservations({ sinceMs: 200 });
   assert.deepStrictEqual(since.map((r) => r.activeApp), ['B', 'C']);
 
+  // limit keeps the NEWEST rows, still returned ascending
   const limited = mem.getRecentObservations({ limit: 2 });
-  assert.deepStrictEqual(limited.map((r) => r.ts), [100, 200]);
+  assert.deepStrictEqual(limited.map((r) => r.ts), [200, 300]);
   mem.close();
 });
 
@@ -116,8 +117,9 @@ test('getRecentMemories honors sinceMs and limit, ascending', () => {
   const since = mem.getRecentMemories({ sinceMs: 200 });
   assert.deepStrictEqual(since.map((r) => r.activity), ['b', 'c']);
 
+  // limit keeps the NEWEST rows, still returned ascending
   const limited = mem.getRecentMemories({ limit: 1 });
-  assert.deepStrictEqual(limited.map((r) => r.activity), ['a']);
+  assert.deepStrictEqual(limited.map((r) => r.activity), ['c']);
   mem.close();
 });
 

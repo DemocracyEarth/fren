@@ -67,9 +67,13 @@ function openMemory(dbPath) {
     },
 
     getRecentObservations({ sinceMs, limit = 500 } = {}) {
+      // Newest N rows, returned in ascending order — "recent" must mean the
+      // latest activity, not the oldest rows that happen to match.
       const rows = db
         .prepare(
-          'SELECT * FROM observations WHERE ts >= ? ORDER BY ts ASC, id ASC LIMIT ?'
+          `SELECT * FROM (
+             SELECT * FROM observations WHERE ts >= ? ORDER BY ts DESC, id DESC LIMIT ?
+           ) ORDER BY ts ASC, id ASC`
         )
         .all(sinceMs ?? 0, limit);
       return rows.map(rowToObservation);
@@ -109,10 +113,14 @@ function openMemory(dbPath) {
     },
 
     getRecentMemories({ sinceMs, limit = 50 } = {}) {
+      // Newest N rows, ascending. COALESCE so rows with NULL ts_start still
+      // appear when no sinceMs is given.
       const rows = db
         .prepare(
-          // COALESCE so rows with NULL ts_start still appear when no sinceMs given.
-          'SELECT * FROM memories WHERE COALESCE(ts_start, 0) >= ? ORDER BY ts_start ASC, id ASC LIMIT ?'
+          `SELECT * FROM (
+             SELECT * FROM memories WHERE COALESCE(ts_start, 0) >= ?
+             ORDER BY COALESCE(ts_start, 0) DESC, id DESC LIMIT ?
+           ) ORDER BY COALESCE(ts_start, 0) ASC, id ASC`
         )
         .all(sinceMs ?? 0, limit);
       return rows.map(rowToMemory);
