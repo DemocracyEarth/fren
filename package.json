@@ -7,6 +7,12 @@
     "start": "node start.js",
     "gateway": "node apps/gateway/server.js",
     "desktop": "electron apps/desktop",
-    "test": "node --test packages/memory/test packages/intelligence/test apps/gateway/test"
+    "test": "node --test \"packages/memory/test/*.test.js\" \"packages/intelligence/test/*.test.js\" \"apps/gateway/test/*.test.js\""
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1"
+  },
+  "devDependencies": {
+    "electron": "^38.8.6"
   }
 }

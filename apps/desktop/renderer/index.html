@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'" />
+  <title>fren</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body data-state="sleeping">
+  <div id="orb-zone">
+    <span id="spark">&#10022;</span>
+    <div id="orb" title="fren">
+      <div class="eyes">
+        <div class="eye"></div>
+        <div class="eye"></div>
+      </div>
+    </div>
+  </div>
+
+  <section id="panel" hidden>
+    <header>
+      <span class="name">fren</span>
+      <span id="status">
+        <span id="gateway-dot" class="dot"></span>
+        <span id="status-text">sleeping</span>
+      </span>
+      <button id="toggle-observe" type="button">wake up</button>
+      <button id="quit" type="button" title="quit">&times;</button>
+    </header>
+
+    <div id="messages">
+      <div id="typing" hidden>
+        <span></span><span></span><span></span>
+      </div>
+    </div>
+
+    <form id="input-row">
+      <input id="chat-input" type="text" placeholder="say something&hellip;" autocomplete="off" spellcheck="false" />
+      <button id="send" type="submit">send</button>
+    </form>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>
