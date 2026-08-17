@@ -1,0 +1,12 @@
+{
+  "name": "fren",
+  "version": "0.1.0",
+  "private": true,
+  "description": "fren — a minimal ambient AI companion that lives on your desktop (macOS proof of concept)",
+  "scripts": {
+    "start": "node start.js",
+    "gateway": "node apps/gateway/server.js",
+    "desktop": "electron apps/desktop",
+    "test": "node --test packages/memory/test packages/intelligence/test apps/gateway/test"
+  }
+}
