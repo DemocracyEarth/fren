@@ -14,7 +14,7 @@ architecture as though it were built.
 │  │  (renderer)     │     │    (main process)    │                                            │
 │  │                 │     │                      │                                            │
 │  │  sphere + face  │ IPC │  every 5s:           │                                            │
-│  │  27 emotions,   │◄───►│   active app         │                                            │
+│  │  30+ faces,     │◄───►│   active app         │                                            │
 │  │  spring-driven  │     │    (lsappinfo)       │                                            │
 │  │  lit  = awake   │     │   window title       │                                            │
 │  │  dark = private │     │    (System Events /  │                                            │
@@ -76,8 +76,12 @@ only draws and forwards clicks over IPC.
 
 **Mascot UI (renderer).** Draws the sphere and hosts the chat panel. The face
 (`renderer/face/face.js`) is one shared parameter space — colour, glow, lids,
-gaze, mouth, tilt — with a spring per parameter, so its 27 emotions blend into
-one another rather than switching. It holds no logic about observation: every
+mouth, lids, deformation — with a spring per parameter, so its 30+ expressions
+blend into one another rather than switching. It follows the expression guide:
+the eyes are always plain white circles with no pupils, and feeling is carried
+by mouth shape, eye closure and deformation of the orb itself. The material is
+a fixed five-layer stack (specular, top light, base, shade, contact shadow) in
+a single hue. It holds no logic about observation: every
 face change is funnelled through a privacy check against the state the main
 process broadcasts, so it cannot look awake while capture is off.
 

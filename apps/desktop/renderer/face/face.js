@@ -1,132 +1,177 @@
 'use strict';
 /**
- * fren's face — one clean sphere, lit from within.
+ * fren's face — a glossy orange sphere, built to the expression guide.
  *
- * The features are not drawn *on* the sphere; they are light *inside* it, so
- * they bloom and sit under the same highlight as the surface. Feeling is
- * carried by the sphere's own colour: a warm skin tone at rest, shifting hue
- * with the emotion. When fren isn't watching, the light simply goes out —
- * which is the privacy signal, and it is unmistakable.
+ * Three rules from that guide drive the whole design:
  *
- * Every emotion is a point in one shared parameter space, and each parameter
- * is driven by its own spring, so any emotion blends into any other.
+ *   1. The eyes are always plain white circles. No pupils, no gaze, no
+ *      resizing to emote. Expression comes from mouth shape, eye closure,
+ *      and deformation of the orb itself.
+ *   2. The mouth always reads as a rounded form. It is one path, filled AND
+ *      stroked with round caps and joins, so the outline stays round whether
+ *      it is a hairline smile or a wide open grin — the two are the same
+ *      shape with the edges pulled apart.
+ *   3. The material is a fixed five-layer stack in a single hue. Tone moves
+ *      along that ramp; it never breaks it.
+ *
+ * Every emotion is a point in one parameter space with a spring per
+ * parameter, so any expression melts into any other, and the body carries a
+ * little elastic overshoot — it should feel like something soft, not a decal.
  */
 (function (global) {
   const lerp = (a, b, t) => a + (b - a) * t;
   const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
-  const hsl = (h, s, l) =>
-    `hsl(${h.toFixed(1)} ${(clamp(s, 0, 1) * 100).toFixed(1)}% ${(clamp(l, 0, 1) * 100).toFixed(1)}%)`;
+  const hsl = (h, s, l, a) =>
+    `hsl(${h.toFixed(1)} ${(clamp(s, 0, 1) * 100).toFixed(1)}% ${(clamp(l, 0, 1) * 100).toFixed(1)}%${
+      a === undefined ? '' : ` / ${clamp(a, 0, 1).toFixed(3)}`
+    })`;
 
-  // ------------------------------------------------------------- parameters
-  // hue/sat/lum  the sphere's own colour — this is where the feeling lives
-  // lit          how strongly the face glows from inside (0 = light off)
-  // eyeR         eye size
-  // lidTop/Bot   lid coverage from above / below (lidBot makes the ^^ crescent)
-  // lidCurve     curvature of the lower lid edge
-  // lidTilt      lid angle, mirrored across the face: + droops the outer
-  //              corner (sad, sleepy), - drops the inner one (angry, smug)
-  // lookX/Y      gaze
-  // mouthW/Open/Curve   width, jaw drop, and smile(+1) .. flat(0) .. frown(-1)
-  // tilt/bob/squash     head tilt, vertical offset, squash & stretch
-  // glow         ambient light spilling behind the sphere
-  const NEUTRAL = {
-    hue: 29, sat: 0.8, lum: 0.58, lit: 1,
-    eyeR: 1, lidTop: 0, lidBot: 0, lidCurve: 0, lidTilt: 0, wink: 0,
-    lookX: 0, lookY: 0, gazeX: 0, gazeY: 0,
-    mouthW: 1, mouthOpen: 0.34, mouthCurve: 1,
-    tilt: 0, bob: 0, squash: 0, glow: 0.5,
+  // ---- material -----------------------------------------------------------
+  // Measured from the guide: #FFD08A #FFB14A #FF8A00 #E17200 #CC5A00.
+  // Saturation is flat at 100% and the hue rotates toward red as it darkens,
+  // so the ramp is expressed as offsets from BASE and stays coherent when the
+  // whole thing is re-toned.
+  const BASE = { h: 32.5, s: 1, l: 0.5 };
+  const RAMP = {
+    highlight: { dh: +3.4, dl: +0.271 },
+    light: { dh: +1.6, dl: +0.145 },
+    midDark: { dh: -2.1, dl: -0.059 },
+    dark: { dh: -6.0, dl: -0.1 },
   };
+  const step = (h, s, l, k) => hsl(h + k.dh, s, l + k.dl);
 
+  // ---- parameters ---------------------------------------------------------
+  // hue/sat/tone   the sphere's colour; tone slides along the ramp
+  // lit            feature brightness — 0 is the light-off, private state
+  // lidTop/Bot     eye closure from above / below (lidBot gives the ^^ arc)
+  // lidTilt        lid angle, mirrored: + droops outer corners, - inner
+  // eyeAsym        shrinks the right eye (the "curious" tell)
+  // heart / cross  kawaii eye shapes, cross-faded against the circles
+  // mouthW/Open/Curve/Wave   width, how far the lips part, smile↔frown, S-bend
+  // tongue / blush kawaii extras
+  // squash / lean / bob / tilt   deformation of the orb itself
+  const NEUTRAL = {
+    hue: 0, sat: 1, tone: 0, lit: 1,
+    lidTop: 0, lidBot: 0, lidCurve: 0, lidTilt: 0, eyeAsym: 0,
+    heart: 0, cross: 0,
+    mouthW: 1, mouthOpen: 0.5, mouthCurve: 0.8, mouthWave: 0,
+    tongue: 0, blush: 0,
+    squash: 0, lean: 0, bob: 0, tilt: 0, glow: 0.5,
+  };
   const E = (o) => Object.assign({}, NEUTRAL, o);
 
+  // Expressions from the guide. Nothing here resizes an eye to emote — only
+  // the mouth, the lids, and the orb's own shape.
   const EMOTIONS = {
-    // — not watching: the light is out, and the colour drains with it —
-    private:   E({ hue: 26, sat: 0.16, lum: 0.44, lit: 0.05, lidTop: 0.94, lidCurve: 0.55, lidTilt: 0.3,
-                   mouthOpen: 0.12, mouthW: 0.62, mouthCurve: 0.85, glow: 0.06 }),
-    sleeping:  E({ hue: 26, sat: 0.13, lum: 0.4, lit: 0.03, lidTop: 0.97, lidCurve: 0.6, lidTilt: 0.32,
-                   mouthOpen: 0.1, mouthW: 0.5, mouthCurve: 0.7, glow: 0.04, bob: 1.2 }),
-    waking:    E({ hue: 28, sat: 0.55, lum: 0.55, lit: 0.55, lidTop: 0.38, lidTilt: 0.2, eyeR: 1.04,
-                   mouthOpen: 0.28, glow: 0.3 }),
+    // — the guide's set —
+    happy:        E({ mouthOpen: 0.72, mouthW: 1.06, mouthCurve: 1, glow: 0.66 }),
+    excited:      E({ mouthOpen: 0.95, mouthW: 1.16, mouthCurve: 1, tone: 0.06, bob: -2, glow: 0.8 }),
+    joyful:       E({ mouthOpen: 0.86, mouthW: 1.12, mouthCurve: 1, tone: 0.04, glow: 0.74 }),
+    calm:         E({ mouthOpen: 0.06, mouthW: 0.6, mouthCurve: 0.85, glow: 0.5 }),
+    content:      E({ mouthOpen: 0.04, mouthW: 0.5, mouthCurve: 0.7, glow: 0.5 }),
+    proud:        E({ mouthOpen: 0.05, mouthW: 0.54, mouthCurve: 0.8, tilt: -4, glow: 0.58 }),
 
-    // — awake and working: warm skin tone, cooling as it concentrates —
-    neutral:   E({ hue: 29, sat: 0.80, lum: 0.58 }),
-    watching:  E({ hue: 30, sat: 0.84, lum: 0.58, eyeR: 1.06, mouthOpen: 0.42, mouthW: 1.05, glow: 0.6 }),
-    listening: E({ hue: 31, sat: 0.80, lum: 0.59, eyeR: 1.1, mouthOpen: 0.2, mouthW: 0.8, tilt: -5, glow: 0.62 }),
-    thinking:  E({ hue: 208, sat: 0.4, lum: 0.58, eyeR: 0.86, lidTop: 0.3, lidTilt: 0.12,
-                   lookX: 0.55, lookY: -0.5, mouthOpen: 0.12, mouthW: 0.52, mouthCurve: 0.2, tilt: 4, glow: 0.5 }),
-    processing:E({ hue: 202, sat: 0.36, lum: 0.56, eyeR: 0.7, lidTop: 0.36,
-                   mouthOpen: 0.1, mouthW: 0.46, mouthCurve: 0, glow: 0.45 }),
-    talking:   E({ hue: 30, sat: 0.82, lum: 0.59, eyeR: 1.04, mouthOpen: 0.6, mouthW: 0.95, glow: 0.62 }),
+    thinking:     E({ mouthOpen: 0.05, mouthW: 0.42, mouthCurve: 0.1, mouthWave: 0.5, tilt: 4, glow: 0.5 }),
+    curious:      E({ eyeAsym: 0.45, mouthOpen: 0.34, mouthW: 0.24, mouthCurve: 0, tilt: -8, glow: 0.6 }),
+    surprised:    E({ mouthOpen: 0.46, mouthW: 0.22, mouthCurve: 0, squash: -0.05, bob: -1.5, glow: 0.7 }),
+    realization:  E({ mouthOpen: 0.5, mouthW: 0.26, mouthCurve: 0, tone: 0.08, squash: -0.07, bob: -3, glow: 0.9 }),
+    focused:      E({ mouthOpen: 0.03, mouthW: 0.46, mouthCurve: 0, glow: 0.52 }),
+    determined:   E({ mouthOpen: 0.03, mouthW: 0.52, mouthCurve: 0, lidTop: 0.12, lidTilt: -0.25, glow: 0.54 }),
 
-    // — the good feelings: warmer, brighter, more saturated —
-    happy:     E({ hue: 36, sat: 0.86, lum: 0.60, lidBot: 0.52, lidCurve: 1, mouthOpen: 0.5, mouthW: 1.1, glow: 0.74 }),
-    delighted: E({ hue: 40, sat: 0.90, lum: 0.62, lidBot: 0.6, lidCurve: 1, mouthOpen: 0.78, mouthW: 1.2,
-                   bob: -2.5, glow: 0.88 }),
-    idea:      E({ hue: 46, sat: 0.95, lum: 0.64, lit: 1.15, eyeR: 1.28, lidTop: -0.12,
-                   mouthOpen: 0.66, mouthW: 1.12, bob: -3.5, glow: 1 }),
-    proud:     E({ hue: 33, sat: 0.84, lum: 0.60, lidBot: 0.45, lidCurve: 0.9, lidTilt: -0.2,
-                   mouthOpen: 0.26, mouthW: 0.76, lookY: -0.2, tilt: -6, glow: 0.72 }),
-    love:      E({ hue: 348, sat: 0.66, lum: 0.66, lidBot: 0.58, lidCurve: 1,
-                   mouthOpen: 0.56, mouthW: 1.06, glow: 0.9 }),
-    mischief:  E({ hue: 292, sat: 0.4, lum: 0.62, wink: 1, lidBot: 0.32, lidCurve: 0.8, lidTilt: -0.15,
-                   mouthOpen: 0.3, mouthW: 0.9, mouthCurve: 0.75, tilt: -8, lookX: 0.35, glow: 0.72 }),
+    confused:     E({ mouthOpen: 0.05, mouthW: 0.5, mouthCurve: 0, mouthWave: 1, tilt: 9, glow: 0.48 }),
+    concerned:    E({ mouthOpen: 0.05, mouthW: 0.54, mouthCurve: -0.6, lidTilt: 0.35, glow: 0.44 }),
+    worried:      E({ mouthOpen: 0.06, mouthW: 0.58, mouthCurve: -0.8, lidTilt: 0.45, glow: 0.4 }),
+    sad:          E({ mouthOpen: 0.05, mouthW: 0.56, mouthCurve: -0.95, lidTilt: 0.6, lidTop: 0.12,
+                      bob: 2, squash: 0.05, glow: 0.3 }),
+    disappointed: E({ mouthOpen: 0.04, mouthW: 0.5, mouthCurve: -0.7, lidTilt: 0.5, lidTop: 0.2, glow: 0.34 }),
+    tired:        E({ lidTop: 0.55, lidTilt: 0.3, mouthOpen: 0.03, mouthW: 0.44, mouthCurve: -0.1, glow: 0.32 }),
 
-    // — the rest of the range —
-    curious:   E({ hue: 38, sat: 0.78, lum: 0.61, eyeR: 1.16, lookX: 0.4,
-                   mouthOpen: 0.24, mouthW: 0.5, mouthCurve: 0.5, tilt: -9, glow: 0.66 }),
-    surprised: E({ hue: 48, sat: 0.78, lum: 0.68, eyeR: 1.4, lidTop: -0.18,
-                   mouthOpen: 0.82, mouthW: 0.46, mouthCurve: 0, bob: -2, glow: 0.82 }),
-    confused:  E({ hue: 262, sat: 0.34, lum: 0.58, eyeR: 0.94, lidTop: 0.22, lidTilt: 0.25, lookX: -0.3,
-                   mouthOpen: 0.2, mouthW: 0.62, mouthCurve: -0.35, tilt: 10, glow: 0.5 }),
-    concerned: E({ hue: 14, sat: 0.46, lum: 0.56, eyeR: 1.02, lidTop: 0.16, lidTilt: 0.5,
-                   mouthOpen: 0.2, mouthW: 0.72, mouthCurve: -0.6, glow: 0.42 }),
-    sad:       E({ hue: 218, sat: 0.42, lum: 0.5, lit: 0.8, eyeR: 0.96, lidTop: 0.34, lidTilt: 0.6, lookY: 0.45,
-                   mouthOpen: 0.18, mouthW: 0.66, mouthCurve: -0.85, bob: 2.2, glow: 0.26 }),
-    bored:     E({ hue: 30, sat: 0.13, lum: 0.52, lit: 0.85, eyeR: 0.9, lidTop: 0.52, lidTilt: 0.35,
-                   lookX: -0.5, lookY: 0.15, mouthOpen: 0.12, mouthW: 0.6, mouthCurve: -0.1, glow: 0.3 }),
-    wink:      E({ hue: 34, sat: 0.85, lum: 0.60, wink: 1, lidBot: 0.3, lidCurve: 0.9,
-                   mouthOpen: 0.34, mouthW: 0.9, mouthCurve: 0.9, tilt: -5, glow: 0.72 }),
-    laughing:  E({ hue: 38, sat: 0.88, lum: 0.62, lidBot: 0.68, lidCurve: 1,
-                   mouthOpen: 0.95, mouthW: 1.15, tilt: -3, bob: -2, glow: 0.9 }),
-    annoyed:   E({ hue: 12, sat: 0.5, lum: 0.56, eyeR: 0.92, lidTop: 0.3, lidTilt: -0.55,
-                   mouthOpen: 0.14, mouthW: 0.66, mouthCurve: -0.3, glow: 0.42 }),
-    alert:     E({ hue: 190, sat: 0.5, lum: 0.66, eyeR: 1.3, lidTop: -0.14,
-                   mouthOpen: 0.22, mouthW: 0.5, mouthCurve: 0.3, glow: 0.8 }),
-    relieved:  E({ hue: 30, sat: 0.72, lum: 0.60, lidTop: 0.82, lidCurve: 0.5, lidTilt: 0.2,
-                   mouthOpen: 0.3, mouthW: 0.86, mouthCurve: 0.9, glow: 0.62 }),
-    oops:      E({ hue: 8, sat: 0.75, lum: 0.58, eyeR: 1.2, lidTop: -0.05,
-                   mouthOpen: 0.3, mouthW: 1.14, mouthCurve: -0.2, tilt: 6, glow: 0.58 }),
+    resting:      E({ lidTop: 0.94, lidCurve: 0.55, lidTilt: 0.25, mouthOpen: 0.05, mouthW: 0.44,
+                      mouthCurve: 0.8, glow: 0.42 }),
+    peaceful:     E({ lidTop: 0.96, lidCurve: 0.6, lidTilt: 0.25, mouthOpen: 0.2, mouthW: 0.14,
+                      mouthCurve: 0, glow: 0.4 }),
+    sleepy:       E({ lidTop: 0.97, lidCurve: 0.6, lidTilt: 0.3, mouthOpen: 0.22, mouthW: 0.14,
+                      mouthCurve: 0, bob: 1.2, glow: 0.28 }),
+
+    blushing:     E({ blush: 1, mouthOpen: 0.1, mouthW: 0.5, mouthCurve: 0.8, tone: 0.03, glow: 0.6 }),
+    shy:          E({ blush: 1, lidTop: 0.2, lidTilt: 0.2, mouthOpen: 0.06, mouthW: 0.4,
+                      mouthCurve: 0.7, tilt: -7, glow: 0.54 }),
+    love:         E({ heart: 1, mouthOpen: 0.66, mouthW: 1.02, mouthCurve: 1, blush: 0.5,
+                      tone: 0.04, glow: 0.82 }),
+
+    hopeful:      E({ mouthOpen: 0.08, mouthW: 0.56, mouthCurve: 0.85, bob: -1, glow: 0.62 }),
+    playful:      E({ tongue: 1, mouthOpen: 0.3, mouthW: 0.72, mouthCurve: 0.9, tilt: -5, glow: 0.66 }),
+    cheeky:       E({ tongue: 1, mouthOpen: 0.36, mouthW: 0.66, mouthCurve: 0.85, tilt: 6,
+                      eyeAsym: 0.2, glow: 0.68 }),
+    silly:        E({ mouthOpen: 0.12, mouthW: 0.6, mouthCurve: 0, mouthWave: 1.2, glow: 0.6 }),
+    laughing:     E({ lidBot: 0.62, lidCurve: 1, mouthOpen: 0.92, mouthW: 1.1, mouthCurve: 1,
+                      tone: 0.05, bob: -2, glow: 0.82 }),
+    overjoyed:    E({ cross: 1, mouthOpen: 0.95, mouthW: 1.14, mouthCurve: 1, tone: 0.07,
+                      bob: -3, glow: 0.9 }),
+
+    // — states the app itself needs —
+    // Not watching: the light goes out and the material drops to the bottom of
+    // its own ramp. Eyes shut. This is the privacy signal.
+    private:      E({ lit: 0.04, tone: -0.3, sat: 0.5, lidTop: 0.94, lidCurve: 0.55, lidTilt: 0.3,
+                      mouthOpen: 0.05, mouthW: 0.44, mouthCurve: 0.8, glow: 0 }),
+    sleeping:     E({ lit: 0.03, tone: -0.34, sat: 0.45, lidTop: 0.97, lidCurve: 0.6, lidTilt: 0.32,
+                      mouthOpen: 0.2, mouthW: 0.14, mouthCurve: 0, glow: 0, bob: 1.2 }),
+    waking:       E({ lit: 0.6, tone: -0.12, lidTop: 0.42, lidTilt: 0.2, mouthOpen: 0.1,
+                      mouthW: 0.5, mouthCurve: 0.6, glow: 0.3 }),
+    watching:     E({ mouthOpen: 0.66, mouthW: 1.02, mouthCurve: 1, glow: 0.62 }),
+    listening:    E({ mouthOpen: 0.12, mouthW: 0.56, mouthCurve: 0.85, tilt: -5, glow: 0.6 }),
+    processing:   E({ lidTop: 0.3, mouthOpen: 0.04, mouthW: 0.4, mouthCurve: 0, glow: 0.46 }),
+    talking:      E({ mouthOpen: 0.6, mouthW: 0.88, mouthCurve: 0.9, glow: 0.64 }),
   };
+
+  // Aliases so app code can keep speaking in its own terms.
+  EMOTIONS.neutral = EMOTIONS.calm;
+  EMOTIONS.idea = EMOTIONS.realization;
+  EMOTIONS.delighted = EMOTIONS.joyful;
+  EMOTIONS.mischief = EMOTIONS.cheeky;
+  EMOTIONS.wink = EMOTIONS.playful;
+  EMOTIONS.annoyed = EMOTIONS.determined;
+  EMOTIONS.bored = EMOTIONS.tired;
+  EMOTIONS.oops = EMOTIONS.surprised;
+  EMOTIONS.alert = EMOTIONS.focused;
+  EMOTIONS.relieved = EMOTIONS.resting;
 
   const ORDER = [
-    'private', 'sleeping', 'waking', 'neutral', 'watching', 'listening',
-    'thinking', 'processing', 'talking', 'happy', 'delighted', 'idea',
-    'proud', 'love', 'mischief', 'wink', 'laughing', 'curious', 'surprised',
-    'alert', 'confused', 'concerned', 'sad', 'bored', 'annoyed', 'oops', 'relieved',
+    'happy', 'excited', 'joyful', 'calm', 'content', 'proud',
+    'thinking', 'curious', 'surprised', 'realization', 'focused', 'determined',
+    'confused', 'concerned', 'worried', 'sad', 'disappointed', 'tired',
+    'resting', 'peaceful', 'sleepy', 'blushing', 'shy', 'love',
+    'hopeful', 'playful', 'cheeky', 'silly', 'laughing', 'overjoyed',
+    'private', 'sleeping', 'waking', 'watching', 'listening', 'talking',
   ];
 
-  // Gaze and lids are quick; the body is looser so it trails slightly — that
-  // lag is what reads as weight. Colour drifts slowest of all.
+  // Lids and mouth snap; the body is loose and springy so it overshoots a
+  // little — that elasticity is what makes it read as soft plastic.
   const SPRING = {
-    _default: [150, 15],
-    lidTop: [320, 24], lidBot: [260, 22], lidTilt: [220, 20], wink: [300, 24],
-    lookX: [200, 20], lookY: [200, 20], gazeX: [150, 19], gazeY: [150, 19],
-    mouthOpen: [240, 20], bob: [120, 12], squash: [180, 14], tilt: [120, 13],
-    eyeR: [220, 18], glow: [70, 14],
-    hue: [55, 15], sat: [70, 17], lum: [70, 17], lit: [90, 18],
+    _default: [170, 16],
+    lidTop: [320, 24], lidBot: [270, 22], lidTilt: [230, 20],
+    mouthOpen: [260, 21], mouthW: [230, 20], mouthCurve: [220, 19], mouthWave: [200, 18],
+    squash: [150, 9], lean: [130, 9], bob: [125, 11], tilt: [120, 12],
+    hue: [70, 17], sat: [80, 18], tone: [85, 18], lit: [95, 18],
+    heart: [260, 22], cross: [260, 22], tongue: [240, 21], blush: [140, 17],
   };
 
-  const SPHERE = { cx: 100, cy: 100, r: 74 };
-  // Proportions taken from the reference: small eyes set wide and high, with a
-  // broad, deep grin as the dominant feature.
-  const EYE = { dx: 36, y: 79, r: 10 };
-  const MOUTH_Y = 109;
+  const R = 74;                       // sphere radius in a 200 viewBox
+  const EYE = { dx: 26, y: 84, r: 11 };
+  const MOUTH_Y = 118;
+  const MOUTH_STROKE = 9;             // gives every mouth its rounded outline
 
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const el = (name, attrs) => {
     const n = document.createElementNS(SVG_NS, name);
     for (const k in attrs) n.setAttribute(k, attrs[k]);
     return n;
+  };
+  const FINISH = {
+    glossy: { spec: 0.78, specR: 1, glow: 1 },
+    satin: { spec: 0.5, specR: 1.25, glow: 0.9 },
+    matte: { spec: 0.22, specR: 1.5, glow: 0.7 },
+    softGlow: { spec: 0.6, specR: 1.15, glow: 1.6 },
   };
 
   let uid = 0;
@@ -143,13 +188,11 @@
       }
 
       this.id = 'fren' + ++uid;
-      this.eyeScale = opts.eyeScale || 1;
-      this.eyeGap = opts.eyeGap || 1;
-      this.mouthScale = opts.mouthScale || 1;
-      // Start dark and closed. If anything upstream fails, the character must
-      // look like it is NOT watching — the safe direction.
-      this.p = Object.assign({}, NEUTRAL, EMOTIONS.private);
-      this.target = Object.assign({}, NEUTRAL, EMOTIONS.private);
+      this.finish = FINISH[opts.finish] || FINISH.glossy;
+      // Start dark and shut: if anything upstream fails, fren must look like
+      // it is NOT watching.
+      this.p = Object.assign({}, EMOTIONS.private);
+      this.target = Object.assign({}, EMOTIONS.private);
       this.v = {};
       for (const k in this.p) this.v[k] = 0;
 
@@ -157,8 +200,8 @@
       this.t = 0;
       this.nextBlink = 1.5;
       this.blink = 0;
-      this.nextGlance = 3;
-      this.glance = { x: 0, y: 0 };
+      this.gaze = { x: 0, y: 0 };     // whole-orb lean toward the pointer
+      this.gazeTarget = { x: 0, y: 0 };
       this.talkPhase = -1;
       this.particles = [];
       this.nextParticle = 0;
@@ -176,64 +219,70 @@
         viewBox: '0 0 200 200', width: size, height: size, class: 'fren-face',
         'aria-hidden': 'true', focusable: 'false',
       });
-      // The features are `use`d twice — once blurred and screen-blended for the
-      // bloom, once crisp on top — so the glow always matches the geometry.
       svg.innerHTML = `
         <defs>
-          <radialGradient id="${id}-body" cx="34%" cy="26%" r="76%">
+          <!-- 2/3/4: top light -> base -> shade, one hue -->
+          <radialGradient id="${id}-body" cx="36%" cy="26%" r="78%">
             <stop class="s0" offset="0%"/>
-            <stop class="s1" offset="54%"/>
+            <stop class="s1" offset="52%"/>
             <stop class="s2" offset="100%"/>
           </radialGradient>
-          <radialGradient id="${id}-spec" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stop-color="#fff" stop-opacity=".85"/>
-            <stop offset="60%" stop-color="#fff" stop-opacity=".18"/>
+          <!-- 1: strong, soft-edged specular -->
+          <radialGradient id="${id}-spec">
+            <stop class="p0" offset="0%" stop-color="#fff"/>
+            <stop offset="55%" stop-color="#fff" stop-opacity=".16"/>
             <stop offset="100%" stop-color="#fff" stop-opacity="0"/>
           </radialGradient>
-          <radialGradient id="${id}-rim" cx="50%" cy="50%" r="50%">
+          <!-- soft rim light along the lower edge -->
+          <radialGradient id="${id}-rim">
             <stop class="r0" offset="0%"/>
             <stop class="r1" offset="100%"/>
+          </radialGradient>
+          <!-- 5: contact shadow / ambient occlusion -->
+          <radialGradient id="${id}-ao">
+            <stop class="o0" offset="0%" stop-color="#000"/>
+            <stop offset="100%" stop-color="#000" stop-opacity="0"/>
           </radialGradient>
           <radialGradient id="${id}-amb">
             <stop class="a0" offset="0%"/>
             <stop class="a1" offset="100%"/>
           </radialGradient>
-          <clipPath id="${id}-clip"><circle cx="${SPHERE.cx}" cy="${SPHERE.cy}" r="${SPHERE.r}"/></clipPath>
+          <clipPath id="${id}-clip"><circle cx="100" cy="100" r="${R}"/></clipPath>
           <filter id="${id}-bloom" x="-70%" y="-70%" width="240%" height="240%">
             <feGaussianBlur stdDeviation="3"/>
           </filter>
-          <filter id="${id}-drop" x="-60%" y="-60%" width="220%" height="220%">
-            <feGaussianBlur stdDeviation="10"/>
+          <filter id="${id}-soft" x="-60%" y="-60%" width="220%" height="220%">
+            <feGaussianBlur stdDeviation="6"/>
           </filter>
-          <filter id="${id}-haze" x="-120%" y="-120%" width="340%" height="340%">
-            <feGaussianBlur stdDeviation="13"/>
-          </filter>
-          <radialGradient id="${id}-vig" cx="50%" cy="50%" r="50%">
-            <stop offset="55%" stop-color="#000" stop-opacity="0"/>
-            <stop class="v1" offset="100%" stop-color="#000"/>
-          </radialGradient>
           <mask id="${id}-eyeL"><ellipse fill="#fff"/><path fill="#000"/><path fill="#000"/></mask>
           <mask id="${id}-eyeR"><ellipse fill="#fff"/><path fill="#000"/><path fill="#000"/></mask>
           <g id="${id}-feat" fill="currentColor">
             <rect class="eyeL" mask="url(#${id}-eyeL)"/>
             <rect class="eyeR" mask="url(#${id}-eyeR)"/>
+            <path class="heartL"/><path class="heartR"/>
+            <g class="crossL" stroke="currentColor" stroke-linecap="round" fill="none">
+              <path/><path/>
+            </g>
+            <g class="crossR" stroke="currentColor" stroke-linecap="round" fill="none">
+              <path/><path/>
+            </g>
             <path class="lidLineL" fill="none" stroke="currentColor" stroke-linecap="round"/>
             <path class="lidLineR" fill="none" stroke="currentColor" stroke-linecap="round"/>
-            <path class="mouth"/>
+            <path class="mouth" stroke="currentColor" stroke-width="${MOUTH_STROKE}"
+                  stroke-linejoin="round" stroke-linecap="round"/>
           </g>
         </defs>
-        <ellipse class="drop" filter="url(#${id}-drop)"/>
         <ellipse class="amb"/>
+        <ellipse class="ao"/>
         <g class="body" style="isolation:isolate">
           <circle class="sphere"/>
           <g clip-path="url(#${id}-clip)">
             <ellipse class="rim"/>
-            <use class="haze" href="#${id}-feat" filter="url(#${id}-haze)" style="mix-blend-mode:screen"/>
+            <ellipse class="blushL"/><ellipse class="blushR"/>
             <use class="bloom" href="#${id}-feat" filter="url(#${id}-bloom)" style="mix-blend-mode:screen"/>
             <use class="core" href="#${id}-feat"/>
-            <circle class="vig"/>
+            <path class="tongue"/>
             <ellipse class="spec"/>
-            <ellipse class="hotspot"/>
           </g>
         </g>
         <g class="fx"></g>`;
@@ -242,36 +291,39 @@
       const q = (s) => svg.querySelector(s);
       this.svg = svg;
       this.g = {
-        drop: q('.drop'), amb: q('.amb'), body: q('.body'), sphere: q('.sphere'), rim: q('.rim'),
-        spec: q('.spec'), hotspot: q('.hotspot'), bloom: q('.bloom'), haze: q('.haze'),
-        core: q('.core'), vig: q('.vig'), fx: q('.fx'),
+        amb: q('.amb'), ao: q('.ao'), body: q('.body'), sphere: q('.sphere'), rim: q('.rim'),
+        spec: q('.spec'), bloom: q('.bloom'), core: q('.core'), fx: q('.fx'),
+        blushL: q('.blushL'), blushR: q('.blushR'), tongue: q('.tongue'),
         eyeL: q(`#${id}-feat .eyeL`), eyeR: q(`#${id}-feat .eyeR`),
-        lidLineL: q(`#${id}-feat .lidLineL`), lidLineR: q(`#${id}-feat .lidLineR`),
-        mouth: q(`#${id}-feat .mouth`),
+        heartL: q('.heartL'), heartR: q('.heartR'),
+        crossL: q('.crossL'), crossR: q('.crossR'),
+        crossLp: svg.querySelectorAll('.crossL path'),
+        crossRp: svg.querySelectorAll('.crossR path'),
+        lidLineL: q('.lidLineL'), lidLineR: q('.lidLineR'), mouth: q('.mouth'),
         maskL: svg.querySelectorAll(`#${id}-eyeL > *`),
         maskR: svg.querySelectorAll(`#${id}-eyeR > *`),
         s0: q(`#${id}-body .s0`), s1: q(`#${id}-body .s1`), s2: q(`#${id}-body .s2`),
+        p0: q(`#${id}-spec .p0`),
         r0: q(`#${id}-rim .r0`), r1: q(`#${id}-rim .r1`),
-        a0: q(`#${id}-amb .a0`), a1: q(`#${id}-amb .a1`), v1: q(`#${id}-vig .v1`),
+        o0: q(`#${id}-ao .o0`),
+        a0: q(`#${id}-amb .a0`), a1: q(`#${id}-amb .a1`),
       };
 
-      // Geometry that never changes is written once, not every frame.
-      const set = (node, attrs) => { for (const k in attrs) node.setAttribute(k, attrs[k]); };
-      set(this.g.sphere, { ...SPHERE, fill: `url(#${id}-body)` });
-      set(this.g.spec, { cx: 70, cy: 44, rx: 25, ry: 15, transform: 'rotate(-22 70 44)', fill: `url(#${id}-spec)` });
-      set(this.g.hotspot, { cx: 66, cy: 40, rx: 8, ry: 5, transform: 'rotate(-22 66 40)', fill: '#fff', opacity: '.55' });
-      set(this.g.vig, { ...SPHERE, fill: `url(#${id}-vig)` });
-      set(this.g.rim, { cx: 100, cy: 160, rx: 62, ry: 30, fill: `url(#${id}-rim)` });
-      set(this.g.amb, { cx: 100, cy: 112, rx: 98, ry: 92, fill: `url(#${id}-amb)` });
-      // Cast down and slightly right, matching the upper-left key light.
-      set(this.g.drop, { cx: 110, cy: 124, rx: 68, ry: 60, fill: '#000', opacity: '.5' });
+      const set = (n, a) => { for (const k in a) n.setAttribute(k, a[k]); };
+      const f = this.finish;
+      set(this.g.sphere, { cx: 100, cy: 100, r: R, fill: `url(#${id}-body)` });
+      set(this.g.spec, {
+        cx: 74, cy: 52, rx: 26 * f.specR, ry: 19 * f.specR,
+        transform: 'rotate(-24 74 52)', fill: `url(#${id}-spec)`,
+      });
+      set(this.g.rim, { cx: 100, cy: 156, rx: 60, ry: 30, fill: `url(#${id}-rim)` });
+      set(this.g.ao, { cx: 100, cy: 176, rx: 58, ry: 15, fill: `url(#${id}-ao)`, filter: `url(#${id}-soft)` });
+      set(this.g.amb, { cx: 100, cy: 108, rx: 96, ry: 92, fill: `url(#${id}-amb)` });
+      this.g.p0.setAttribute('stop-opacity', f.spec.toFixed(2));
     }
 
     _wake() {
-      if (this.raf === null) {
-        this.last = 0;
-        this.raf = requestAnimationFrame(this._loop);
-      }
+      if (this.raf === null) { this.last = 0; this.raf = requestAnimationFrame(this._loop); }
     }
 
     destroy() {
@@ -291,14 +343,14 @@
       return true;
     }
 
-    /** Move toward an emotion. Springs handle the transition. */
+    /** Move toward an expression. Springs do the transition. */
     set(name, opts = {}) {
       const preset = EMOTIONS[name];
       if (!preset) return;
+      const changed = this.emotion !== name;
       this.emotion = name;
       Object.assign(this.target, preset, opts.override || {});
 
-      // Rotate hue the short way round, or red -> rose sweeps the spectrum.
       let h = this.target.hue;
       while (h - this.p.hue > 180) h -= 360;
       while (h - this.p.hue < -180) h += 360;
@@ -307,48 +359,39 @@
       if (opts.immediate || this.reduced) {
         Object.assign(this.p, this.target);
         for (const k in this.v) this.v[k] = 0;
+      } else if (changed) {
+        // A soft body reacts to its own change of mind.
+        this.v.squash -= 1.1;
       }
       this._wake();
     }
 
-    /**
-     * Aim the eyes at something, in normalized -1..1 screen-space offsets.
-     * While this is being called, the idle wandering glance stands down —
-     * fren is paying attention to you instead of daydreaming.
-     */
+    /** Lean the whole orb toward a point (-1..1). The eyes never move. */
     lookAt(nx, ny) {
-      this.target.gazeX = clamp(nx, -1, 1);
-      this.target.gazeY = clamp(ny, -1, 1);
-      this.trackingUntil = this.t + 2.5;
+      this.gazeTarget = { x: clamp(nx, -1, 1), y: clamp(ny, -1, 1) };
       this._wake();
     }
-
-    /** Stop tracking and let the gaze drift back to centre. */
-    lookAway() {
-      this.target.gazeX = 0;
-      this.target.gazeY = 0;
-      this.trackingUntil = 0;
-      this._wake();
-    }
+    lookAway() { this.gazeTarget = { x: 0, y: 0 }; this._wake(); }
 
     startTalking() { this.talkPhase = 0; this._wake(); }
     stopTalking() { this.talkPhase = -1; }
 
-    /** A one-shot physical reaction — the character reacts, then settles. */
+    /** One-shot elastic reactions — the orb is plastic, so it wobbles. */
     pulse(kind = 'bounce') {
       if (!this.reduced) {
-        if (kind === 'bounce') { this.v.bob -= 190; this.v.squash -= 3.2; }
-        if (kind === 'nod')    { this.v.tilt += 130; }
-        if (kind === 'shake')  { this.v.tilt -= 190; }
-        if (kind === 'blink')  { this.blink = 1; }
+        if (kind === 'bounce') { this.v.bob -= 210; this.v.squash -= 4.2; }   // rises stretched
+        if (kind === 'squash') { this.v.squash += 5; }
+        if (kind === 'stretch') { this.v.squash -= 5; }
+        if (kind === 'nod') { this.v.tilt += 130; }
+        if (kind === 'shake') { this.v.lean -= 4.5; }
+        if (kind === 'blink') { this.blink = 1; }
       }
       this._wake();
     }
 
     _spring(k, dt) {
       const [stiff, damp] = SPRING[k] || SPRING._default;
-      const a = (this.target[k] - this.p[k]) * stiff - this.v[k] * damp;
-      this.v[k] += a * dt;
+      this.v[k] += ((this.target[k] - this.p[k]) * stiff - this.v[k] * damp) * dt;
       this.p[k] += this.v[k] * dt;
     }
 
@@ -359,56 +402,36 @@
       if (this.reduced) {
         Object.assign(this.p, this.target);
         for (const k in this.v) this.v[k] = 0;
+        this.gaze = { ...this.gazeTarget };
       } else {
         for (const k in this.p) this._spring(k, dt);
+        this.gaze.x += (this.gazeTarget.x - this.gaze.x) * Math.min(1, dt * 6);
+        this.gaze.y += (this.gazeTarget.y - this.gaze.y) * Math.min(1, dt * 6);
       }
       this._idle(dt);
       this._draw();
-      if (this.reduced && this._atRest()) {
-        this.raf = null;   // a still face costs nothing
-        return;
-      }
+      if (this.reduced && this._atRest()) { this.raf = null; return; }
       this.raf = requestAnimationFrame(this._loop);
     }
 
-    /** Involuntary life: breathing, blinking, a wandering gaze, particles. */
     _idle(dt) {
       if (this.reduced) return;
       const awake = this.target.lit > 0.4;
-
       this.nextBlink -= dt;
       if (this.nextBlink <= 0 && awake && this.target.lidTop < 0.5) {
         this.blink = 1;
-        this.nextBlink = 2.2 + Math.random() * 4;
+        this.nextBlink = 2.4 + Math.random() * 4;
       }
-      if (this.blink > 0) this.blink = Math.max(0, this.blink - dt * 7.5);
-
-      // Following the cursor takes precedence over idle daydreaming.
-      if (this.t < (this.trackingUntil || 0)) {
-        this.glance = { x: 0, y: 0 };
-        this.nextGlance = 1.2;
-      }
-      this.nextGlance -= dt;
-      if (this.nextGlance <= 0 && this.t >= (this.trackingUntil || 0)) {
-        const still = Math.abs(this.target.lookX) < 0.05 && Math.abs(this.target.lookY) < 0.05;
-        this.glance = still && awake && Math.random() > 0.35
-          ? { x: (Math.random() - 0.5) * 0.7, y: (Math.random() - 0.5) * 0.4 }
-          : { x: 0, y: 0 };
-        this.nextGlance = 1.4 + Math.random() * 3.4;
-      }
-
+      if (this.blink > 0) this.blink = Math.max(0, this.blink - dt * 8);
       if (this.talkPhase >= 0) this.talkPhase += dt;
-      this._spawnParticles(dt);
-    }
 
-    _spawnParticles(dt) {
       const kind = this.emotion === 'sleeping' ? 'z'
-        : this.emotion === 'idea' ? 'spark'
+        : this.emotion === 'realization' || this.emotion === 'idea' ? 'spark'
         : this.emotion === 'love' ? 'heart' : null;
       this.nextParticle -= dt;
       if (kind && this.nextParticle <= 0) {
         this.particles.push({ kind, life: 0, max: kind === 'z' ? 2.8 : 1.1, x: (Math.random() - 0.5) * 26 });
-        this.nextParticle = kind === 'z' ? 1.5 : 0.26;
+        this.nextParticle = kind === 'z' ? 1.5 : 0.28;
       }
       for (const p of this.particles) p.life += dt;
       this.particles = this.particles.filter((p) => p.life < p.max);
@@ -418,77 +441,97 @@
       const p = this.p;
       const g = this.g;
       const breathe = this.reduced ? 0 : Math.sin(this.t * 1.5) * 1.1;
-      const drift = this.reduced ? 0 : Math.sin(this.t * 0.7) * 0.9;
 
-      const sq = 1 + p.squash;
-      // A little parallax toward whatever it is looking at sells the volume.
-      const leanX = p.gazeX * 3.5;
-      const leanY = p.gazeY * 2.5;
+      // ---- deformation: squash & stretch plus a lean, both elastic ----
+      // Animation convention: +squash flattens (wider, shorter),
+      // -squash stretches (taller, narrower). +lean tips the top rightward.
+      const sq = 1 + clamp(p.squash, -0.45, 0.45);
+      const lean = p.lean - this.gaze.x * 2.2;   // tips toward the pointer
+      const cy = 100 + p.bob + breathe + this.gaze.y * 2;
       g.body.setAttribute(
         'transform',
-        `translate(${100 + leanX} ${100 + leanY + p.bob + breathe}) rotate(${p.tilt + drift}) scale(${1 / sq} ${sq}) translate(-100 -100)`
+        `translate(${100 + this.gaze.x * 3} ${cy}) rotate(${p.tilt}) skewX(${lean}) ` +
+        `scale(${sq} ${1 / sq}) translate(-100 -100)`
       );
 
-      // ---- the sphere: one surface, lit from the upper left ----
-      const h = ((p.hue % 360) + 360) % 360;
-      const s = clamp(p.sat, 0, 1);
-      const l = clamp(p.lum, 0.05, 0.95);
-      const lit = clamp(p.lit, 0, 1.2);
-      g.s0.setAttribute('stop-color', hsl(h, s * 0.82, l + 0.19));
+      // ---- material: five layers, one hue ----
+      const h = ((p.hue + BASE.h) % 360 + 360) % 360;
+      const s = clamp(BASE.s * p.sat, 0, 1);
+      const l = clamp(BASE.l + p.tone, 0.06, 0.92);
+      const lit = clamp(p.lit, 0, 1);
+      g.s0.setAttribute('stop-color', step(h, s, l, RAMP.light));
       g.s1.setAttribute('stop-color', hsl(h, s, l));
-      g.s2.setAttribute('stop-color', hsl(h, Math.min(1, s * 1.05), l - 0.27));
+      g.s2.setAttribute('stop-color', step(h, s, l, RAMP.dark));
 
-      // Bounce light along the lower edge keeps it reading as a sphere.
-      g.r0.setAttribute('stop-color', hsl(h, s * 0.7, Math.min(0.92, l + 0.3)));
-      g.r0.setAttribute('stop-opacity', (0.34 + lit * 0.12).toFixed(3));
-      g.r1.setAttribute('stop-color', hsl(h, s * 0.7, l + 0.3));
+      g.r0.setAttribute('stop-color', step(h, s, l, RAMP.highlight));
+      g.r0.setAttribute('stop-opacity', (0.3 + lit * 0.1).toFixed(3));
+      g.r1.setAttribute('stop-color', step(h, s, l, RAMP.light));
       g.r1.setAttribute('stop-opacity', '0');
 
-      // Ambient spill behind the sphere, tinted the same.
-      g.a0.setAttribute('stop-color', hsl(h, s, Math.min(0.7, l + 0.06)));
-      g.a0.setAttribute('stop-opacity', (clamp(p.glow, 0, 1) * 0.5 * clamp(lit, 0, 1)).toFixed(3));
+      g.o0.setAttribute('stop-opacity', (0.25 - lit * 0.05).toFixed(3));
+
+      g.a0.setAttribute('stop-color', hsl(h, s, Math.min(0.66, l + 0.08)));
+      g.a0.setAttribute('stop-opacity', (clamp(p.glow, 0, 1) * 0.42 * lit * this.finish.glow).toFixed(3));
       g.a1.setAttribute('stop-color', hsl(h, s, l));
       g.a1.setAttribute('stop-opacity', '0');
 
-      // ---- the light inside ----
-      // Lit, the core runs near-white and the bloom carries the hue. Unlit, it
-      // settles to a shade slightly darker than the surface — an LED switched
-      // off, still faintly there.
-      const coreColor = hsl(h, lerp(s * 0.55, s * 0.22, clamp(lit, 0, 1)), lerp(l - 0.15, 0.97, clamp(lit, 0, 1)));
-      const bloomColor = hsl(h, Math.min(1, s * 1.15), lerp(l, 0.82, clamp(lit, 0, 1)));
-      g.core.style.color = coreColor;
-      g.core.setAttribute('opacity', (0.9 + clamp(lit, 0, 1) * 0.1).toFixed(3));
-      g.bloom.style.color = bloomColor;
-      g.bloom.setAttribute('opacity', (clamp(lit, 0, 1.2) * 0.9).toFixed(3));
-      g.haze.style.color = bloomColor;
-      g.haze.setAttribute('opacity', (clamp(lit, 0, 1.2) * 0.42).toFixed(3));
-      g.v1.setAttribute('stop-opacity', (0.3 + (1 - clamp(lit, 0, 1)) * 0.12).toFixed(3));
+      // Features are white — the guide is explicit. Unlit, they sink toward
+      // the shaded material instead of vanishing.
+      const core = lit > 0.5
+        ? hsl(0, 0, lerp(0.84, 1, (lit - 0.5) * 2))
+        : step(h, s, l, RAMP.dark);
+      g.core.style.color = core;
+      g.core.setAttribute('opacity', (0.9 + lit * 0.1).toFixed(3));
+      g.bloom.style.color = hsl(h, Math.min(1, s), Math.min(0.9, l + 0.3));
+      g.bloom.setAttribute('opacity', (lit * 0.5 * this.finish.glow).toFixed(3));
 
-      // ---- eyes ----
-      const lookX = (p.lookX + this.glance.x + p.gazeX * 0.85) * 7;
-      const lookY = (p.lookY + this.glance.y + p.gazeY * 0.7) * 5;
-      const r = EYE.r * this.eyeScale * clamp(p.eyeR, 0.2, 2);
-      const lidBase = p.lidTop + this.blink;
-      const lidL = clamp(lidBase + clamp(-p.wink, 0, 1), 0, 1.25);
-      const lidR = clamp(lidBase + clamp(p.wink, 0, 1), 0, 1.25);
-      const shut = (v) => clamp((v - 0.72) / 0.28, 0, 1);
-      const dx = EYE.dx * this.eyeGap;
-      this._eye(g.eyeL, g.maskL, g.lidLineL, 100 - dx + lookX, EYE.y + lookY, r, lidL, p.lidBot, p.lidCurve, shut(lidL), p.lidTilt, -1);
-      this._eye(g.eyeR, g.maskR, g.lidLineR, 100 + dx + lookX, EYE.y + lookY, r, lidR, p.lidBot, p.lidCurve, shut(lidR), p.lidTilt, 1);
+      // ---- eyes: plain white circles, expression is closure only ----
+      const lidTop = clamp(p.lidTop + this.blink, 0, 1.25);
+      const shut = clamp((lidTop - 0.72) / 0.28, 0, 1);
+      const special = clamp(p.heart + p.cross, 0, 1);
+      const rL = EYE.r;
+      const rR = EYE.r * (1 - clamp(p.eyeAsym, 0, 0.7));
+      this._eye(g.eyeL, g.maskL, g.lidLineL, 100 - EYE.dx, EYE.y, rL, lidTop, p.lidBot, p.lidCurve, shut, p.lidTilt, -1, 1 - special);
+      this._eye(g.eyeR, g.maskR, g.lidLineR, 100 + EYE.dx, EYE.y, rR, lidTop, p.lidBot, p.lidCurve, shut, p.lidTilt, 1, 1 - special);
+      this._heart(g.heartL, 100 - EYE.dx, EYE.y, p.heart);
+      this._heart(g.heartR, 100 + EYE.dx, EYE.y, p.heart);
+      this._cross(g.crossL, g.crossLp, 100 - EYE.dx, EYE.y, p.cross);
+      this._cross(g.crossR, g.crossRp, 100 + EYE.dx, EYE.y, p.cross);
 
       // ---- mouth ----
       let open = clamp(p.mouthOpen, 0, 1);
       if (this.talkPhase >= 0) {
-        // Two detuned sines: speech-like, never a metronome.
         const wave = Math.sin(this.talkPhase * 15) * 0.5 + Math.sin(this.talkPhase * 23.7) * 0.3;
-        open = clamp(0.42 + wave * 0.34, 0.08, 1);
+        open = clamp(0.5 + wave * 0.36, 0.06, 1);
       }
-      g.mouth.setAttribute('d', this._mouthPath(100 + lookX * 0.5, MOUTH_Y + lookY * 0.4, p.mouthW, open, p.mouthCurve));
+      g.mouth.setAttribute('d', this._mouthPath(p.mouthW, open, p.mouthCurve, p.mouthWave));
 
-      this._drawParticles(h, s);
+      // ---- kawaii extras ----
+      const bl = clamp(p.blush, 0, 1);
+      for (const [node, x] of [[g.blushL, 100 - 44], [g.blushR, 100 + 44]]) {
+        node.setAttribute('cx', x);
+        node.setAttribute('cy', 104);
+        node.setAttribute('rx', 15);
+        node.setAttribute('ry', 9);
+        node.setAttribute('fill', step(h, Math.min(1, s), l - 0.14, { dh: -12, dl: 0 }));
+        node.setAttribute('opacity', (bl * 0.55).toFixed(3));
+        node.setAttribute('filter', `url(#${this.id}-soft)`);
+      }
+      const tg = clamp(p.tongue, 0, 1);
+      g.tongue.setAttribute('opacity', tg.toFixed(3));
+      const tw = 12 * tg;
+      const lip = MOUTH_Y + (0.8 * (16 + open * 12)) + open * 26 * 0.75;   // lower lip
+      g.tongue.setAttribute(
+        'd',
+        `M${100 - tw} ${lip - 7} Q${100} ${lip + 13 * tg} ${100 + tw} ${lip - 7} Z`
+      );
+      g.tongue.setAttribute('fill', hsl(6, 0.72, 0.6));
+
+      this._drawParticles(h, s, l);
     }
 
-    _eye(rect, mask, lidLine, cx, cy, r, lidTop, lidBot, lidCurve, shut, lidTilt, side) {
+    _eye(rect, mask, lidLine, cx, cy, r, lidTop, lidBot, lidCurve, shut, lidTilt, side, vis) {
+      rect.setAttribute('opacity', vis.toFixed(3));
       const pad = r + 6;
       rect.setAttribute('x', cx - pad);
       rect.setAttribute('y', cy - pad);
@@ -501,65 +544,77 @@
       ellipse.setAttribute('rx', r);
       ellipse.setAttribute('ry', r);
 
-      // A level lid reads as a scowl. Angling it — mirrored across the face —
-      // is the cue that separates sad and sleepy from angry.
       const ty = cy - r - 2 + lidTop * (2 * r + 4);
       const a = lidTilt * r * 0.55;
       const yL = ty - a * side;
       const yR = ty + a * side;
-      top.setAttribute(
-        'd',
-        `M${cx - pad} ${cy - pad} H${cx + pad} V${yR} Q${cx} ${(yL + yR) / 2 + 5} ${cx - pad} ${yL} Z`
-      );
+      top.setAttribute('d',
+        `M${cx - pad} ${cy - pad} H${cx + pad} V${yR} Q${cx} ${(yL + yR) / 2 + 4} ${cx - pad} ${yL} Z`);
 
-      // Lower lid rises with a convex edge — that curve is what makes a smile
-      // reach the eyes as a ^^ crescent.
       const by = cy + r + 2 - lidBot * (2 * r + 4);
-      const bulge = by - lidCurve * r * 0.95;
-      bottom.setAttribute('d', `M${cx - pad} ${cy + pad} H${cx + pad} V${by} Q${cx} ${bulge} ${cx - pad} ${by} Z`);
+      bottom.setAttribute('d',
+        `M${cx - pad} ${cy + pad} H${cx + pad} V${by} Q${cx} ${by - lidCurve * r * 0.95} ${cx - pad} ${by} Z`);
 
-      // A shut eye is a drawn line, not an absence.
-      lidLine.setAttribute('opacity', shut.toFixed(3));
-      lidLine.setAttribute('stroke-width', Math.max(3, r * 0.3).toFixed(1));
-      lidLine.setAttribute('d', `M${cx - r * 0.92} ${cy - 1} Q${cx} ${cy + r * 0.62} ${cx + r * 0.92} ${cy - 1}`);
+      lidLine.setAttribute('opacity', (shut * vis).toFixed(3));
+      lidLine.setAttribute('stroke-width', Math.max(3.5, r * 0.34).toFixed(1));
+      lidLine.setAttribute('d', `M${cx - r} ${cy - 1} Q${cx} ${cy + r * 0.7} ${cx + r} ${cy - 1}`);
+    }
+
+    _heart(node, cx, cy, k) {
+      node.setAttribute('opacity', clamp(k, 0, 1).toFixed(3));
+      const s = EYE.r * 1.55 * clamp(k, 0.001, 1);
+      node.setAttribute(
+        'd',
+        `M${cx} ${cy + s * 0.75} C${cx - s * 1.5} ${cy - s * 0.35} ${cx - s * 0.55} ${cy - s * 1.2} ${cx} ${cy - s * 0.42}` +
+        ` C${cx + s * 0.55} ${cy - s * 1.2} ${cx + s * 1.5} ${cy - s * 0.35} ${cx} ${cy + s * 0.75} Z`
+      );
+    }
+
+    _cross(group, paths, cx, cy, k) {
+      group.setAttribute('opacity', clamp(k, 0, 1).toFixed(3));
+      const s = EYE.r * 0.95;
+      group.setAttribute('stroke-width', (EYE.r * 0.52).toFixed(1));
+      paths[0].setAttribute('d', `M${cx - s} ${cy - s} L${cx + s} ${cy + s}`);
+      paths[1].setAttribute('d', `M${cx + s} ${cy - s} L${cx - s} ${cy + s}`);
     }
 
     /**
-     * One path, three feelings: width, openness, curve.
-     * Control offsets are doubled — a quadratic only reaches half of them.
+     * One mouth, always round. The path is filled AND stroked with round caps
+     * and joins, so a closed mouth is a rounded line and an open one is the
+     * same curve with its edges pulled apart — the outline never goes sharp.
      */
-    _mouthPath(cx, cy, wScale, open, curve) {
-      const w = 42 * this.mouthScale * clamp(wScale, 0.2, 1.6);
+    _mouthPath(wScale, open, curve, wave) {
+      const w = 40 * clamp(wScale, 0.12, 1.6);
       const c = clamp(curve, -1, 1);
-      const depth = 11 + open * 40;
-      if (c >= 0) {
-        // The signature grin: flat top edge, deep bowl beneath it.
-        const topBow = -open * 4;
-        const botBow = depth * (0.95 + c * 1.35);
-        return `M${cx - w} ${cy} Q${cx} ${cy + topBow} ${cx + w} ${cy}` +
-               ` Q${cx} ${cy + botBow} ${cx - w} ${cy} Z`;
-      }
-      // A frown is that shape mirrored, not thinned: the corners drop and the
-      // centre lifts above them.
-      const k = -c;
-      const drop = k * depth * 0.55;
-      const topBow = -depth * (0.95 + k * 1.35);
-      const botBow = -open * 4;
-      return `M${cx - w} ${cy + drop} Q${cx} ${cy + drop + topBow} ${cx + w} ${cy + drop}` +
-             ` Q${cx} ${cy + drop + botBow} ${cx - w} ${cy + drop} Z`;
+      const cx = 100;
+      const cy = MOUTH_Y;
+      const bow = c * (16 + open * 12);          // smile (+) / frown (-)
+      const half = open * 26;                    // how far the lips part
+      const s = wave * 9;                        // S-bend for confused / silly
+      const k = 1.33;                            // cubic controls reach ~3/4
+
+      const topA = (bow - half) * k + s;
+      const topB = (bow - half) * k - s;
+      const botA = (bow + half) * k + s;
+      const botB = (bow + half) * k - s;
+
+      return `M${cx - w} ${cy}` +
+             ` C${cx - w / 3} ${cy + topA} ${cx + w / 3} ${cy + topB} ${cx + w} ${cy}` +
+             ` C${cx + w / 3} ${cy + botB} ${cx - w / 3} ${cy + botA} ${cx - w} ${cy} Z`;
     }
 
-    _drawParticles(h, s) {
+    _drawParticles(h, s, l) {
       const fx = this.g.fx;
       while (fx.firstChild) fx.removeChild(fx.firstChild);
       for (const p of this.particles) {
         const k = p.life / p.max;
-        const y = 56 - k * 44;
+        const y = 46 - k * 40;
         const o = Math.sin(k * Math.PI);
         if (p.kind === 'z') {
           const t = el('text', {
-            x: 142 + p.x + k * 12, y, fill: hsl(h, s * 0.5, 0.72), opacity: (o * 0.85).toFixed(2),
-            'font-size': 16 + k * 10, 'font-family': 'var(--font, sans-serif)', 'font-weight': 700,
+            x: 140 + p.x + k * 12, y, fill: step(h, s, l, RAMP.highlight),
+            opacity: (o * 0.9).toFixed(2), 'font-size': 16 + k * 10,
+            'font-family': 'var(--font, sans-serif)', 'font-weight': 700,
           });
           t.textContent = 'z';
           fx.appendChild(t);
@@ -567,7 +622,7 @@
           fx.appendChild(el('circle', {
             cx: 100 + p.x + (p.kind === 'spark' ? Math.sin(k * 6) * 10 : 0),
             cy: y, r: (p.kind === 'heart' ? 7 : 5) * (1 - k * 0.4),
-            fill: p.kind === 'heart' ? '#F2748C' : hsl(h, 0.9, 0.72),
+            fill: p.kind === 'heart' ? '#F2748C' : step(h, s, l, RAMP.highlight),
             opacity: (o * 0.95).toFixed(2),
           }));
         }
@@ -575,5 +630,5 @@
     }
   }
 
-  global.FrenFace = { Face, EMOTIONS, ORDER };
+  global.FrenFace = { Face, EMOTIONS, ORDER, FINISHES: Object.keys(FINISH) };
 })(window);
