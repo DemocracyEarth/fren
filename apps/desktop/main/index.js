@@ -15,7 +15,7 @@ loadEnv();
 delete process.env.ANTHROPIC_API_KEY;
 delete process.env.ANTHROPIC_AUTH_TOKEN;
 
-const ORB_SIZE = { width: 128, height: 128 };
+const ORB_SIZE = { width: 148, height: 148 };
 const PANEL_SIZE = { width: 344, height: 566 };
 const MARGIN = 24;
 

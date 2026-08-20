@@ -6,17 +6,21 @@ long it is kept, and how to stop or erase all of it.
 
 ## Capture states
 
-There are exactly two, and the orb's eyes are the truth:
+There are exactly two, and the character itself is the truth:
 
-| State | Eyes | What is captured |
+| State | How fren looks | What is captured |
 |---|---|---|
-| Observing ON | Open | Active app name + window title every 5s; local screenshot every ~15s |
-| Observing OFF | Closed | **Nothing. No sampling, no screenshots, no summarizing, no timers.** |
+| Observing ON | Lit from within, eyes open, colour warm | Active app name + window title every 5s; local screenshot every ~15s |
+| Observing OFF | Light out, eyes closed, colour drained | **Nothing. No sampling, no screenshots, no summarizing, no timers.** |
 
 This is not a UI convention layered over a background process. The `observing`
 flag lives in one place in the Electron main process
 (`apps/desktop/main/state.js`) and is only ever changed together with starting
-or stopping the observer. Eyes open ⇔ capture running, by construction.
+or stopping the observer, and every face change in the renderer is funnelled
+through a check on it — so no conversation, animation or error path can light
+the face up while capture is off. Lit ⇔ capturing, by construction. If the app
+cannot reach that state at all (say the preload bridge fails), the face stays
+dark: the fallback fails closed.
 
 Keystrokes are **never captured in any state**. fren has no keylogger, no input
 monitoring, no clipboard access.
@@ -36,7 +40,7 @@ network requests with your data.
 | Derived activity summaries **and the recent raw timeline** (up to the last 50 observed app/title entries) as context | When you send a chat message |
 
 Chat context is drawn from what was captured earlier: asking a question while
-paused still sends recent history that was recorded while the eyes were open.
+paused still sends recent history that was recorded while fren was lit.
 Pausing stops new capture; it does not redact what you already let fren see.
 
 **Never sent, to anyone, ever:**
@@ -81,8 +85,8 @@ on the gateway being reachable, or on you remembering to clean up.
 
 ## How to pause
 
-Click the orb to open the panel, then click **"pause watching"**. Eyes close,
-everything stops. Same two clicks to resume ("wake up"). There is no partial
+Click the sphere to open the panel, then click **"pause watching"**. The light
+goes out, the eyes close, everything stops. Same two clicks to resume ("wake up"). There is no partial
 state and no background trickle while paused.
 
 ## How to delete everything

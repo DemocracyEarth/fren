@@ -15,10 +15,18 @@ const TYPES = {
 
 http
   .createServer((req, res) => {
-    const rel = decodeURIComponent((req.url || '/').split('?')[0]);
-    const file = path.join(ROOT, rel === '/' ? 'index.html' : rel);
-    // Refuse anything that escapes the renderer directory.
-    if (!file.startsWith(ROOT)) {
+    let rel;
+    try {
+      rel = decodeURIComponent((req.url || '/').split('?')[0]);
+    } catch {
+      res.writeHead(400).end('bad request');   // malformed percent-escape
+      return;
+    }
+    const file = path.resolve(ROOT, '.' + (rel === '/' ? '/index.html' : rel));
+    // Refuse anything outside the renderer directory. A prefix test would also
+    // accept a sibling like <root>-other, so compare path segments.
+    const within = path.relative(ROOT, file);
+    if (within.startsWith('..') || path.isAbsolute(within)) {
       res.writeHead(403).end('forbidden');
       return;
     }

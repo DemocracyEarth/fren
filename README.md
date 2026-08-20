@@ -3,11 +3,12 @@
 ## What is this?
 
 fren is a minimal ambient AI companion that lives on your macOS desktop. It is a
-small floating orb with eyes. When the eyes are **open**, fren is observing what
-you do — which app is active, what the window title says, an occasional local
-screenshot. When the eyes are **closed**, it observes nothing at all. The eyes
-and the capture pipeline share one source of truth in the Electron main process,
-so what you see is what is happening.
+small floating sphere with a face lit from within. When the light is **on** and
+the eyes are **open**, fren is observing what you do — which app is active, what
+the window title says, an occasional local screenshot. When the light goes
+**out** and the eyes **close**, it observes nothing at all. That signal and the
+capture pipeline share one source of truth in the Electron main process, so what
+you see is what is happening.
 
 fren's long-term loop is:
 
@@ -40,7 +41,7 @@ accurate and useful enough to chat with?
 ┌──────────────────────────── Electron desktop app ───────────────────────────┐
 │                                                                             │
 │  mascot UI          observer                memory            summarizer    │
-│  (orb, eyes,   ←→   (samples every 5s:  →   (SQLite,     ←→   (every 2 min: │
+│  (sphere,      ←→   (samples every 5s:  →   (SQLite,     ←→   (every 2 min: │
 │  chat panel)        app + window title,     local only)       timeline →    │
 │                     screenshot ~15s,                          gateway,      │
 │                     stored locally)                           stores a      │
@@ -138,10 +139,11 @@ Full details in [docs/privacy.md](docs/privacy.md).
 
 ## How do I turn observation off?
 
-Click the orb. Eyes close, observation stops — no sampling, no screenshots, no
-summarizing. This is a single boolean in the main process; the eyes cannot be
-closed while capture runs, and capture cannot run while the eyes are closed.
-When observation is OFF, nothing is captured at all.
+Open the panel and click "pause watching". The light goes out, the eyes close,
+and observation stops — no sampling, no screenshots, no summarizing. This is a
+single boolean in the main process, and every face change in the renderer is
+funnelled through a check on it: fren cannot look awake while capture is off,
+and capture cannot run while it looks asleep.
 
 ## What is deliberately NOT implemented?
 

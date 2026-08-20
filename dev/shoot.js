@@ -17,7 +17,11 @@ app.whenReady().then(async () => {
     show: false,
     frame: false,
     transparent: true,
-    webPreferences: { contextIsolation: true, nodeIntegration: false },
+    webPreferences: {
+      preload: path.join(__dirname, 'shoot-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
   });
   await win.loadFile(path.join(__dirname, '..', 'apps', 'desktop', 'renderer', 'index.html'));
 

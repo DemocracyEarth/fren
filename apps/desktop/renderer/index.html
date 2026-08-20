@@ -13,19 +13,20 @@
          when the window grows. -->
     <section id="panel" hidden>
       <header id="panel-head">
-        <svg class="wordmark" viewBox="0 0 296 118" width="62" aria-label="fren" role="img">
-          <g fill="none" stroke="var(--ink)" stroke-linecap="round" stroke-width="18">
+        <svg class="wordmark" viewBox="0 0 300 118" width="76" aria-label="fren" role="img">
+          <g fill="none" stroke="var(--ink)" stroke-linecap="round" stroke-width="17">
             <path d="M30 100V36Q30 15 51 15"/>
             <path d="M13 49H51"/>
             <path d="M88 100V41"/>
             <path d="M88 59Q88 41 112 41"/>
-            <circle cx="172" cy="70" r="31"/>
-            <path d="M143 70H201" stroke-width="16"/>
-            <path d="M234 100V41"/>
-            <path d="M234 59Q234 41 256 41Q278 41 278 63V100"/>
+            <!-- the "e" keeps a real aperture at 4 o'clock so it doesn't read as a theta -->
+            <path d="M184.7 101.5A34 34 0 1 1 204.8 78.8"/>
+            <path d="M139 70H200" stroke-width="13"/>
+            <path d="M240 100V41"/>
+            <path d="M240 59Q240 41 262 41Q284 41 284 63V100"/>
           </g>
-          <!-- the counter of the "e" holds fren's own smile -->
-          <path d="M151 79Q172 99 193 79Z" fill="var(--orange)"/>
+          <!-- and its lower counter holds fren's own smile -->
+          <path d="M146.3 76.5Q172 116 197.7 76.5Z" fill="var(--orange)"/>
         </svg>
         <span id="gateway-dot" title="thinking half"></span>
         <span class="spacer"></span>
@@ -33,7 +34,7 @@
         <button id="quit" class="icon" title="Quit fren">&#215;</button>
       </header>
 
-      <div id="messages">
+      <div id="messages" role="log" aria-live="polite" aria-label="Conversation with fren">
         <div id="empty">
           <p class="empty-line">Ask me what you've been up to.</p>
           <div class="chips">
@@ -52,7 +53,7 @@
     </section>
 
     <div id="orb-zone">
-      <div id="orb" title="fren"></div>
+      <button id="orb" type="button" aria-label="Open fren"></button>
     </div>
   </div>
 <script src="face/face.js"></script>

@@ -12,6 +12,8 @@
   --orange: #ED8A2F;
   --orange-deep: #D4661A;
   --orange-shadow: #9E4410;
+  /* Orange that can carry white text: #ED8A2F is only 2.5:1, this is 5.0:1 */
+  --orange-ink: #B4520F;
 
   /* Character — the cream shell, also our surface color */
   --cream: #F0E7D6;

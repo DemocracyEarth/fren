@@ -1,9 +1,11 @@
 'use strict';
 
-// Inert stub so the page still renders in a plain browser for design work.
-if (!window.fren) {
+// Design-time stub for previewing in a plain browser. The real app loads over
+// file://, so this can never stand in for a broken preload — and it reports
+// "not observing", because a privacy fallback must fail closed.
+if (!window.fren && location.protocol !== 'file:') {
   window.fren = {
-    getState: async () => ({ observing: true, mascot: 'watching', panelOpen: false, gatewayOk: true }),
+    getState: async () => ({ observing: false, mascot: 'sleeping', panelOpen: false, gatewayOk: false }),
     toggleObservation: async () => {},
     chat: async () => ({ reply: 'Running outside Electron, so this is a canned reply.' }),
     setPanelOpen: async () => {},
@@ -26,7 +28,7 @@ const els = {
   send: document.getElementById('send'),
 };
 
-const face = new window.FrenFace.Face(els.orb, { size: 120 });
+const face = new window.FrenFace.Face(els.orb, { size: 108 });
 
 // Mascot state is owned by main; this is only the last snapshot we rendered.
 let state = { observing: false, mascot: 'sleeping', panelOpen: false, gatewayOk: false };
@@ -41,16 +43,30 @@ function emotionFor(s) {
   return 'watching';
 }
 
+/**
+ * Every face change goes through here. If main says we are not observing, the
+ * character looks it — no matter what the conversation is doing. (The mouth is
+ * still free to move: fren can answer you without watching you.)
+ */
+function setFace(name, opts) {
+  face.set(state.observing ? name : 'private', opts);
+}
+
 function render(next) {
   const was = state;
   state = next;
-  document.body.dataset.state = state.mascot;
   els.panel.hidden = !state.panelOpen;
   els.gatewayDot.classList.toggle('ok', state.gatewayOk);
   els.gatewayDot.title = state.gatewayOk ? 'connected' : 'gateway unreachable';
   els.toggle.textContent = state.observing ? 'pause watching' : 'wake up';
+  els.orb.setAttribute(
+    'aria-label',
+    `${state.panelOpen ? 'Close' : 'Open'} fren — ${state.observing ? 'watching' : 'not watching'}`
+  );
 
-  if (!speaking) face.set(emotionFor(state));
+  // Refresh whenever we own the face, and always when observation is off, so
+  // pausing mid-reply closes the eyes immediately.
+  if (!speaking || !state.observing) setFace(emotionFor(state));
 
   // Waking up is worth a little physical reaction.
   if (state.observing && !was.observing) face.pulse('bounce');
@@ -81,7 +97,7 @@ function speak(text) {
   return new Promise((resolve) => {
     const bubble = addBubble('fren', '');
     speaking = true;
-    face.set('talking');
+    setFace('talking');
     face.startTalking();
 
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -106,10 +122,10 @@ function speak(text) {
       bubble.textContent = text;
       face.stopTalking();
       // Settle through a smile rather than snapping back.
-      face.set('happy');
+      setFace('happy');
       setTimeout(() => {
         speaking = false;
-        face.set(emotionFor(state));
+        setFace(emotionFor(state));
         resolve();
       }, 900);
     }
@@ -126,22 +142,26 @@ async function sendMessage(text) {
   showTyping(true);
 
   speaking = true;          // hold the face until we've answered
-  face.set('listening');
+  setFace('listening');
   face.pulse('nod');
-  setTimeout(() => { if (awaitingReply) face.set('thinking'); }, 420);
+  // Only show "thinking" if the answer is actually slow to arrive — and drop
+  // the timer the moment it does, or it fires over the talking face.
+  const thinkingTimer = setTimeout(() => setFace('thinking'), 420);
 
   try {
     const res = await window.fren.chat(question);
+    clearTimeout(thinkingTimer);
     const reply = typeof res === 'string' ? res : (res && res.reply) || '(no reply)';
     showTyping(false);
     await speak(reply);
   } catch (err) {
+    clearTimeout(thinkingTimer);
     showTyping(false);
     speaking = false;
-    face.set('oops');
+    setFace('oops');
     face.pulse('shake');
     addBubble('fren', 'Something went wrong: ' + (err && err.message ? err.message : String(err)));
-    setTimeout(() => face.set(emotionFor(state)), 1600);
+    setTimeout(() => setFace(emotionFor(state)), 1600);
   } finally {
     awaitingReply = false;
     els.send.disabled = false;
@@ -159,8 +179,8 @@ els.orb.addEventListener('click', async () => {
 });
 
 // The character notices the cursor.
-els.orb.addEventListener('mouseenter', () => { if (!speaking && state.observing) face.set('curious'); });
-els.orb.addEventListener('mouseleave', () => { if (!speaking) face.set(emotionFor(state)); });
+els.orb.addEventListener('mouseenter', () => { if (!speaking && state.observing) setFace('curious'); });
+els.orb.addEventListener('mouseleave', () => { if (!speaking) setFace(emotionFor(state)); });
 
 els.toggle.addEventListener('click', () => window.fren.toggleObservation());
 els.quit.addEventListener('click', () => window.fren.quit());
@@ -175,7 +195,16 @@ for (const chip of document.querySelectorAll('.chip')) {
 }
 
 (async function init() {
+  if (!window.fren) {
+    // The preload bridge didn't load. Stay in the private pose and say so —
+    // never imply we're watching when we can't even reach the main process.
+    els.panel.hidden = false;
+    addBubble('fren', "I can't reach my own controls (preload failed to load), so I'm staying paused. Restarting fren should fix it.");
+    els.input.disabled = true;
+    els.send.disabled = true;
+    return;
+  }
   window.fren.onStateChanged(render);          // subscribe before the first fetch
   render(await window.fren.getState());
-  face.set(emotionFor(state), { immediate: true });
+  setFace(emotionFor(state), { immediate: true });
 })();
