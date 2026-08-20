@@ -31,7 +31,7 @@
   // glow         ambient light spilling behind the sphere
   const NEUTRAL = {
     hue: 26, sat: 0.6, lum: 0.62, lit: 1,
-    eyeR: 1, lidTop: 0, lidBot: 0, lidCurve: 0, lidTilt: 0,
+    eyeR: 1, lidTop: 0, lidBot: 0, lidCurve: 0, lidTilt: 0, wink: 0,
     lookX: 0, lookY: 0,
     mouthW: 1, mouthOpen: 0.34, mouthCurve: 1,
     tilt: 0, bob: 0, squash: 0, glow: 0.5,
@@ -61,29 +61,39 @@
     // — the good feelings: warmer, brighter, more saturated —
     happy:     E({ hue: 34, sat: 0.76, lum: 0.64, lidBot: 0.52, lidCurve: 1, mouthOpen: 0.5, mouthW: 1.1, glow: 0.74 }),
     delighted: E({ hue: 38, sat: 0.84, lum: 0.66, lidBot: 0.6, lidCurve: 1, mouthOpen: 0.78, mouthW: 1.2,
-                   bob: -2.5, squash: -0.06, glow: 0.88 }),
+                   bob: -2.5, glow: 0.88 }),
     idea:      E({ hue: 46, sat: 0.92, lum: 0.68, lit: 1.15, eyeR: 1.28, lidTop: -0.12,
-                   mouthOpen: 0.66, mouthW: 1.12, bob: -3.5, squash: -0.08, glow: 1 }),
+                   mouthOpen: 0.66, mouthW: 1.12, bob: -3.5, glow: 1 }),
     proud:     E({ hue: 32, sat: 0.72, lum: 0.64, lidBot: 0.45, lidCurve: 0.9, lidTilt: -0.2,
                    mouthOpen: 0.26, mouthW: 0.76, lookY: -0.2, tilt: -6, glow: 0.72 }),
     love:      E({ hue: 348, sat: 0.66, lum: 0.66, lidBot: 0.58, lidCurve: 1,
-                   mouthOpen: 0.56, mouthW: 1.06, squash: 0.05, glow: 0.9 }),
-    mischief:  E({ hue: 292, sat: 0.4, lum: 0.62, lidBot: 0.5, lidCurve: 0.8, lidTilt: -0.15,
+                   mouthOpen: 0.56, mouthW: 1.06, glow: 0.9 }),
+    mischief:  E({ hue: 292, sat: 0.4, lum: 0.62, wink: 1, lidBot: 0.32, lidCurve: 0.8, lidTilt: -0.15,
                    mouthOpen: 0.3, mouthW: 0.9, mouthCurve: 0.75, tilt: -8, lookX: 0.35, glow: 0.72 }),
 
     // — the rest of the range —
     curious:   E({ hue: 40, sat: 0.6, lum: 0.64, eyeR: 1.16, lookX: 0.4,
                    mouthOpen: 0.24, mouthW: 0.5, mouthCurve: 0.5, tilt: -9, glow: 0.66 }),
     surprised: E({ hue: 48, sat: 0.78, lum: 0.68, eyeR: 1.4, lidTop: -0.18,
-                   mouthOpen: 0.82, mouthW: 0.46, mouthCurve: 0, bob: -2, squash: -0.1, glow: 0.82 }),
+                   mouthOpen: 0.82, mouthW: 0.46, mouthCurve: 0, bob: -2, glow: 0.82 }),
     confused:  E({ hue: 262, sat: 0.34, lum: 0.58, eyeR: 0.94, lidTop: 0.22, lidTilt: 0.25, lookX: -0.3,
                    mouthOpen: 0.2, mouthW: 0.62, mouthCurve: -0.35, tilt: 10, glow: 0.5 }),
     concerned: E({ hue: 14, sat: 0.46, lum: 0.56, eyeR: 1.02, lidTop: 0.16, lidTilt: 0.5,
                    mouthOpen: 0.2, mouthW: 0.72, mouthCurve: -0.6, glow: 0.42 }),
     sad:       E({ hue: 218, sat: 0.42, lum: 0.5, lit: 0.8, eyeR: 0.96, lidTop: 0.34, lidTilt: 0.6, lookY: 0.45,
-                   mouthOpen: 0.18, mouthW: 0.66, mouthCurve: -0.85, bob: 2.2, squash: 0.07, glow: 0.26 }),
+                   mouthOpen: 0.18, mouthW: 0.66, mouthCurve: -0.85, bob: 2.2, glow: 0.26 }),
     bored:     E({ hue: 30, sat: 0.13, lum: 0.52, lit: 0.85, eyeR: 0.9, lidTop: 0.52, lidTilt: 0.35,
                    lookX: -0.5, lookY: 0.15, mouthOpen: 0.12, mouthW: 0.6, mouthCurve: -0.1, glow: 0.3 }),
+    wink:      E({ hue: 34, sat: 0.72, lum: 0.64, wink: 1, lidBot: 0.3, lidCurve: 0.9,
+                   mouthOpen: 0.34, mouthW: 0.9, mouthCurve: 0.9, tilt: -5, glow: 0.72 }),
+    laughing:  E({ hue: 36, sat: 0.82, lum: 0.66, lidBot: 0.68, lidCurve: 1,
+                   mouthOpen: 0.95, mouthW: 1.15, tilt: -3, bob: -2, glow: 0.9 }),
+    annoyed:   E({ hue: 12, sat: 0.5, lum: 0.56, eyeR: 0.92, lidTop: 0.3, lidTilt: -0.55,
+                   mouthOpen: 0.14, mouthW: 0.66, mouthCurve: -0.3, glow: 0.42 }),
+    alert:     E({ hue: 190, sat: 0.5, lum: 0.66, eyeR: 1.3, lidTop: -0.14,
+                   mouthOpen: 0.22, mouthW: 0.5, mouthCurve: 0.3, glow: 0.8 }),
+    relieved:  E({ hue: 30, sat: 0.55, lum: 0.63, lidTop: 0.82, lidCurve: 0.5, lidTilt: 0.2,
+                   mouthOpen: 0.3, mouthW: 0.86, mouthCurve: 0.9, glow: 0.62 }),
     oops:      E({ hue: 6, sat: 0.64, lum: 0.6, eyeR: 1.2, lidTop: -0.05,
                    mouthOpen: 0.3, mouthW: 1.14, mouthCurve: -0.2, tilt: 6, glow: 0.58 }),
   };
@@ -91,15 +101,15 @@
   const ORDER = [
     'private', 'sleeping', 'waking', 'neutral', 'watching', 'listening',
     'thinking', 'processing', 'talking', 'happy', 'delighted', 'idea',
-    'proud', 'love', 'mischief', 'curious', 'surprised', 'confused',
-    'concerned', 'sad', 'bored', 'oops',
+    'proud', 'love', 'mischief', 'wink', 'laughing', 'curious', 'surprised',
+    'alert', 'confused', 'concerned', 'sad', 'bored', 'annoyed', 'oops', 'relieved',
   ];
 
   // Gaze and lids are quick; the body is looser so it trails slightly — that
   // lag is what reads as weight. Colour drifts slowest of all.
   const SPRING = {
     _default: [150, 15],
-    lidTop: [320, 24], lidBot: [260, 22], lidTilt: [220, 20],
+    lidTop: [320, 24], lidBot: [260, 22], lidTilt: [220, 20], wink: [300, 24],
     lookX: [200, 20], lookY: [200, 20],
     mouthOpen: [240, 20], bob: [120, 12], squash: [180, 14], tilt: [120, 13],
     eyeR: [220, 18], glow: [70, 14],
@@ -419,10 +429,12 @@
       const lookX = (p.lookX + this.glance.x) * 7;
       const lookY = (p.lookY + this.glance.y) * 5;
       const r = EYE.r * clamp(p.eyeR, 0.2, 2);
-      const lidTop = clamp(p.lidTop + this.blink, 0, 1.25);
-      const shut = clamp((lidTop - 0.72) / 0.28, 0, 1);
-      this._eye(g.eyeL, g.maskL, g.lidLineL, 100 - EYE.dx + lookX, EYE.y + lookY, r, lidTop, p.lidBot, p.lidCurve, shut, p.lidTilt, -1);
-      this._eye(g.eyeR, g.maskR, g.lidLineR, 100 + EYE.dx + lookX, EYE.y + lookY, r, lidTop, p.lidBot, p.lidCurve, shut, p.lidTilt, 1);
+      const lidBase = p.lidTop + this.blink;
+      const lidL = clamp(lidBase + clamp(-p.wink, 0, 1), 0, 1.25);
+      const lidR = clamp(lidBase + clamp(p.wink, 0, 1), 0, 1.25);
+      const shut = (v) => clamp((v - 0.72) / 0.28, 0, 1);
+      this._eye(g.eyeL, g.maskL, g.lidLineL, 100 - EYE.dx + lookX, EYE.y + lookY, r, lidL, p.lidBot, p.lidCurve, shut(lidL), p.lidTilt, -1);
+      this._eye(g.eyeR, g.maskR, g.lidLineR, 100 + EYE.dx + lookX, EYE.y + lookY, r, lidR, p.lidBot, p.lidCurve, shut(lidR), p.lidTilt, 1);
 
       // ---- mouth ----
       let open = clamp(p.mouthOpen, 0, 1);
