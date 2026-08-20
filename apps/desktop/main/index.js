@@ -15,8 +15,8 @@ loadEnv();
 delete process.env.ANTHROPIC_API_KEY;
 delete process.env.ANTHROPIC_AUTH_TOKEN;
 
-const ORB_SIZE = { width: 96, height: 96 };
-const PANEL_SIZE = { width: 340, height: 520 };
+const ORB_SIZE = { width: 128, height: 128 };
+const PANEL_SIZE = { width: 344, height: 566 };
 const MARGIN = 24;
 
 let win = null;
@@ -101,21 +101,23 @@ app.whenReady().then(() => {
     return state.get();
   });
 
-  // Preserve wherever the user dragged the orb: grow/shrink around the
-  // current top-left corner (clamped into the current display's work area)
-  // instead of teleporting back to the bottom-right default.
-  let savedOrbPos = null;
+  // The orb lives at the window's bottom-right, so the window grows up and to
+  // the left: the character stays exactly where the user parked it.
   ipcMain.handle('fren:setPanelOpen', (_e, open) => {
     const cur = win.getBounds();
-    if (open) {
-      savedOrbPos = { x: cur.x, y: cur.y };
-      const { workArea } = screen.getDisplayMatching(cur);
-      const x = Math.min(Math.max(cur.x, workArea.x), workArea.x + workArea.width - PANEL_SIZE.width);
-      const y = Math.min(Math.max(cur.y, workArea.y), workArea.y + workArea.height - PANEL_SIZE.height);
-      win.setBounds({ x, y, ...PANEL_SIZE });
-    } else {
-      win.setBounds({ ...(savedOrbPos ?? { x: cur.x, y: cur.y }), ...ORB_SIZE });
-    }
+    const size = open ? PANEL_SIZE : ORB_SIZE;
+    const anchorRight = cur.x + cur.width;
+    const anchorBottom = cur.y + cur.height;
+    const { workArea } = screen.getDisplayMatching(cur);
+    const x = Math.min(
+      Math.max(anchorRight - size.width, workArea.x),
+      workArea.x + workArea.width - size.width
+    );
+    const y = Math.min(
+      Math.max(anchorBottom - size.height, workArea.y),
+      workArea.y + workArea.height - size.height
+    );
+    win.setBounds({ x, y, ...size });
     state.set({ panelOpen: !!open });
   });
 

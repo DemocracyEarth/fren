@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>fren — emotion lab</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  body {
+    margin: 0; padding: 32px; background: var(--void); color: var(--on-dark);
+    font-family: var(--font);
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; letter-spacing: -.01em; }
+  h1 b { color: var(--orange); }
+  p.sub { margin: 0 0 28px; color: var(--on-dark-soft); font-size: 13px; }
+  .grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(122px, 1fr));
+    gap: 14px;
+  }
+  .cell {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md);
+    padding: 10px 10px 12px; text-align: center; cursor: pointer;
+    transition: border-color .2s var(--ease-soft), transform .2s var(--ease-out);
+  }
+  .cell:hover { border-color: var(--orange); transform: translateY(-2px); }
+  .cell .name { font-size: 12px; color: var(--on-dark-soft); margin-top: 4px; }
+  .cell.on { border-color: var(--orange); }
+  .cell.on .name { color: var(--orange); }
+</style>
+</head>
+<body>
+  <h1><b>fren</b> — emotion lab</h1>
+  <p class="sub">Click any face to play it larger. Each is the same parameter space, so they blend.</p>
+  <div class="grid" id="grid"></div>
+<script src="face.js"></script>
+<script>
+  const { Face, ORDER } = window.FrenFace;
+  const grid = document.getElementById('grid');
+  for (const name of ORDER) {
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    const mount = document.createElement('div');
+    cell.appendChild(mount);
+    const label = document.createElement('div');
+    label.className = 'name';
+    label.textContent = name;
+    cell.appendChild(label);
+    grid.appendChild(cell);
+    const face = new Face(mount, { size: 104 });
+    face.set(name, { immediate: true });
+    if (name === 'talking') face.startTalking();
+    cell.addEventListener('click', () => face.pulse('bounce'));
+  }
+</script>
+</body>
+</html>

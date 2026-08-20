@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "renderer",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "dev/serve.js",
+        "8777"
+      ],
+      "port": 8777
+    }
+  ]
+}

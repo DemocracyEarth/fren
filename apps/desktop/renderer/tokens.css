@@ -1,0 +1,36 @@
+/* fren design tokens — derived from the fren identity mockups.
+   Palette: near-black stage, glossy orange character, warm cream surfaces. */
+:root {
+  /* Stage */
+  --void: #0B0B0D;
+  --panel: #141417;
+  --panel-hi: #1C1C21;
+  --line: #2A2A31;
+
+  /* Character — the orange visor */
+  --orange-lite: #F9B765;
+  --orange: #ED8A2F;
+  --orange-deep: #D4661A;
+  --orange-shadow: #9E4410;
+
+  /* Character — the cream shell, also our surface color */
+  --cream: #F0E7D6;
+  --cream-shade: #DCCFB5;
+  --bone: #FBF6EC;
+
+  /* Ink */
+  --ink: #1A1712;
+  --ink-soft: #6E6555;
+  --on-dark: #EDE4D3;
+  --on-dark-soft: #9A9489;
+
+  /* Rounded system face — SF Pro Rounded on macOS, no webfont needed */
+  --font: ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif;
+
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+}
