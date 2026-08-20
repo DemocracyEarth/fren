@@ -28,7 +28,8 @@ monitoring, no clipboard access.
 ## What leaves the machine
 
 Data leaves your machine on exactly one path: desktop app → local gateway
-(`127.0.0.1:4519`, bearer-token auth) → Anthropic API. Nothing else makes
+(`127.0.0.1:4519`, bearer-token auth) → your chosen model provider
+(DeepSeek or Anthropic). Nothing else makes
 network requests with your data.
 
 **Sent (only this):**
@@ -47,16 +48,19 @@ Pausing stops new capture; it does not redact what you already let fren see.
 
 - **Screenshots.** Captured only while observing, written as local JPEGs,
   pruned automatically. They are not sent to the gateway, not sent to the
-  Anthropic API, not uploaded anywhere. The summarizer works from the text
+  model provider, not uploaded anywhere. The summarizer works from the text
   timeline alone.
 - **The SQLite database.** It never leaves the userData folder.
 - **Keystrokes.** Not captured at all (see above), so there is nothing to send.
 
-The Anthropic API key is used only by the gateway process. The desktop app
-reads the shared `.env` for its own settings but deletes
-`ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` from its environment at startup
+The API key is used only by the gateway process. The desktop app reads the
+shared `.env` for its own settings but deletes `DEEPSEEK_API_KEY`,
+`ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` from its environment at startup
 (`apps/desktop/main/index.js`), so provider credentials never live in the
 process that captures your screen.
+
+Which provider you use changes who sees that data. DeepSeek and Anthropic have
+different data-handling policies — read the one you pick.
 
 ## Storage locations
 
@@ -95,9 +99,10 @@ state and no background trickle while paused.
 2. Delete `~/Library/Application Support/fren/`.
 
 That is the entire footprint. There is no cloud account, no sync, no server-side
-copy. What the Anthropic API has seen (timelines, summaries, chat text) is
-governed by [Anthropic's API data usage policies](https://www.anthropic.com/legal/privacy);
-fren sends nothing there beyond the categories listed above.
+copy. What your model provider has seen (timelines, summaries, chat text) is
+governed by that provider's own policies — [Anthropic's](https://www.anthropic.com/legal/privacy)
+or [DeepSeek's](https://platform.deepseek.com) — and fren sends nothing there
+beyond the categories listed above.
 
 ## macOS permissions
 

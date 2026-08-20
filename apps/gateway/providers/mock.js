@@ -16,8 +16,10 @@ function deriveApps(messages) {
 }
 
 function createMockProvider() {
+  const { config } = require('../../../packages/shared');
   return {
     name: 'mock',
+    model: config.MODEL || 'mock',
     async complete({ messages, schema }) {
       if (schema) {
         const apps = deriveApps(messages);

@@ -1,5 +1,6 @@
-// Local LLM gateway — a small HTTP server, the ONLY component that talks to
-// the Anthropic API. The desktop app calls it over loopback with a bearer token.
+// Local LLM gateway — a small HTTP server, the ONLY component that talks to a
+// model provider. The desktop app calls it over loopback with a bearer token
+// and never learns which provider or model answered.
 const http = require('node:http');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -7,6 +8,7 @@ const path = require('node:path');
 const { config, loadEnv } = require('../../packages/shared');
 const intelligence = require('../../packages/intelligence');
 const { createAnthropicProvider } = require('./providers/anthropic');
+const { createDeepSeekProvider } = require('./providers/deepseek');
 const { createMockProvider } = require('./providers/mock');
 
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -89,7 +91,7 @@ async function handleChat(provider, body, res) {
 
 async function handle(provider, req, res, pathname) {
   if (req.method === 'GET' && pathname === '/health') {
-    return send(res, 200, { ok: true, provider: provider.name, model: config.MODEL });
+    return send(res, 200, { ok: true, provider: provider.name, model: provider.model });
   }
 
   if (req.method === 'POST' && (pathname === '/v1/summarize' || pathname === '/v1/chat')) {
@@ -139,21 +141,39 @@ function hasAnthropicCredentials() {
   }
 }
 
+/**
+ * Pick the LLM behind the gateway. FREN_LLM_PROVIDER forces a choice;
+ * otherwise whichever key is present wins, DeepSeek first. Anything that
+ * fails to construct degrades to the offline mock rather than taking the
+ * app down — fren stays usable without a model.
+ */
 function pickProvider() {
   const forced = (process.env.FREN_LLM_PROVIDER || '').toLowerCase();
+  const attempt = (make, label) => {
+    try {
+      return make();
+    } catch (err) {
+      console.warn(`[gateway] ${label} unavailable (${err.message}); falling back to mock`);
+      return null;
+    }
+  };
+
   if (forced === 'mock') return createMockProvider();
-  if (forced !== 'anthropic' && !hasAnthropicCredentials()) {
-    console.warn(
-      '[gateway] no Anthropic credentials found (set ANTHROPIC_API_KEY in .env); using mock provider'
-    );
-    return createMockProvider();
+  if (forced === 'deepseek') return attempt(createDeepSeekProvider, 'deepseek') || createMockProvider();
+  if (forced === 'anthropic') return attempt(createAnthropicProvider, 'anthropic') || createMockProvider();
+
+  if (process.env.DEEPSEEK_API_KEY) {
+    const p = attempt(createDeepSeekProvider, 'deepseek');
+    if (p) return p;
   }
-  try {
-    return createAnthropicProvider();
-  } catch (err) {
-    console.warn(`[gateway] anthropic provider unavailable (${err.message}); falling back to mock`);
-    return createMockProvider();
+  if (hasAnthropicCredentials()) {
+    const p = attempt(createAnthropicProvider, 'anthropic');
+    if (p) return p;
   }
+  console.warn(
+    '[gateway] no model credentials found (set DEEPSEEK_API_KEY or ANTHROPIC_API_KEY in .env); using mock provider'
+  );
+  return createMockProvider();
 }
 
 if (require.main === module) {
@@ -162,7 +182,7 @@ if (require.main === module) {
   const server = createServer(provider);
   server.listen(config.GATEWAY_PORT, '127.0.0.1', () => {
     console.log(
-      `[gateway] listening on http://127.0.0.1:${config.GATEWAY_PORT} (provider=${provider.name}, model=${config.MODEL})`
+      `[gateway] listening on http://127.0.0.1:${config.GATEWAY_PORT} (provider=${provider.name}, model=${provider.model})`
     );
   });
 }

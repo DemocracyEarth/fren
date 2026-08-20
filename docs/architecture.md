@@ -13,14 +13,14 @@ architecture as though it were built.
 │  │   mascot UI     │     │      observer        │                                            │
 │  │  (renderer)     │     │    (main process)    │                                            │
 │  │                 │     │                      │                                            │
-│  │  orb + eyes     │ IPC │  every 5s:           │                                            │
-│  │  states:        │◄───►│   active app         │                                            │
-│  │   sleeping      │     │    (lsappinfo)       │                                            │
-│  │   watching      │     │   window title       │                                            │
-│  │   thinking      │     │    (System Events /  │                                            │
-│  │   idea          │     │     osascript)       │                                            │
-│  │  chat panel     │     │  every ~15s:         │                                            │
-│  └─────────────────┘     │   screenshot         │                                            │
+│  │  sphere + face  │ IPC │  every 5s:           │                                            │
+│  │  27 emotions,   │◄───►│   active app         │                                            │
+│  │  spring-driven  │     │    (lsappinfo)       │                                            │
+│  │  lit  = awake   │     │   window title       │                                            │
+│  │  dark = private │     │    (System Events /  │                                            │
+│  │  chat panel     │     │     osascript)       │                                            │
+│  └─────────────────┘     │  every ~15s:         │                                            │
+│                          │   screenshot         │                                            │
 │           ▲              │    (desktopCapturer  │                                            │
 │           │              │     → local JPEG)    │                                            │
 │           │              └──────────┬───────────┘                                            │
@@ -44,7 +44,7 @@ architecture as though it were built.
                                                      │   local gateway               │
                                                      │   (apps/gateway, node:http)   │
                                                      │                               │
-                                                     │   holds ANTHROPIC_API_KEY     │
+                                                     │   holds the API key           │
                                                      │   holds all prompts           │
                                                      │   (packages/intelligence)     │
                                                      │                               │
@@ -52,11 +52,11 @@ architecture as though it were built.
                                                      │   POST /v1/summarize          │
                                                      │   POST /v1/chat               │
                                                      └───────────────┬───────────────┘
-                                                                     │ @anthropic-ai/sdk
+                                                                     │ provider call
                                                                      ▼
                                                      ┌───────────────────────────────┐
-                                                     │   Anthropic API               │
-                                                     │   claude-haiku-4-5            │
+                                                     │   DeepSeek / Anthropic        │
+                                                     │   (provider-chosen model)     │
                                                      │   (mock provider when no      │
                                                      │   SDK/credentials available)  │
                                                      └───────────────────────────────┘
@@ -74,15 +74,18 @@ Plain CommonJS, no build step, single window (the orb; the chat panel is part of
 the same window). The main process owns all state and all capture; the renderer
 only draws and forwards clicks over IPC.
 
-**Mascot UI (renderer).** Draws the orb and its eyes, animates the four states
-(`sleeping`, `watching`, `thinking`, `idea`), and hosts the chat panel. It holds
-no logic about observation — it renders whatever state the main process
-broadcasts.
+**Mascot UI (renderer).** Draws the sphere and hosts the chat panel. The face
+(`renderer/face/face.js`) is one shared parameter space — colour, glow, lids,
+gaze, mouth, tilt — with a spring per parameter, so its 27 emotions blend into
+one another rather than switching. It holds no logic about observation: every
+face change is funnelled through a privacy check against the state the main
+process broadcasts, so it cannot look awake while capture is off.
 
 **App state (`main/state.js`).** A tiny observable store and the single source
 of truth for `observing`, `mascot`, `panelOpen`, `gatewayOk`. The privacy
-invariant — eyes open if and only if capture is running — holds because
-`observing` is only ever changed together with observer start/stop calls.
+invariant — lit if and only if capture is running — holds because `observing`
+is only ever changed together with observer start/stop calls, and the renderer
+routes every face change through a check on it.
 
 **Observer (main process).** While observing, samples every 5 seconds: active
 app via `lsappinfo`, window title via System Events over `osascript`. Every 3rd
@@ -101,11 +104,22 @@ newest 200. Screenshots are never part of the request.
 
 A plain `node:http` server on `127.0.0.1:4519`, guarded by a shared bearer token
 (`FREN_GATEWAY_TOKEN`, dev default `dev-token`). It is the only process that
-holds Anthropic credentials, and the only place prompts live. Endpoints:
-`GET /health`, `POST /v1/summarize`, `POST /v1/chat`. It calls
-`claude-haiku-4-5` via `@anthropic-ai/sdk`; when the SDK or credentials are
-unavailable (or `FREN_LLM_PROVIDER=mock`), it falls back to a mock provider so
-the whole system runs offline.
+holds provider credentials, and the only place prompts live. Endpoints:
+`GET /health`, `POST /v1/summarize`, `POST /v1/chat`.
+
+Providers live in `apps/gateway/providers/` behind one interface —
+`complete({system, messages, schema, maxTokens}) -> string` — so swapping the
+model never touches the desktop app:
+
+| Provider | Model | How |
+|---|---|---|
+| `deepseek` | `deepseek-chat` | plain `fetch`, OpenAI-compatible; JSON mode for structured replies |
+| `anthropic` | `claude-haiku-4-5` | `@anthropic-ai/sdk`, JSON Schema structured outputs |
+| `mock` | — | deterministic, offline, no credentials |
+
+The choice comes from `FREN_LLM_PROVIDER` when set, otherwise from whichever
+key is present (DeepSeek first). Anything that fails to construct degrades to
+the mock rather than taking the app down, so fren stays usable without a model.
 
 ### `packages/shared` — config, env, types
 

@@ -14,6 +14,7 @@ loadEnv();
 // talks to the LLM provider. .env is shared with the gateway, so scrub here.
 delete process.env.ANTHROPIC_API_KEY;
 delete process.env.ANTHROPIC_AUTH_TOKEN;
+delete process.env.DEEPSEEK_API_KEY;
 
 const ORB_SIZE = { width: 148, height: 148 };
 const PANEL_SIZE = { width: 344, height: 566 };

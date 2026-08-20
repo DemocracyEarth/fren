@@ -23,5 +23,8 @@ module.exports = {
   GATEWAY_PORT: 4519,
   GATEWAY_URL: process.env.FREN_GATEWAY_URL || 'http://127.0.0.1:4519',
   GATEWAY_TOKEN: process.env.FREN_GATEWAY_TOKEN || 'dev-token',
-  MODEL: process.env.FREN_MODEL || 'claude-haiku-4-5',
+  // Explicit override only — each provider falls back to its own default,
+  // so switching providers doesn't require also changing the model.
+  MODEL: process.env.FREN_MODEL || '',
+  DEEPSEEK_BASE_URL: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
 };

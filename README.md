@@ -52,9 +52,9 @@ accurate and useful enough to chat with?
                                        │  chat text — NEVER screenshots)
                                        ▼
                              ┌──────────────────┐        ┌───────────────┐
-                             │  local gateway   │  ───→  │ Anthropic API │
-                             │  (holds API key, │        │ claude-haiku- │
-                             │  prompts)        │        │ 4-5           │
+                             │  local gateway   │  ───→  │ DeepSeek  or  │
+                             │  (holds API key, │        │ Anthropic     │
+                             │  prompts)        │        │ (or mock)     │
                              └──────────────────┘        └───────────────┘
 ```
 
@@ -65,8 +65,11 @@ accurate and useful enough to chat with?
   text only, never screenshots — to the local gateway, which asks the model for
   a compact summary ("debugging the auth flow in VS Code and Chrome"). That
   summary is stored as a memory. Old raw data is pruned.
-- The **gateway** is a separate local process that holds the Anthropic API key
-  and all prompts. The desktop app never touches provider credentials.
+- The **gateway** is a separate local process that holds the API key and all
+  prompts. It picks a provider from whichever key is present — DeepSeek or
+  Anthropic — and falls back to an offline mock when there is none. The desktop
+  app never touches provider credentials and never learns which model answered,
+  so providers can be swapped without changing the client.
 - The **chat panel** lets you ask questions; fren answers using its stored
   memories.
 
@@ -78,7 +81,7 @@ Requirements: macOS, Node.js >= 23 (for built-in `node:sqlite`).
 
 ```sh
 npm install
-cp .env.example .env     # set ANTHROPIC_API_KEY, or leave empty for mock mode
+cp .env.example .env     # set DEEPSEEK_API_KEY or ANTHROPIC_API_KEY (empty = mock mode)
 npm start                # starts the gateway and the desktop app together
 ```
 

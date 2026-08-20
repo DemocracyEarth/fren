@@ -26,7 +26,7 @@ test('GET /health is unauthenticated and reports provider + model', async () => 
   const body = await res.json();
   assert.equal(body.ok, true);
   assert.equal(body.provider, 'mock');
-  assert.equal(body.model, config.MODEL);
+  assert.equal(body.model, config.MODEL || 'mock');
 });
 
 test('POST /v1/summarize returns a parsed summary', async () => {
