@@ -14,5 +14,8 @@ contextBridge.exposeInMainWorld('fren', {
   chat: async () => ({ reply: 'ok' }),
   setPanelOpen: async () => {},
   quit: async () => {},
+  dragStart: async () => {},
+  dragEnd: async () => ({ moved: false }),
+  onCursor: () => {},
   onStateChanged: () => {},
 });

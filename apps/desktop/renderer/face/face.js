@@ -30,9 +30,9 @@
   // tilt/bob/squash     head tilt, vertical offset, squash & stretch
   // glow         ambient light spilling behind the sphere
   const NEUTRAL = {
-    hue: 26, sat: 0.6, lum: 0.62, lit: 1,
+    hue: 29, sat: 0.8, lum: 0.58, lit: 1,
     eyeR: 1, lidTop: 0, lidBot: 0, lidCurve: 0, lidTilt: 0, wink: 0,
-    lookX: 0, lookY: 0,
+    lookX: 0, lookY: 0, gazeX: 0, gazeY: 0,
     mouthW: 1, mouthOpen: 0.34, mouthCurve: 1,
     tilt: 0, bob: 0, squash: 0, glow: 0.5,
   };
@@ -45,26 +45,26 @@
                    mouthOpen: 0.12, mouthW: 0.62, mouthCurve: 0.85, glow: 0.06 }),
     sleeping:  E({ hue: 26, sat: 0.13, lum: 0.4, lit: 0.03, lidTop: 0.97, lidCurve: 0.6, lidTilt: 0.32,
                    mouthOpen: 0.1, mouthW: 0.5, mouthCurve: 0.7, glow: 0.04, bob: 1.2 }),
-    waking:    E({ hue: 26, sat: 0.42, lum: 0.56, lit: 0.55, lidTop: 0.38, lidTilt: 0.2, eyeR: 1.04,
+    waking:    E({ hue: 28, sat: 0.55, lum: 0.55, lit: 0.55, lidTop: 0.38, lidTilt: 0.2, eyeR: 1.04,
                    mouthOpen: 0.28, glow: 0.3 }),
 
     // — awake and working: warm skin tone, cooling as it concentrates —
-    neutral:   E({}),
-    watching:  E({ hue: 28, sat: 0.66, lum: 0.63, eyeR: 1.06, mouthOpen: 0.42, mouthW: 1.05, glow: 0.6 }),
-    listening: E({ hue: 30, sat: 0.6, lum: 0.63, eyeR: 1.1, mouthOpen: 0.2, mouthW: 0.8, tilt: -5, glow: 0.62 }),
+    neutral:   E({ hue: 29, sat: 0.80, lum: 0.58 }),
+    watching:  E({ hue: 30, sat: 0.84, lum: 0.58, eyeR: 1.06, mouthOpen: 0.42, mouthW: 1.05, glow: 0.6 }),
+    listening: E({ hue: 31, sat: 0.80, lum: 0.59, eyeR: 1.1, mouthOpen: 0.2, mouthW: 0.8, tilt: -5, glow: 0.62 }),
     thinking:  E({ hue: 208, sat: 0.4, lum: 0.58, eyeR: 0.86, lidTop: 0.3, lidTilt: 0.12,
                    lookX: 0.55, lookY: -0.5, mouthOpen: 0.12, mouthW: 0.52, mouthCurve: 0.2, tilt: 4, glow: 0.5 }),
     processing:E({ hue: 202, sat: 0.36, lum: 0.56, eyeR: 0.7, lidTop: 0.36,
                    mouthOpen: 0.1, mouthW: 0.46, mouthCurve: 0, glow: 0.45 }),
-    talking:   E({ hue: 28, sat: 0.64, lum: 0.63, eyeR: 1.04, mouthOpen: 0.6, mouthW: 0.95, glow: 0.62 }),
+    talking:   E({ hue: 30, sat: 0.82, lum: 0.59, eyeR: 1.04, mouthOpen: 0.6, mouthW: 0.95, glow: 0.62 }),
 
     // — the good feelings: warmer, brighter, more saturated —
-    happy:     E({ hue: 34, sat: 0.76, lum: 0.64, lidBot: 0.52, lidCurve: 1, mouthOpen: 0.5, mouthW: 1.1, glow: 0.74 }),
-    delighted: E({ hue: 38, sat: 0.84, lum: 0.66, lidBot: 0.6, lidCurve: 1, mouthOpen: 0.78, mouthW: 1.2,
+    happy:     E({ hue: 36, sat: 0.86, lum: 0.60, lidBot: 0.52, lidCurve: 1, mouthOpen: 0.5, mouthW: 1.1, glow: 0.74 }),
+    delighted: E({ hue: 40, sat: 0.90, lum: 0.62, lidBot: 0.6, lidCurve: 1, mouthOpen: 0.78, mouthW: 1.2,
                    bob: -2.5, glow: 0.88 }),
-    idea:      E({ hue: 46, sat: 0.92, lum: 0.68, lit: 1.15, eyeR: 1.28, lidTop: -0.12,
+    idea:      E({ hue: 46, sat: 0.95, lum: 0.64, lit: 1.15, eyeR: 1.28, lidTop: -0.12,
                    mouthOpen: 0.66, mouthW: 1.12, bob: -3.5, glow: 1 }),
-    proud:     E({ hue: 32, sat: 0.72, lum: 0.64, lidBot: 0.45, lidCurve: 0.9, lidTilt: -0.2,
+    proud:     E({ hue: 33, sat: 0.84, lum: 0.60, lidBot: 0.45, lidCurve: 0.9, lidTilt: -0.2,
                    mouthOpen: 0.26, mouthW: 0.76, lookY: -0.2, tilt: -6, glow: 0.72 }),
     love:      E({ hue: 348, sat: 0.66, lum: 0.66, lidBot: 0.58, lidCurve: 1,
                    mouthOpen: 0.56, mouthW: 1.06, glow: 0.9 }),
@@ -72,7 +72,7 @@
                    mouthOpen: 0.3, mouthW: 0.9, mouthCurve: 0.75, tilt: -8, lookX: 0.35, glow: 0.72 }),
 
     // — the rest of the range —
-    curious:   E({ hue: 40, sat: 0.6, lum: 0.64, eyeR: 1.16, lookX: 0.4,
+    curious:   E({ hue: 38, sat: 0.78, lum: 0.61, eyeR: 1.16, lookX: 0.4,
                    mouthOpen: 0.24, mouthW: 0.5, mouthCurve: 0.5, tilt: -9, glow: 0.66 }),
     surprised: E({ hue: 48, sat: 0.78, lum: 0.68, eyeR: 1.4, lidTop: -0.18,
                    mouthOpen: 0.82, mouthW: 0.46, mouthCurve: 0, bob: -2, glow: 0.82 }),
@@ -84,17 +84,17 @@
                    mouthOpen: 0.18, mouthW: 0.66, mouthCurve: -0.85, bob: 2.2, glow: 0.26 }),
     bored:     E({ hue: 30, sat: 0.13, lum: 0.52, lit: 0.85, eyeR: 0.9, lidTop: 0.52, lidTilt: 0.35,
                    lookX: -0.5, lookY: 0.15, mouthOpen: 0.12, mouthW: 0.6, mouthCurve: -0.1, glow: 0.3 }),
-    wink:      E({ hue: 34, sat: 0.72, lum: 0.64, wink: 1, lidBot: 0.3, lidCurve: 0.9,
+    wink:      E({ hue: 34, sat: 0.85, lum: 0.60, wink: 1, lidBot: 0.3, lidCurve: 0.9,
                    mouthOpen: 0.34, mouthW: 0.9, mouthCurve: 0.9, tilt: -5, glow: 0.72 }),
-    laughing:  E({ hue: 36, sat: 0.82, lum: 0.66, lidBot: 0.68, lidCurve: 1,
+    laughing:  E({ hue: 38, sat: 0.88, lum: 0.62, lidBot: 0.68, lidCurve: 1,
                    mouthOpen: 0.95, mouthW: 1.15, tilt: -3, bob: -2, glow: 0.9 }),
     annoyed:   E({ hue: 12, sat: 0.5, lum: 0.56, eyeR: 0.92, lidTop: 0.3, lidTilt: -0.55,
                    mouthOpen: 0.14, mouthW: 0.66, mouthCurve: -0.3, glow: 0.42 }),
     alert:     E({ hue: 190, sat: 0.5, lum: 0.66, eyeR: 1.3, lidTop: -0.14,
                    mouthOpen: 0.22, mouthW: 0.5, mouthCurve: 0.3, glow: 0.8 }),
-    relieved:  E({ hue: 30, sat: 0.55, lum: 0.63, lidTop: 0.82, lidCurve: 0.5, lidTilt: 0.2,
+    relieved:  E({ hue: 30, sat: 0.72, lum: 0.60, lidTop: 0.82, lidCurve: 0.5, lidTilt: 0.2,
                    mouthOpen: 0.3, mouthW: 0.86, mouthCurve: 0.9, glow: 0.62 }),
-    oops:      E({ hue: 6, sat: 0.64, lum: 0.6, eyeR: 1.2, lidTop: -0.05,
+    oops:      E({ hue: 8, sat: 0.75, lum: 0.58, eyeR: 1.2, lidTop: -0.05,
                    mouthOpen: 0.3, mouthW: 1.14, mouthCurve: -0.2, tilt: 6, glow: 0.58 }),
   };
 
@@ -110,15 +110,17 @@
   const SPRING = {
     _default: [150, 15],
     lidTop: [320, 24], lidBot: [260, 22], lidTilt: [220, 20], wink: [300, 24],
-    lookX: [200, 20], lookY: [200, 20],
+    lookX: [200, 20], lookY: [200, 20], gazeX: [150, 19], gazeY: [150, 19],
     mouthOpen: [240, 20], bob: [120, 12], squash: [180, 14], tilt: [120, 13],
     eyeR: [220, 18], glow: [70, 14],
     hue: [55, 15], sat: [70, 17], lum: [70, 17], lit: [90, 18],
   };
 
   const SPHERE = { cx: 100, cy: 100, r: 74 };
-  const EYE = { dx: 30, y: 88, r: 16 };
-  const MOUTH_Y = 126;
+  // Proportions taken from the reference: small eyes set wide and high, with a
+  // broad, deep grin as the dominant feature.
+  const EYE = { dx: 36, y: 79, r: 10 };
+  const MOUTH_Y = 109;
 
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const el = (name, attrs) => {
@@ -141,6 +143,9 @@
       }
 
       this.id = 'fren' + ++uid;
+      this.eyeScale = opts.eyeScale || 1;
+      this.eyeGap = opts.eyeGap || 1;
+      this.mouthScale = opts.mouthScale || 1;
       // Start dark and closed. If anything upstream fails, the character must
       // look like it is NOT watching — the safe direction.
       this.p = Object.assign({}, NEUTRAL, EMOTIONS.private);
@@ -195,7 +200,10 @@
           </radialGradient>
           <clipPath id="${id}-clip"><circle cx="${SPHERE.cx}" cy="${SPHERE.cy}" r="${SPHERE.r}"/></clipPath>
           <filter id="${id}-bloom" x="-70%" y="-70%" width="240%" height="240%">
-            <feGaussianBlur stdDeviation="4"/>
+            <feGaussianBlur stdDeviation="3"/>
+          </filter>
+          <filter id="${id}-drop" x="-60%" y="-60%" width="220%" height="220%">
+            <feGaussianBlur stdDeviation="10"/>
           </filter>
           <filter id="${id}-haze" x="-120%" y="-120%" width="340%" height="340%">
             <feGaussianBlur stdDeviation="13"/>
@@ -214,6 +222,7 @@
             <path class="mouth"/>
           </g>
         </defs>
+        <ellipse class="drop" filter="url(#${id}-drop)"/>
         <ellipse class="amb"/>
         <g class="body" style="isolation:isolate">
           <circle class="sphere"/>
@@ -233,7 +242,7 @@
       const q = (s) => svg.querySelector(s);
       this.svg = svg;
       this.g = {
-        amb: q('.amb'), body: q('.body'), sphere: q('.sphere'), rim: q('.rim'),
+        drop: q('.drop'), amb: q('.amb'), body: q('.body'), sphere: q('.sphere'), rim: q('.rim'),
         spec: q('.spec'), hotspot: q('.hotspot'), bloom: q('.bloom'), haze: q('.haze'),
         core: q('.core'), vig: q('.vig'), fx: q('.fx'),
         eyeL: q(`#${id}-feat .eyeL`), eyeR: q(`#${id}-feat .eyeR`),
@@ -249,11 +258,13 @@
       // Geometry that never changes is written once, not every frame.
       const set = (node, attrs) => { for (const k in attrs) node.setAttribute(k, attrs[k]); };
       set(this.g.sphere, { ...SPHERE, fill: `url(#${id}-body)` });
-      set(this.g.spec, { cx: 73, cy: 54, rx: 27, ry: 18, transform: 'rotate(-22 73 54)', fill: `url(#${id}-spec)` });
-      set(this.g.hotspot, { cx: 69, cy: 48, rx: 9, ry: 6, transform: 'rotate(-22 69 48)', fill: '#fff', opacity: '.5' });
+      set(this.g.spec, { cx: 70, cy: 44, rx: 25, ry: 15, transform: 'rotate(-22 70 44)', fill: `url(#${id}-spec)` });
+      set(this.g.hotspot, { cx: 66, cy: 40, rx: 8, ry: 5, transform: 'rotate(-22 66 40)', fill: '#fff', opacity: '.55' });
       set(this.g.vig, { ...SPHERE, fill: `url(#${id}-vig)` });
       set(this.g.rim, { cx: 100, cy: 160, rx: 62, ry: 30, fill: `url(#${id}-rim)` });
       set(this.g.amb, { cx: 100, cy: 112, rx: 98, ry: 92, fill: `url(#${id}-amb)` });
+      // Cast down and slightly right, matching the upper-left key light.
+      set(this.g.drop, { cx: 110, cy: 124, rx: 68, ry: 60, fill: '#000', opacity: '.5' });
     }
 
     _wake() {
@@ -297,6 +308,26 @@
         Object.assign(this.p, this.target);
         for (const k in this.v) this.v[k] = 0;
       }
+      this._wake();
+    }
+
+    /**
+     * Aim the eyes at something, in normalized -1..1 screen-space offsets.
+     * While this is being called, the idle wandering glance stands down —
+     * fren is paying attention to you instead of daydreaming.
+     */
+    lookAt(nx, ny) {
+      this.target.gazeX = clamp(nx, -1, 1);
+      this.target.gazeY = clamp(ny, -1, 1);
+      this.trackingUntil = this.t + 2.5;
+      this._wake();
+    }
+
+    /** Stop tracking and let the gaze drift back to centre. */
+    lookAway() {
+      this.target.gazeX = 0;
+      this.target.gazeY = 0;
+      this.trackingUntil = 0;
       this._wake();
     }
 
@@ -352,8 +383,13 @@
       }
       if (this.blink > 0) this.blink = Math.max(0, this.blink - dt * 7.5);
 
+      // Following the cursor takes precedence over idle daydreaming.
+      if (this.t < (this.trackingUntil || 0)) {
+        this.glance = { x: 0, y: 0 };
+        this.nextGlance = 1.2;
+      }
       this.nextGlance -= dt;
-      if (this.nextGlance <= 0) {
+      if (this.nextGlance <= 0 && this.t >= (this.trackingUntil || 0)) {
         const still = Math.abs(this.target.lookX) < 0.05 && Math.abs(this.target.lookY) < 0.05;
         this.glance = still && awake && Math.random() > 0.35
           ? { x: (Math.random() - 0.5) * 0.7, y: (Math.random() - 0.5) * 0.4 }
@@ -385,9 +421,12 @@
       const drift = this.reduced ? 0 : Math.sin(this.t * 0.7) * 0.9;
 
       const sq = 1 + p.squash;
+      // A little parallax toward whatever it is looking at sells the volume.
+      const leanX = p.gazeX * 3.5;
+      const leanY = p.gazeY * 2.5;
       g.body.setAttribute(
         'transform',
-        `translate(100 ${100 + p.bob + breathe}) rotate(${p.tilt + drift}) scale(${1 / sq} ${sq}) translate(-100 -100)`
+        `translate(${100 + leanX} ${100 + leanY + p.bob + breathe}) rotate(${p.tilt + drift}) scale(${1 / sq} ${sq}) translate(-100 -100)`
       );
 
       // ---- the sphere: one surface, lit from the upper left ----
@@ -418,23 +457,24 @@
       const coreColor = hsl(h, lerp(s * 0.55, s * 0.22, clamp(lit, 0, 1)), lerp(l - 0.15, 0.97, clamp(lit, 0, 1)));
       const bloomColor = hsl(h, Math.min(1, s * 1.15), lerp(l, 0.82, clamp(lit, 0, 1)));
       g.core.style.color = coreColor;
-      g.core.setAttribute('opacity', (0.86 + clamp(lit, 0, 1) * 0.1).toFixed(3));
+      g.core.setAttribute('opacity', (0.9 + clamp(lit, 0, 1) * 0.1).toFixed(3));
       g.bloom.style.color = bloomColor;
       g.bloom.setAttribute('opacity', (clamp(lit, 0, 1.2) * 0.9).toFixed(3));
       g.haze.style.color = bloomColor;
-      g.haze.setAttribute('opacity', (clamp(lit, 0, 1.2) * 0.55).toFixed(3));
+      g.haze.setAttribute('opacity', (clamp(lit, 0, 1.2) * 0.42).toFixed(3));
       g.v1.setAttribute('stop-opacity', (0.3 + (1 - clamp(lit, 0, 1)) * 0.12).toFixed(3));
 
       // ---- eyes ----
-      const lookX = (p.lookX + this.glance.x) * 7;
-      const lookY = (p.lookY + this.glance.y) * 5;
-      const r = EYE.r * clamp(p.eyeR, 0.2, 2);
+      const lookX = (p.lookX + this.glance.x + p.gazeX * 0.85) * 7;
+      const lookY = (p.lookY + this.glance.y + p.gazeY * 0.7) * 5;
+      const r = EYE.r * this.eyeScale * clamp(p.eyeR, 0.2, 2);
       const lidBase = p.lidTop + this.blink;
       const lidL = clamp(lidBase + clamp(-p.wink, 0, 1), 0, 1.25);
       const lidR = clamp(lidBase + clamp(p.wink, 0, 1), 0, 1.25);
       const shut = (v) => clamp((v - 0.72) / 0.28, 0, 1);
-      this._eye(g.eyeL, g.maskL, g.lidLineL, 100 - EYE.dx + lookX, EYE.y + lookY, r, lidL, p.lidBot, p.lidCurve, shut(lidL), p.lidTilt, -1);
-      this._eye(g.eyeR, g.maskR, g.lidLineR, 100 + EYE.dx + lookX, EYE.y + lookY, r, lidR, p.lidBot, p.lidCurve, shut(lidR), p.lidTilt, 1);
+      const dx = EYE.dx * this.eyeGap;
+      this._eye(g.eyeL, g.maskL, g.lidLineL, 100 - dx + lookX, EYE.y + lookY, r, lidL, p.lidBot, p.lidCurve, shut(lidL), p.lidTilt, -1);
+      this._eye(g.eyeR, g.maskR, g.lidLineR, 100 + dx + lookX, EYE.y + lookY, r, lidR, p.lidBot, p.lidCurve, shut(lidR), p.lidTilt, 1);
 
       // ---- mouth ----
       let open = clamp(p.mouthOpen, 0, 1);
@@ -489,9 +529,9 @@
      * Control offsets are doubled — a quadratic only reaches half of them.
      */
     _mouthPath(cx, cy, wScale, open, curve) {
-      const w = 32 * clamp(wScale, 0.2, 1.6);
+      const w = 42 * this.mouthScale * clamp(wScale, 0.2, 1.6);
       const c = clamp(curve, -1, 1);
-      const depth = 8 + open * 30;
+      const depth = 11 + open * 40;
       if (c >= 0) {
         // The signature grin: flat top edge, deep bowl beneath it.
         const topBow = -open * 4;

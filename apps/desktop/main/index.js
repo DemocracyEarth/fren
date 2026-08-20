@@ -21,6 +21,8 @@ const MARGIN = 24;
 
 let win = null;
 let memory = null;
+let gazeTimer = null;
+let drag = null;
 let observer = null;
 let summarizer = null;
 
@@ -56,13 +58,50 @@ function createWindow() {
   positionWindow(ORB_SIZE);
 }
 
+function orbCenter() {
+  const b = win.getBounds();
+  return { x: b.x + b.width - 74, y: b.y + b.height - 74 };
+}
+
+/**
+ * Let fren glance at the pointer, so it reads as paying attention to your
+ * work. The cursor position is used for gaze only — never stored, never
+ * summarized, never sent anywhere — and it is only sampled while observing,
+ * because closed eyes have nothing to follow.
+ */
+function startGaze() {
+  if (gazeTimer) return;
+  const FALLOFF = 420;   // px at which the eyes are fully deflected
+  let lastX = 0;
+  let lastY = 0;
+  gazeTimer = setInterval(() => {
+    if (!win || win.isDestroyed() || drag) return;
+    const c = screen.getCursorScreenPoint();
+    const o = orbCenter();
+    const nx = Math.max(-1, Math.min(1, (c.x - o.x) / FALLOFF));
+    const ny = Math.max(-1, Math.min(1, (c.y - o.y) / FALLOFF));
+    if (Math.abs(nx - lastX) < 0.02 && Math.abs(ny - lastY) < 0.02) return;
+    lastX = nx;
+    lastY = ny;
+    win.webContents.send('fren:cursor', { x: nx, y: ny });
+  }, 70);
+}
+
+function stopGaze() {
+  if (gazeTimer) clearInterval(gazeTimer);
+  gazeTimer = null;
+  if (win && !win.isDestroyed()) win.webContents.send('fren:cursor', null);
+}
+
 function startObserving() {
   observer.start();
+  startGaze();
   state.set({ observing: true }); // mascot is computed from this
 }
 
 function stopObserving() {
   observer.stop();
+  stopGaze();
   state.set({ observing: false });
 }
 
@@ -121,6 +160,29 @@ app.whenReady().then(() => {
     state.set({ panelOpen: !!open });
   });
 
+  ipcMain.handle('fren:dragStart', () => {
+    const cursor = screen.getCursorScreenPoint();
+    const b = win.getBounds();
+    drag = { dx: cursor.x - b.x, dy: cursor.y - b.y, moved: false, timer: null };
+    drag.timer = setInterval(() => {
+      if (!drag || !win || win.isDestroyed()) return;
+      const c = screen.getCursorScreenPoint();
+      const x = c.x - drag.dx;
+      const y = c.y - drag.dy;
+      const cur = win.getBounds();
+      if (Math.abs(x - cur.x) > 2 || Math.abs(y - cur.y) > 2) drag.moved = true;
+      win.setPosition(x, y);
+    }, 16);
+  });
+
+  ipcMain.handle('fren:dragEnd', () => {
+    if (!drag) return { moved: false };
+    clearInterval(drag.timer);
+    const moved = drag.moved;
+    drag = null;
+    return { moved };
+  });
+
   ipcMain.handle('fren:quit', () => app.quit());
 
   ipcMain.handle('fren:chat', async (_e, text) => {
@@ -150,6 +212,8 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => app.quit());
 
 app.on('before-quit', () => {
+  if (gazeTimer) clearInterval(gazeTimer);
+  if (drag) clearInterval(drag.timer);
   if (observer) observer.stop();
   if (summarizer) summarizer.stop();
   if (memory) memory.close();

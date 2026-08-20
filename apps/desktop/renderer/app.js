@@ -10,6 +10,9 @@ if (!window.fren && location.protocol !== 'file:') {
     chat: async () => ({ reply: 'Running outside Electron, so this is a canned reply.' }),
     setPanelOpen: async () => {},
     quit: async () => {},
+    dragStart: async () => {},
+    dragEnd: async () => ({ moved: false }),
+    onCursor: () => {},
     onStateChanged: () => {},
   };
 }
@@ -169,14 +172,33 @@ async function sendMessage(text) {
   }
 }
 
-els.orb.addEventListener('click', async () => {
+async function togglePanel() {
   const nextOpen = !state.panelOpen;
   face.pulse('bounce');
   await window.fren.setPanelOpen(nextOpen);   // main resizes the window first
   state.panelOpen = nextOpen;
   els.panel.hidden = !nextOpen;
   if (nextOpen) els.input.focus();
+}
+
+// Press and drag to carry fren anywhere on screen; press and release without
+// moving to open the panel. Main owns the window position, so it also tells us
+// whether this gesture was a drag or a click.
+let pressing = false;
+els.orb.addEventListener('mousedown', (e) => {
+  if (e.button !== 0) return;
+  pressing = true;
+  window.fren.dragStart();
 });
+window.addEventListener('mouseup', async () => {
+  if (!pressing) return;
+  pressing = false;
+  const { moved } = (await window.fren.dragEnd()) || {};
+  if (!moved) togglePanel();     // a click, not a reposition
+});
+
+// Keyboard activation still opens the panel (detail 0 == not a mouse click).
+els.orb.addEventListener('click', (e) => { if (e.detail === 0) togglePanel(); });
 
 // The character notices the cursor.
 els.orb.addEventListener('mouseenter', () => { if (!speaking && state.observing) setFace('curious'); });
@@ -204,6 +226,12 @@ for (const chip of document.querySelectorAll('.chip')) {
     els.send.disabled = true;
     return;
   }
+  // fren glances toward the pointer while it's watching, so it reads as
+  // paying attention to what you're doing.
+  window.fren.onCursor((point) => {
+    if (!point || !state.observing || speaking) return face.lookAway();
+    face.lookAt(point.x, point.y);
+  });
   window.fren.onStateChanged(render);          // subscribe before the first fetch
   render(await window.fren.getState());
   setFace(emotionFor(state), { immediate: true });
