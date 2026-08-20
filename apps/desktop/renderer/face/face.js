@@ -58,6 +58,13 @@
     tongue: 0, blush: 0,
     squash: 0, lean: 0, bob: 0, tilt: 0, glow: 0.5,
   };
+  // Accents are comic shorthand, not parameters — they don't blend.
+  const ACCENT = {
+    excited: 'sparkle', joyful: 'sparkle', love: 'sparkle', overjoyed: 'sparkle',
+    realization: 'impact', surprised: 'impact',
+    worried: 'sweat', confused: 'sweat', shy: 'sweat',
+    annoyed: 'vein', determined: 'vein',
+  };
   const E = (o) => Object.assign({}, NEUTRAL, o);
 
   // Expressions from the guide. Nothing here resizes an eye to emote — only
@@ -73,8 +80,8 @@
 
     thinking:     E({ mouthOpen: 0.05, mouthW: 0.42, mouthCurve: 0.1, mouthWave: 0.5, tilt: 4, glow: 0.5 }),
     curious:      E({ eyeAsym: 0.45, mouthOpen: 0.34, mouthW: 0.24, mouthCurve: 0, tilt: -8, glow: 0.6 }),
-    surprised:    E({ mouthOpen: 0.46, mouthW: 0.22, mouthCurve: 0, squash: -0.05, bob: -1.5, glow: 0.7 }),
-    realization:  E({ mouthOpen: 0.5, mouthW: 0.26, mouthCurve: 0, tone: 0.08, squash: -0.07, bob: -3, glow: 0.9 }),
+    surprised:    E({ mouthOpen: 0.46, mouthW: 0.22, mouthCurve: 0, bob: -1.5, glow: 0.7 }),
+    realization:  E({ mouthOpen: 0.5, mouthW: 0.26, mouthCurve: 0, tone: 0.08, bob: -3, glow: 0.9 }),
     focused:      E({ mouthOpen: 0.03, mouthW: 0.46, mouthCurve: 0, glow: 0.52 }),
     determined:   E({ mouthOpen: 0.03, mouthW: 0.52, mouthCurve: 0, lidTop: 0.12, lidTilt: -0.25, glow: 0.54 }),
 
@@ -82,7 +89,7 @@
     concerned:    E({ mouthOpen: 0.05, mouthW: 0.54, mouthCurve: -0.6, lidTilt: 0.35, glow: 0.44 }),
     worried:      E({ mouthOpen: 0.06, mouthW: 0.58, mouthCurve: -0.8, lidTilt: 0.45, glow: 0.4 }),
     sad:          E({ mouthOpen: 0.05, mouthW: 0.56, mouthCurve: -0.95, lidTilt: 0.6, lidTop: 0.12,
-                      bob: 2, squash: 0.05, glow: 0.3 }),
+                      bob: 2, squash: 0.035, glow: 0.3 }),
     disappointed: E({ mouthOpen: 0.04, mouthW: 0.5, mouthCurve: -0.7, lidTilt: 0.5, lidTop: 0.2, glow: 0.34 }),
     tired:        E({ lidTop: 0.55, lidTilt: 0.3, mouthOpen: 0.03, mouthW: 0.44, mouthCurve: -0.1, glow: 0.32 }),
 
@@ -118,8 +125,8 @@
                       mouthOpen: 0.2, mouthW: 0.14, mouthCurve: 0, glow: 0, bob: 1.2 }),
     waking:       E({ lit: 0.6, tone: -0.12, lidTop: 0.42, lidTilt: 0.2, mouthOpen: 0.1,
                       mouthW: 0.5, mouthCurve: 0.6, glow: 0.3 }),
-    watching:     E({ mouthOpen: 0.66, mouthW: 1.02, mouthCurve: 1, glow: 0.62 }),
-    listening:    E({ mouthOpen: 0.12, mouthW: 0.56, mouthCurve: 0.85, tilt: -5, glow: 0.6 }),
+    watching:     E({ mouthOpen: 0.2, mouthW: 0.66, mouthCurve: 0.9, glow: 0.62 }),
+    listening:    E({ mouthOpen: 0.14, mouthW: 0.6, mouthCurve: 0.9, tilt: -5, glow: 0.62 }),
     processing:   E({ lidTop: 0.3, mouthOpen: 0.04, mouthW: 0.4, mouthCurve: 0, glow: 0.46 }),
     talking:      E({ mouthOpen: 0.6, mouthW: 0.88, mouthCurve: 0.9, glow: 0.64 }),
   };
@@ -130,7 +137,8 @@
   EMOTIONS.delighted = EMOTIONS.joyful;
   EMOTIONS.mischief = EMOTIONS.cheeky;
   EMOTIONS.wink = EMOTIONS.playful;
-  EMOTIONS.annoyed = EMOTIONS.determined;
+  EMOTIONS.annoyed = E({ lidTop: 0.28, lidTilt: -0.55, mouthOpen: 0.06, mouthW: 0.5,
+                         mouthCurve: -0.35, glow: 0.46 });
   EMOTIONS.bored = EMOTIONS.tired;
   EMOTIONS.oops = EMOTIONS.surprised;
   EMOTIONS.alert = EMOTIONS.focused;
@@ -157,9 +165,12 @@
   };
 
   const R = 74;                       // sphere radius in a 200 viewBox
-  const EYE = { dx: 26, y: 84, r: 11 };
+  // Measured off the logo: eyes at 0.50R apart and 0.143R across, mouth
+  // 0.67R wide with a depth of 0.61 x its half-width — a shallow half-disc.
+  const EYE = { dx: 36, y: 88, r: 11 };
   const MOUTH_Y = 118;
-  const MOUTH_STROKE = 9;             // gives every mouth its rounded outline
+  const MOUTH_W = 48;
+  const MOUTH_STROKE = 8;             // gives every mouth its rounded outline
 
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const el = (name, attrs) => {
@@ -168,7 +179,7 @@
     return n;
   };
   const FINISH = {
-    glossy: { spec: 0.78, specR: 1, glow: 1 },
+    glossy: { spec: 0.95, specR: 1.08, glow: 1 },
     satin: { spec: 0.5, specR: 1.25, glow: 0.9 },
     matte: { spec: 0.22, specR: 1.5, glow: 0.7 },
     softGlow: { spec: 0.6, specR: 1.15, glow: 1.6 },
@@ -222,10 +233,12 @@
       svg.innerHTML = `
         <defs>
           <!-- 2/3/4: top light -> base -> shade, one hue -->
-          <radialGradient id="${id}-body" cx="36%" cy="26%" r="78%">
+          <radialGradient id="${id}-body" cx="35%" cy="24%" r="82%">
             <stop class="s0" offset="0%"/>
-            <stop class="s1" offset="52%"/>
-            <stop class="s2" offset="100%"/>
+            <stop class="sa" offset="26%"/>
+            <stop class="s1" offset="58%"/>
+            <stop class="s2" offset="88%"/>
+            <stop class="sb" offset="100%"/>
           </radialGradient>
           <!-- 1: strong, soft-edged specular -->
           <radialGradient id="${id}-spec">
@@ -249,16 +262,23 @@
           </radialGradient>
           <clipPath id="${id}-clip"><circle cx="100" cy="100" r="${R}"/></clipPath>
           <filter id="${id}-bloom" x="-70%" y="-70%" width="240%" height="240%">
-            <feGaussianBlur stdDeviation="3"/>
+            <feGaussianBlur stdDeviation="4.5"/>
           </filter>
           <filter id="${id}-soft" x="-60%" y="-60%" width="220%" height="220%">
-            <feGaussianBlur stdDeviation="6"/>
+            <feGaussianBlur stdDeviation="7"/>
           </filter>
+          <radialGradient id="${id}-eyeglow" cx="42%" cy="36%" r="72%">
+            <stop offset="0%" stop-color="#fff"/>
+            <stop offset="72%" stop-color="#fff"/>
+            <stop offset="100%" stop-color="#FFE0A8"/>
+          </radialGradient>
           <mask id="${id}-eyeL"><ellipse fill="#fff"/><path fill="#000"/><path fill="#000"/></mask>
           <mask id="${id}-eyeR"><ellipse fill="#fff"/><path fill="#000"/><path fill="#000"/></mask>
           <g id="${id}-feat" fill="currentColor">
             <rect class="eyeL" mask="url(#${id}-eyeL)"/>
             <rect class="eyeR" mask="url(#${id}-eyeR)"/>
+            <circle class="glowL" mask="url(#${id}-eyeL)" fill="url(#${id}-eyeglow)"/>
+            <circle class="glowR" mask="url(#${id}-eyeR)" fill="url(#${id}-eyeglow)"/>
             <path class="heartL"/><path class="heartR"/>
             <g class="crossL" stroke="currentColor" stroke-linecap="round" fill="none">
               <path/><path/>
@@ -295,6 +315,7 @@
         spec: q('.spec'), bloom: q('.bloom'), core: q('.core'), fx: q('.fx'),
         blushL: q('.blushL'), blushR: q('.blushR'), tongue: q('.tongue'),
         eyeL: q(`#${id}-feat .eyeL`), eyeR: q(`#${id}-feat .eyeR`),
+        glowL: q('.glowL'), glowR: q('.glowR'),
         heartL: q('.heartL'), heartR: q('.heartR'),
         crossL: q('.crossL'), crossR: q('.crossR'),
         crossLp: svg.querySelectorAll('.crossL path'),
@@ -302,7 +323,8 @@
         lidLineL: q('.lidLineL'), lidLineR: q('.lidLineR'), mouth: q('.mouth'),
         maskL: svg.querySelectorAll(`#${id}-eyeL > *`),
         maskR: svg.querySelectorAll(`#${id}-eyeR > *`),
-        s0: q(`#${id}-body .s0`), s1: q(`#${id}-body .s1`), s2: q(`#${id}-body .s2`),
+        s0: q(`#${id}-body .s0`), sa: q(`#${id}-body .sa`), s1: q(`#${id}-body .s1`),
+        s2: q(`#${id}-body .s2`), sb: q(`#${id}-body .sb`),
         p0: q(`#${id}-spec .p0`),
         r0: q(`#${id}-rim .r0`), r1: q(`#${id}-rim .r1`),
         o0: q(`#${id}-ao .o0`),
@@ -317,7 +339,7 @@
         transform: 'rotate(-24 74 52)', fill: `url(#${id}-spec)`,
       });
       set(this.g.rim, { cx: 100, cy: 156, rx: 60, ry: 30, fill: `url(#${id}-rim)` });
-      set(this.g.ao, { cx: 100, cy: 176, rx: 58, ry: 15, fill: `url(#${id}-ao)`, filter: `url(#${id}-soft)` });
+      set(this.g.ao, { cx: 103, cy: 180, rx: 66, ry: 19, fill: `url(#${id}-ao)`, filter: `url(#${id}-soft)` });
       set(this.g.amb, { cx: 100, cy: 108, rx: 96, ry: 92, fill: `url(#${id}-amb)` });
       this.g.p0.setAttribute('stop-opacity', f.spec.toFixed(2));
     }
@@ -459,16 +481,18 @@
       const s = clamp(BASE.s * p.sat, 0, 1);
       const l = clamp(BASE.l + p.tone, 0.06, 0.92);
       const lit = clamp(p.lit, 0, 1);
-      g.s0.setAttribute('stop-color', step(h, s, l, RAMP.light));
+      g.s0.setAttribute('stop-color', step(h, s, l, RAMP.highlight));
+      g.sa.setAttribute('stop-color', step(h, s, l, RAMP.light));
       g.s1.setAttribute('stop-color', hsl(h, s, l));
-      g.s2.setAttribute('stop-color', step(h, s, l, RAMP.dark));
+      g.s2.setAttribute('stop-color', step(h, s, l, RAMP.midDark));
+      g.sb.setAttribute('stop-color', step(h, s, l, RAMP.dark));
 
       g.r0.setAttribute('stop-color', step(h, s, l, RAMP.highlight));
       g.r0.setAttribute('stop-opacity', (0.3 + lit * 0.1).toFixed(3));
       g.r1.setAttribute('stop-color', step(h, s, l, RAMP.light));
       g.r1.setAttribute('stop-opacity', '0');
 
-      g.o0.setAttribute('stop-opacity', (0.25 - lit * 0.05).toFixed(3));
+      g.o0.setAttribute('stop-opacity', (0.72 - lit * 0.08).toFixed(3));
 
       g.a0.setAttribute('stop-color', hsl(h, s, Math.min(0.66, l + 0.08)));
       g.a0.setAttribute('stop-opacity', (clamp(p.glow, 0, 1) * 0.42 * lit * this.finish.glow).toFixed(3));
@@ -483,7 +507,7 @@
       g.core.style.color = core;
       g.core.setAttribute('opacity', (0.9 + lit * 0.1).toFixed(3));
       g.bloom.style.color = hsl(h, Math.min(1, s), Math.min(0.9, l + 0.3));
-      g.bloom.setAttribute('opacity', (lit * 0.5 * this.finish.glow).toFixed(3));
+      g.bloom.setAttribute('opacity', (lit * 0.55 * this.finish.glow).toFixed(3));
 
       // ---- eyes: plain white circles, expression is closure only ----
       const lidTop = clamp(p.lidTop + this.blink, 0, 1.25);
@@ -493,6 +517,12 @@
       const rR = EYE.r * (1 - clamp(p.eyeAsym, 0, 0.7));
       this._eye(g.eyeL, g.maskL, g.lidLineL, 100 - EYE.dx, EYE.y, rL, lidTop, p.lidBot, p.lidCurve, shut, p.lidTilt, -1, 1 - special);
       this._eye(g.eyeR, g.maskR, g.lidLineR, 100 + EYE.dx, EYE.y, rR, lidTop, p.lidBot, p.lidCurve, shut, p.lidTilt, 1, 1 - special);
+      for (const [node, x, r] of [[g.glowL, 100 - EYE.dx, rL], [g.glowR, 100 + EYE.dx, rR]]) {
+        node.setAttribute('cx', x);
+        node.setAttribute('cy', EYE.y);
+        node.setAttribute('r', r);
+        node.setAttribute('opacity', (lit * (1 - special)).toFixed(3));
+      }
       this._heart(g.heartL, 100 - EYE.dx, EYE.y, p.heart);
       this._heart(g.heartR, 100 + EYE.dx, EYE.y, p.heart);
       this._cross(g.crossL, g.crossLp, 100 - EYE.dx, EYE.y, p.cross);
@@ -528,6 +558,7 @@
       g.tongue.setAttribute('fill', hsl(6, 0.72, 0.6));
 
       this._drawParticles(h, s, l);
+      this._drawAccent(ACCENT[this.emotion], h, s, l);
     }
 
     _eye(rect, mask, lidLine, cx, cy, r, lidTop, lidBot, lidCurve, shut, lidTilt, side, vis) {
@@ -584,23 +615,71 @@
      * same curve with its edges pulled apart — the outline never goes sharp.
      */
     _mouthPath(wScale, open, curve, wave) {
-      const w = 40 * clamp(wScale, 0.12, 1.6);
+      const w = MOUTH_W * clamp(wScale, 0.1, 1.6);
       const c = clamp(curve, -1, 1);
       const cx = 100;
       const cy = MOUTH_Y;
-      const bow = c * (16 + open * 12);          // smile (+) / frown (-)
-      const half = open * 26;                    // how far the lips part
-      const s = wave * 9;                        // S-bend for confused / silly
-      const k = 1.33;                            // cubic controls reach ~3/4
 
-      const topA = (bow - half) * k + s;
-      const topB = (bow - half) * k - s;
-      const botA = (bow + half) * k + s;
-      const botB = (bow + half) * k - s;
+      // Control points sit near the corners so the sides stay vertical and
+      // the bottom stays round. Pull them inward and it becomes a triangle.
+      const kx = w * 0.94;
+      const lip = c * 10;                 // resting curve of a closed mouth
+      const drop = open * (13 + w * 0.46); // round even when the mouth is narrow
+      const top = lip - drop * 0.1;       // the upper lip barely moves
+      const bot = lip + drop;
+      const k = 1.3333;                   // cubic reaches 3/4 of its control
+      const s = wave * 8;
 
       return `M${cx - w} ${cy}` +
-             ` C${cx - w / 3} ${cy + topA} ${cx + w / 3} ${cy + topB} ${cx + w} ${cy}` +
-             ` C${cx + w / 3} ${cy + botB} ${cx - w / 3} ${cy + botA} ${cx - w} ${cy} Z`;
+             ` C${cx - kx} ${cy + top * k + s} ${cx + kx} ${cy + top * k - s} ${cx + w} ${cy}` +
+             ` C${cx + kx} ${cy + bot * k - s} ${cx - kx} ${cy + bot * k + s} ${cx - w} ${cy} Z`;
+    }
+
+    /** Comic-book shorthand drawn beside the orb: sparkles, sweat, vein, impact. */
+    _drawAccent(kind, h, s, l) {
+      if (!kind) return;
+      const fx = this.g.fx;
+      const ink = step(h, s, l, RAMP.highlight);
+      const t = this.t;
+      const star = (x, y, r, o) => {
+        const p = `M${x} ${y - r} Q${x} ${y} ${x + r} ${y} Q${x} ${y} ${x} ${y + r}` +
+                  ` Q${x} ${y} ${x - r} ${y} Q${x} ${y} ${x} ${y - r} Z`;
+        fx.appendChild(el('path', { d: p, fill: ink, opacity: o.toFixed(2) }));
+      };
+      if (kind === 'sparkle') {
+        const beat = (i) => 0.45 + 0.55 * Math.abs(Math.sin(t * 2.2 + i * 1.7));
+        star(168, 40, 9 * beat(0), beat(0));
+        star(38, 56, 6 * beat(1), beat(1) * 0.85);
+        star(150, 18, 5 * beat(2), beat(2) * 0.7);
+      } else if (kind === 'impact') {
+        for (let i = 0; i < 7; i++) {
+          const a = (-140 + i * 22) * (Math.PI / 180);
+          const r0 = 82 + Math.sin(t * 6) * 2;
+          fx.appendChild(el('line', {
+            x1: 100 + Math.cos(a) * r0, y1: 96 + Math.sin(a) * r0,
+            x2: 100 + Math.cos(a) * (r0 + 15), y2: 96 + Math.sin(a) * (r0 + 15),
+            stroke: ink, 'stroke-width': 4, 'stroke-linecap': 'round', opacity: '.85',
+          }));
+        }
+      } else if (kind === 'sweat') {
+        const slide = (Math.sin(t * 1.4) * 0.5 + 0.5) * 8;
+        const x = 156;
+        const y = 44 + slide;
+        fx.appendChild(el('path', {
+          d: `M${x} ${y - 13} C${x + 9} ${y - 2} ${x + 8} ${y + 9} ${x} ${y + 9}` +
+             ` C${x - 8} ${y + 9} ${x - 9} ${y - 2} ${x} ${y - 13} Z`,
+          fill: '#BFE6FF', opacity: '.9',
+        }));
+      } else if (kind === 'vein') {
+        const g2 = el('g', { stroke: '#E8462E', 'stroke-width': 4.6, 'stroke-linecap': 'round', fill: 'none',
+                             opacity: (0.78 + Math.sin(t * 7) * 0.22).toFixed(2) });
+        const x = 52, y = 40, a = 13;
+        g2.appendChild(el('path', { d: `M${x - a} ${y - a} L${x + a} ${y + a}` }));
+        g2.appendChild(el('path', { d: `M${x + a} ${y - a} L${x - a} ${y + a}` }));
+        g2.appendChild(el('path', { d: `M${x} ${y - a * 1.25} L${x} ${y + a * 1.25}` }));
+        g2.appendChild(el('path', { d: `M${x - a * 1.25} ${y} L${x + a * 1.25} ${y}` }));
+        fx.appendChild(g2);
+      }
     }
 
     _drawParticles(h, s, l) {
@@ -630,5 +709,5 @@
     }
   }
 
-  global.FrenFace = { Face, EMOTIONS, ORDER, FINISHES: Object.keys(FINISH) };
+  global.FrenFace = { Face, EMOTIONS, ORDER, ACCENT, FINISHES: Object.keys(FINISH) };
 })(window);
