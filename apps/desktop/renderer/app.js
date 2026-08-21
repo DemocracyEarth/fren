@@ -32,6 +32,9 @@ const els = {
 };
 
 const face = new window.FrenFace.Face(els.orb, { size: 108 });
+// fren's temperament: the same nudge shouldn't always get the same face.
+const mood = window.FrenReactions.createReactions();
+setInterval(() => mood.decay(5000), 5000);
 
 // Mascot state is owned by main; this is only the last snapshot we rendered.
 let state = { observing: false, mascot: 'sleeping', panelOpen: false, gatewayOk: false };
@@ -55,6 +58,24 @@ function setFace(name, opts) {
   face.set(state.observing ? name : 'private', opts);
 }
 
+let reactionTimer = null;
+
+/**
+ * Play a spontaneous reaction, then drift back to whatever the app state
+ * says. Reactions are picked from mood-weighted pools, so repeating the same
+ * gesture gives a different face each time.
+ */
+function react(trigger) {
+  if (speaking || !state.observing) return;
+  const { emotion, hold } = mood.pick(trigger);
+  setFace(emotion);
+  clearTimeout(reactionTimer);
+  reactionTimer = setTimeout(() => {
+    reactionTimer = null;
+    if (!speaking) setFace(emotionFor(state));
+  }, hold);
+}
+
 function render(next) {
   const was = state;
   state = next;
@@ -72,8 +93,8 @@ function render(next) {
   if (!speaking || !state.observing) setFace(emotionFor(state));
 
   // Waking up is worth a little physical reaction.
-  if (state.observing && !was.observing) face.pulse('bounce');
-  if (state.mascot === 'idea' && was.mascot !== 'idea') face.pulse('bounce');
+  if (state.observing && !was.observing) { mood.note('wake'); face.pulse('bounce'); }
+  if (state.mascot === 'idea' && was.mascot !== 'idea') { mood.note('idea'); face.pulse('bounce'); }
 }
 
 function scrollDown() {
@@ -124,13 +145,17 @@ function speak(text) {
     function finish() {
       bubble.textContent = text;
       face.stopTalking();
-      // Settle through a smile rather than snapping back.
-      setFace('happy');
-      setTimeout(() => {
-        speaking = false;
+      // Settle through a reaction rather than snapping back — and not the
+      // same one every time.
+      const { emotion, hold } = mood.pick('reply');
+      speaking = false;
+      setFace(emotion);
+      clearTimeout(reactionTimer);
+      reactionTimer = setTimeout(() => {
+        reactionTimer = null;
         setFace(emotionFor(state));
-        resolve();
-      }, 900);
+      }, hold);
+      setTimeout(resolve, 120);
     }
   });
 }
@@ -144,6 +169,7 @@ async function sendMessage(text) {
   els.send.disabled = true;
   showTyping(true);
 
+  mood.note('chat');
   speaking = true;          // hold the face until we've answered
   setFace('listening');
   face.pulse('nod');
@@ -161,6 +187,7 @@ async function sendMessage(text) {
     clearTimeout(thinkingTimer);
     showTyping(false);
     speaking = false;
+    mood.note('error');
     setFace('oops');
     face.pulse('shake');
     addBubble('fren', 'Something went wrong: ' + (err && err.message ? err.message : String(err)));
@@ -175,6 +202,7 @@ async function sendMessage(text) {
 async function togglePanel() {
   const nextOpen = !state.panelOpen;
   face.pulse('bounce');
+  react('click');
   await window.fren.setPanelOpen(nextOpen);   // main resizes the window first
   state.panelOpen = nextOpen;
   els.panel.hidden = !nextOpen;
@@ -201,8 +229,12 @@ window.addEventListener('mouseup', async () => {
 els.orb.addEventListener('click', (e) => { if (e.detail === 0) togglePanel(); });
 
 // The character notices the cursor.
-els.orb.addEventListener('mouseenter', () => { if (!speaking && state.observing) setFace('curious'); });
-els.orb.addEventListener('mouseleave', () => { if (!speaking) setFace(emotionFor(state)); });
+els.orb.addEventListener('mouseenter', () => react('hover'));
+els.orb.addEventListener('mouseleave', () => {
+  // Let the reaction finish on its own — snapping back mid-expression is what
+  // made it feel mechanical.
+  if (!speaking && !reactionTimer) setFace(emotionFor(state));
+});
 
 els.toggle.addEventListener('click', () => window.fren.toggleObservation());
 els.quit.addEventListener('click', () => window.fren.quit());
@@ -215,6 +247,15 @@ els.form.addEventListener('submit', (e) => {
 for (const chip of document.querySelectorAll('.chip')) {
   chip.addEventListener('click', () => sendMessage(chip.textContent));
 }
+
+// Every so often, with nothing prompting it, fren has a passing thought.
+function scheduleWander() {
+  setTimeout(() => {
+    if (!speaking && state.observing && !reactionTimer) react('idle');
+    scheduleWander();
+  }, 14000 + Math.random() * 26000);
+}
+scheduleWander();
 
 (async function init() {
   if (!window.fren) {

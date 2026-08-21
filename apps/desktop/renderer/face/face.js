@@ -211,6 +211,8 @@
       this.t = 0;
       this.nextBlink = 1.5;
       this.blink = 0;
+      this.blinkQueue = 0;        // occasional double blink
+      this.nextTwitch = 3 + Math.random() * 6;
       this.gaze = { x: 0, y: 0 };     // whole-orb lean toward the pointer
       this.gazeTarget = { x: 0, y: 0 };
       this.talkPhase = -1;
@@ -442,9 +444,29 @@
       this.nextBlink -= dt;
       if (this.nextBlink <= 0 && awake && this.target.lidTop < 0.5) {
         this.blink = 1;
+        // Roughly one blink in five comes in a pair — real eyes do this.
+        this.blinkQueue = Math.random() < 0.22 ? 1 : 0;
         this.nextBlink = 2.4 + Math.random() * 4;
       }
-      if (this.blink > 0) this.blink = Math.max(0, this.blink - dt * 8);
+      if (this.blink > 0) {
+        this.blink = Math.max(0, this.blink - dt * 8);
+        if (this.blink === 0 && this.blinkQueue > 0) {
+          this.blinkQueue -= 1;
+          this.blink = 1;
+        }
+      }
+
+      // Involuntary shifts of weight, so it is never perfectly still.
+      this.nextTwitch -= dt;
+      if (this.nextTwitch <= 0) {
+        if (awake) {
+          const r = Math.random();
+          if (r < 0.4) this.v.lean += (Math.random() - 0.5) * 2.4;
+          else if (r < 0.75) this.v.tilt += (Math.random() - 0.5) * 34;
+          else this.v.bob -= 12 + Math.random() * 18;
+        }
+        this.nextTwitch = 3.5 + Math.random() * 7;
+      }
       if (this.talkPhase >= 0) this.talkPhase += dt;
 
       const kind = this.emotion === 'sleeping' ? 'z'

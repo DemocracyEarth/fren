@@ -2,12 +2,12 @@
   "name": "fren",
   "version": "0.1.0",
   "private": true,
-  "description": "fren — a minimal ambient AI companion that lives on your desktop (macOS proof of concept)",
+  "description": "fren \u2014 a minimal ambient AI companion that lives on your desktop (macOS proof of concept)",
   "scripts": {
     "start": "node start.js",
     "gateway": "node apps/gateway/server.js",
     "desktop": "electron apps/desktop",
-    "test": "node --test \"packages/memory/test/*.test.js\" \"packages/intelligence/test/*.test.js\" \"apps/gateway/test/*.test.js\""
+    "test": "node --test \"packages/memory/test/*.test.js\" \"packages/intelligence/test/*.test.js\" \"apps/gateway/test/*.test.js\" \"apps/desktop/test/*.test.js\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1"
