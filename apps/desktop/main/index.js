@@ -315,12 +315,13 @@ app.whenReady().then(() => {
     const answer = String((payload && payload.answer) || '').slice(0, 800);
     if (!answer.trim()) return { value: '' };
     try {
-      const { value } = await gateway.extract({
+      const out = await gateway.extract({
         field: String((payload && payload.field) || ''),
         question: String((payload && payload.question) || '').slice(0, 400),
         answer,
+        asked: (payload && payload.asked) || {},
       });
-      return { value: value || answer };
+      return { ...out, value: out.value || (out.kind === 'question' ? '' : answer) };
     } catch (err) {
       log(`[setup] extraction failed, keeping the raw answer: ${err.message}`);
       return { value: answer };

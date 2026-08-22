@@ -212,10 +212,39 @@ const PATTERN_SCHEMA = {
 const EXTRACT_SCHEMA = {
   type: 'object',
   properties: {
+    kind: {
+      type: 'string',
+      enum: ['answer', 'question', 'correction'],
+      description: 'answer: they answered. question: they asked something instead. ' +
+                   'correction: they are fixing something recorded earlier.',
+    },
     value: { type: 'string', description: 'the extracted answer, or an empty string if there is none' },
+    corrects: {
+      type: 'string',
+      description: 'for a correction, which earlier field it fixes: name, work, tone, ' +
+                   'initiative or goals. Empty otherwise.',
+    },
+    reply: {
+      type: 'string',
+      description: 'for a question, a short honest answer to it. Empty otherwise.',
+    },
   },
-  required: ['value'],
+  required: ['kind', 'value', 'corrects', 'reply'],
 };
+
+/**
+ * What fren can honestly say about itself while being interviewed. Without
+ * this the extractor invents capabilities when asked a direct question, which
+ * is a bad first impression and a lie besides.
+ */
+const FREN_FACTS = [
+  'fren watches which application is in front and what its window is called, but only while its light is on.',
+  'It never captures keystrokes, and screenshots never leave the machine.',
+  'It summarises that activity every couple of minutes, and looks across hours of those summaries for a workflow you repeat.',
+  'It CAN raise something it noticed on its own, without being asked — that is what the "when to speak up" question decides.',
+  'It listens only while you hold the orb; speech is transcribed on your own machine.',
+  'It suggests things. It does not act on your behalf.',
+].join(' ');
 
 /**
  * People do not answer questions the way forms expect. Asked their name they
@@ -242,21 +271,37 @@ const EXTRACT_RULES = {
   goals: 'Return what they want help with, in their own words, with framing removed.',
 };
 
-function buildExtractRequest({ field, question, answer } = {}) {
+function buildExtractRequest({ field, question, answer, asked = {} } = {}) {
   const rule = EXTRACT_RULES[field] || 'Return the substance of their answer, with framing removed.';
+  const already = Object.entries(asked)
+    .filter(([, v]) => v)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join('\n');
   return {
     system: [
-      'You clean up a single answer from a short spoken interview.',
-      'The answer was spoken aloud, so expect filler, false starts and politeness.',
-      rule,
-      'Never invent anything that is not in the answer. If the answer contains no ' +
-      'usable value, return an empty string.',
-      'Return JSON only.',
-    ].join(' '),
+      'You process one reply from a short spoken interview conducted by fren, a desktop companion.',
+      'The reply was spoken aloud, so expect filler, false starts and politeness.',
+      '',
+      'First decide what the person actually DID, because people do not only answer questions:',
+      '- "answer": they answered. Extract the value.',
+      '- "question": they asked something instead of answering. Do not invent an answer for',
+      '  them — leave value empty and put a short honest reply in "reply".',
+      '- "correction": they are fixing something recorded earlier, e.g. "no, I said my name',
+      '  was Santi". Put the corrected value in "value" and the field it fixes in "corrects".',
+      '',
+      `When extracting a value for this field: ${rule}`,
+      '',
+      `Facts you may use to answer a question, and nothing beyond them: ${FREN_FACTS}`,
+      '',
+      'Never invent anything. Return JSON only.',
+    ].join('\n'),
     messages: [{
       role: 'user',
-      content: `Question asked: ${question}
-Their answer: ${answer}`,
+      content: [
+        already ? `Recorded so far:\n${already}\n` : '',
+        `Question just asked (field "${field}"): ${question}`,
+        `Their reply: ${answer}`,
+      ].filter(Boolean).join('\n'),
     }],
     schema: EXTRACT_SCHEMA,
   };

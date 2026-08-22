@@ -14,7 +14,8 @@ test('a name is extracted as a value, not stored as a sentence', () => {
   assert.match(r.system, /Return ONLY what they want to be called/);
   assert.match(r.system, /Strip greetings and framing/);
   assert.match(r.messages[0].content, /yeah hi, my name is Santi/);
-  assert.equal(r.schema.required[0], 'value');
+  assert.ok(r.schema.required.includes('value'));
+  assert.ok(r.schema.required.includes('kind'));
 });
 
 test("instructions about behaviour are tidied, never reworded", () => {
@@ -40,6 +41,46 @@ test('an unknown field still gets a sane rule rather than nothing', () => {
 
 test('nothing may be invented when the answer holds no value', () => {
   const r = buildExtractRequest({ field: 'name', question: 'q', answer: 'um' });
-  assert.match(r.system, /Never invent/);
-  assert.match(r.system, /return an empty string/);
+  assert.match(r.system, /Never invent anything/);
+});
+
+// --- people do not only answer questions ------------------------------------
+// Live evidence from a real interview: asked what they were working on, the
+// user instead said "I said that my name was Santi, not that my name was this
+// entire sentence" — a CORRECTION — and it was recorded as their job. Asked
+// when fren should speak up, they asked a QUESTION back, and that was recorded
+// as a standing instruction.
+
+test('a reply is classified before it is extracted', () => {
+  const r = buildExtractRequest({ field: 'work', question: 'q', answer: 'a' });
+  assert.match(r.system, /"answer"/);
+  assert.match(r.system, /"question"/);
+  assert.match(r.system, /"correction"/);
+  assert.deepEqual(r.schema.properties.kind.enum, ['answer', 'question', 'correction']);
+});
+
+test('a question gets an honest reply drawn only from stated facts', () => {
+  const r = buildExtractRequest({ field: 'initiative', question: 'q', answer: 'can you do that on your own?' });
+  assert.match(r.system, /Do not invent an answer for/);
+  // Without these the model invents capabilities when asked directly, which is
+  // both a bad first impression and a lie.
+  assert.match(r.system, /Facts you may use to answer a question, and nothing beyond them/);
+  assert.match(r.system, /CAN raise something it noticed on its own/);
+  assert.match(r.system, /never captures keystrokes/);
+  assert.match(r.system, /does not act on your behalf/);
+});
+
+test('a correction names the field it fixes', () => {
+  const r = buildExtractRequest({ field: 'work', question: 'q', answer: 'no, I said my name was Santi' });
+  assert.match(r.system, /which earlier field it fixes|the field it fixes/);
+  assert.ok(r.schema.required.includes('corrects'));
+});
+
+test('what is already recorded is shown, so a correction has something to correct', () => {
+  const r = buildExtractRequest({
+    field: 'work', question: 'q', answer: 'no, Santi',
+    asked: { name: 'Hi, you can call me Santi.' },
+  });
+  assert.match(r.messages[0].content, /Recorded so far/);
+  assert.match(r.messages[0].content, /Hi, you can call me Santi\./);
 });

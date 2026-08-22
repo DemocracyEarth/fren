@@ -425,19 +425,39 @@ async function handleSetupAnswer(answer) {
     await speak("Fine by me. Hold me any time you want to talk.");
     return;
   }
+
   const step = SETUP_STEPS[setup.step];
-  // Spoken answers are sentences, not values. "yeah hi, my name is Santi" has
-  // to become "Santi", or fren addresses someone as a whole sentence forever.
-  let value = answer;
+  // People do three different things when asked a question: answer it, ask one
+  // back, or correct something you got wrong earlier. Treating all three as
+  // answers is how "I said my name was Santi, not this entire sentence" ended
+  // up recorded as someone's job.
+  let out = { kind: 'answer', value: answer, corrects: '', reply: '' };
   try {
     const res = await window.fren.extractSetup({
       field: step.key,
       question: step.ask(setup.answers),
       answer,
+      asked: setup.answers,
     });
-    if (res && res.value) value = res.value;
+    if (res) out = { ...out, ...res };
   } catch { /* keep the raw answer rather than lose it */ }
-  setup.answers[step.key] = value;
+
+  if (out.kind === 'question') {
+    // Answer them, then ask again. Pressing on with the script would be the
+    // rudest possible response to someone taking an interest.
+    if (out.reply) await speak(out.reply);
+    return askSetupStep();
+  }
+
+  if (out.kind === 'correction' && out.corrects && out.corrects !== step.key) {
+    // Fix what they actually meant, acknowledge it, and re-ask what is still
+    // outstanding rather than counting the correction as this answer.
+    setup.answers[out.corrects] = out.value;
+    await speak(`Sorry — noted, ${out.corrects} is "${out.value}".`);
+    return askSetupStep();
+  }
+
+  setup.answers[step.key] = out.value || answer;
   setup.step += 1;
   if (setup.step < SETUP_STEPS.length) return askSetupStep();
   return finishSetup();

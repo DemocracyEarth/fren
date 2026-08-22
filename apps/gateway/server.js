@@ -88,19 +88,25 @@ async function handleExtract(provider, body, res) {
     field: String(field || ''),
     question: String(question || ''),
     answer,
+    asked: (body && body.asked && typeof body.asked === 'object') ? body.asked : {},
   });
   const raw = await callProvider(provider, request, res);
   if (raw === null) return;
-  let value = '';
   try {
     const parsed = JSON.parse(String(raw).replace(/^```(?:json)?|```$/gm, '').trim());
-    value = typeof parsed.value === 'string' ? parsed.value.trim() : '';
+    const kind = ['answer', 'question', 'correction'].includes(parsed.kind) ? parsed.kind : 'answer';
+    const value = typeof parsed.value === 'string' ? parsed.value.trim() : '';
+    return send(res, 200, {
+      kind,
+      // A plain answer must never come back empty: they did reply, and losing
+      // it is worse than keeping it untidy. A question legitimately has none.
+      value: kind === 'question' ? '' : (value || answer.trim()),
+      corrects: typeof parsed.corrects === 'string' ? parsed.corrects.trim() : '',
+      reply: typeof parsed.reply === 'string' ? parsed.reply.trim() : '',
+    });
   } catch {
-    value = '';
+    send(res, 200, { kind: 'answer', value: answer.trim(), corrects: '', reply: '' });
   }
-  // Never return nothing: the user did answer, and losing it is worse than
-  // keeping it untidy.
-  send(res, 200, { value: value || answer.trim() });
 }
 
 /** Look at recent summaries and decide whether anything is worth saying. */
