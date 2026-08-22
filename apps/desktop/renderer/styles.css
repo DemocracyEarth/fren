@@ -55,8 +55,16 @@ html, body {
  * for lift.
  */
 #orb canvas {
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.30))
-          drop-shadow(0 5px 12px rgba(0, 0, 0, 0.28));
+  /*
+   * Three layers doing three jobs. The first is a tight WARM ring that cushions
+   * the silhouette — against a light desktop the orb's shaded underside meets
+   * the background with no intermediate tone, which reads as a jagged edge even
+   * when the geometry is perfectly antialiased. Warm rather than neutral, or it
+   * greys the orange. The other two are contact and lift.
+   */
+  filter: drop-shadow(0 0 1px rgba(74, 38, 4, 0.38))
+          drop-shadow(0 2px 4px rgba(0, 0, 0, 0.26))
+          drop-shadow(0 6px 14px rgba(0, 0, 0, 0.24));
 }
 
 /* -------------------------------------------------------------- the panel */

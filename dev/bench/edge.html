@@ -1,0 +1,29 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>orb edge</title>
+<link rel="stylesheet" href="/tokens.css"><link rel="stylesheet" href="/styles.css">
+<style>
+  html,body{margin:0;background:#fff}
+  .strip{display:flex;align-items:center;gap:0}
+  .cell{width:200px;height:200px;display:grid;place-items:center}
+  .w{background:#ffffff} .l{background:#f2ede4} .m{background:#cfc7ba} .d{background:#2a2a2e}
+  /* Magnify the silhouette so the edge can actually be judged. */
+  .zoom{width:200px;height:200px;overflow:hidden;position:relative;background:#fff}
+  .zoom > div{position:absolute;left:-260px;top:-150px;transform:scale(4);transform-origin:260px 150px}
+</style></head>
+<body>
+<div class="strip">
+  <div class="cell w"><div id="a"></div></div>
+  <div class="cell l"><div id="b"></div></div>
+  <div class="cell m"><div id="c"></div></div>
+  <div class="cell d"><div id="d"></div></div>
+</div>
+<div class="zoom"><div id="z"></div></div>
+<script type="module">
+  import '/face/orb.js';
+  await new Promise(r => setTimeout(r, 60));
+  for (const id of ['a','b','c','d','z']) {
+    const f = new window.FrenFace.Face(document.getElementById(id), { size: 123 });
+    f.set('watching', { immediate: true });
+  }
+</script>
+</body></html>

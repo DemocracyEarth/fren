@@ -78,7 +78,11 @@ class Orb {
     this.canvas = canvas;
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    // Supersample. The orb is small and its silhouette is the only hard edge
+    // in the whole window, so rendering above the device ratio and letting the
+    // compositor downsample buys a visibly cleaner curve for very little --
+    // 123px at 3x is 369px, which is nothing for one sphere.
+    this.renderer.setPixelRatio(Math.min(3, (window.devicePixelRatio || 1) * 1.5));
     this.renderer.setSize(size, size, false);
     // No filmic tone mapping: it desaturates #FF8A00 off the brand ramp.
     this.renderer.toneMapping = THREE.NoToneMapping;
