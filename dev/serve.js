@@ -48,6 +48,11 @@ http
       const p3 = path.resolve(path.join(REPO, 'dev', 'orb3d'), '.' + rel.slice('/orb3d'.length));
       if (!path.relative(path.join(REPO, 'dev', 'orb3d'), p3).startsWith('..')) return serveFile(p3, res);
     }
+    // Same escape hatch for the benchmark pages.
+    if (rel.startsWith('/bench/')) {
+      const pb = path.resolve(path.join(REPO, 'dev', 'bench'), '.' + rel.slice('/bench'.length));
+      if (!path.relative(path.join(REPO, 'dev', 'bench'), pb).startsWith('..')) return serveFile(pb, res);
+    }
     const file = path.resolve(ROOT, '.' + (rel === '/' ? '/index.html' : rel));
     // Refuse anything outside the renderer directory. A prefix test would also
     // accept a sibling like <root>-other, so compare path segments.

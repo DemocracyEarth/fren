@@ -2,3 +2,7 @@ node_modules/
 .env
 *.log
 .DS_Store
+
+# Benchmark scratch: copies of face.js at other commits, generated on demand.
+dev/bench/face-*.js
+dev/bench/svg-*.html

@@ -1,0 +1,16 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>bench · svg</title>
+<link rel="stylesheet" href="/tokens.css">
+<style>html,body{margin:0;height:100%;background:transparent;overflow:hidden}
+#orb{width:108px;height:108px;margin:20px}</style></head>
+<body>
+<div id="orb"></div>
+<script src="/face/reactions.js"></script>
+<script src="/face/face.js"></script>
+<script>
+  // Exactly what the app mounts: one face, at the shipped size, idling.
+  const f = new window.FrenFace.Face(document.getElementById('orb'), { size: 108 });
+  f.set(new URLSearchParams(location.search).get('emotion') || 'watching', { immediate: true });
+  window.__face = f;   // so the harness can inspect internal state
+</script>
+</body></html>
