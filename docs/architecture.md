@@ -72,7 +72,9 @@ database or the screen.
 
 Plain CommonJS, no build step, single window (the orb; the chat panel is part of
 the same window). The main process owns all state and all capture; the renderer
-only draws and forwards clicks over IPC.
+only draws and forwards clicks over IPC. The renderer is served over a custom
+`fren://` scheme rather than loaded from disk, because the face is drawn with
+ES modules and those do not load over `file://`.
 
 **Mascot UI (renderer).** Draws the sphere and hosts the chat panel. The face
 (`renderer/face/face.js`) is one shared parameter space — colour, glow, lids,

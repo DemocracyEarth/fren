@@ -20,8 +20,8 @@
 <body>
   <div class="row" id="sheet"></div>
 <script type="module">
-  import { drawFace } from './face-texture.js';
-  import { TONE, EXPRESSIONS } from './expressions.js';
+  import { drawFace } from '/face/face-texture.js';
+  import { TONE, EXPRESSIONS } from '/face/expressions.js';
 
   const host = document.getElementById('sheet');
   for (const [name, e] of Object.entries(EXPRESSIONS)) {

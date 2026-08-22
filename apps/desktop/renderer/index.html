@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' fren:; style-src 'self' 'unsafe-inline'; script-src 'self' fren:; connect-src 'self' fren:; img-src 'self' fren: data:">
 <title>fren</title>
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="styles.css">
@@ -66,7 +66,12 @@
   </div>
 <script src="face/reactions.js"></script>
 <script src="mic.js"></script>
+<!-- The SVG renderer loads first and stays as the fallback. orb.js replaces it
+     with the 3D one only if WebGL actually works here, so a graphics failure
+     degrades to a working face instead of a blank window. Module scripts run
+     in order after the classic ones, so app.js sees whichever won. -->
 <script src="face/face.js"></script>
-<script src="app.js"></script>
+<script type="module" src="face/orb.js"></script>
+<script type="module" src="app.js"></script>
 </body>
 </html>

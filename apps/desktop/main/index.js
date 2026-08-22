@@ -1,7 +1,8 @@
 // Electron main process: creates the mascot window and wires the loop
 // observe -> remember -> summarize -> chat. Owns the observation on/off state.
 const path = require('path');
-const { app, BrowserWindow, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, protocol, net } = require('electron');
+const { pathToFileURL } = require('node:url');
 const { config, loadEnv } = require('../../../packages/shared');
 const { openMemory } = require('../../../packages/memory');
 const state = require('./state');
@@ -17,6 +18,31 @@ delete process.env.ANTHROPIC_API_KEY;
 delete process.env.ANTHROPIC_AUTH_TOKEN;
 delete process.env.DEEPSEEK_API_KEY;
 delete process.env.ELEVENLABS_API_KEY;
+
+// The renderer is served over a custom scheme rather than loaded from disk.
+// ES modules are blocked over file:// as cross-origin, so the 3D face -- which
+// is a module, and imports three.js as one -- would silently never load and the
+// app would quietly fall back to the SVG renderer. A standard scheme also gives
+// the page a real origin, so the existing `script-src 'self'` CSP still applies.
+const SCHEME = 'fren';
+const RENDERER_DIR = path.join(__dirname, '..', 'renderer');
+
+protocol.registerSchemesAsPrivileged([{
+  scheme: SCHEME,
+  privileges: { standard: true, secure: true, supportFetchAPI: true },
+}]);
+
+function serveRenderer() {
+  protocol.handle(SCHEME, async (request) => {
+    const { pathname } = new URL(request.url);
+    const file = path.resolve(RENDERER_DIR, '.' + decodeURIComponent(pathname));
+    // Never serve anything outside the renderer directory.
+    if (path.relative(RENDERER_DIR, file).startsWith('..')) {
+      return new Response('forbidden', { status: 403 });
+    }
+    return net.fetch(pathToFileURL(file).toString());
+  });
+}
 
 const ORB_SIZE = { width: 148, height: 148 };
 const PANEL_SIZE = { width: 344, height: 566 };
@@ -57,7 +83,7 @@ function createWindow() {
     },
   });
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  win.loadURL(`${SCHEME}://app/index.html`);
   positionWindow(ORB_SIZE);
 }
 
@@ -109,6 +135,7 @@ function stopObserving() {
 }
 
 app.whenReady().then(() => {
+  serveRenderer();
   memory = openMemory(path.join(app.getPath('userData'), 'fren.db'));
 
   observer = createObserver({

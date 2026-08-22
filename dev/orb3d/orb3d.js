@@ -1,6 +1,6 @@
 import * as THREE from '/vendor/three.module.js';
-import { drawFace } from './face-texture.js';
-import { TONE, EXPRESSIONS } from './expressions.js';
+import { drawFace } from '/face/face-texture.js';
+import { TONE, EXPRESSIONS } from '/face/expressions.js';
 
 /**
  * A 3D fren, to answer one question: does real geometry buy anything the
@@ -71,8 +71,8 @@ function paintFace(p) {
   eqCtx.fillRect(0, 0, equirect.width, equirect.height);
   // The face occupies roughly 60 deg across and 50 deg down, centred on the
   // equator — little enough that equirect stretch stays invisible.
-  const w = equirect.width * (96 / 360);
-  const h = equirect.height * (86 / 180);
+  const w = equirect.width * (112 / 360);
+  const h = equirect.height * (100 / 180);
   eqCtx.drawImage(faceCanvas, equirect.width / 2 - w / 2, equirect.height / 2 - h / 2, w, h);
   faceTex.needsUpdate = true;
 }
@@ -162,6 +162,8 @@ const matTo = { ...matNow };
 
 let talking = false;
 let talkT = 0;
+let blinkPhase = -1;      // -1 = not blinking
+let blinkQueue = 0;
 const aim = { x: 0, y: 0 };      // where it is looking, -1..1
 const look = { x: 0, y: 0 };
 let nextBlink = 2;
@@ -274,12 +276,26 @@ renderer.setAnimationLoop(() => {
   material.roughness = matNow.rough;
   material.sheen = matNow.sheen * params.lit;
 
+  // Blinking. Lids shut fast and open slower -- roughly 1:2 -- and about one
+  // blink in five comes as a pair, which is what real eyes do and what stops
+  // it reading as a metronome.
   nextBlink -= dt;
-  if (nextBlink <= 0 && target.lit > 0.4 && target.lidTop < 0.5 && !talking) {
-    params.blink = 1;
-    target.blink = 1;
-    nextBlink = 2.8 + Math.random() * 4.5;
-    setTimeout(() => { params.blink = 0; target.blink = 0; paintFace(params); }, 110);
+  if (blinkPhase < 0 && nextBlink <= 0 && target.lit > 0.4 && target.lidTop < 0.62) {
+    blinkPhase = 0;
+    blinkQueue = Math.random() < 0.22 ? 1 : 0;
+    nextBlink = 2.6 + Math.random() * 4.8;
+  }
+  if (blinkPhase >= 0) {
+    blinkPhase += dt;
+    const DOWN = 0.055;
+    const UP = 0.115;
+    if (blinkPhase < DOWN) params.blink = blinkPhase / DOWN;
+    else if (blinkPhase < DOWN + UP) params.blink = 1 - (blinkPhase - DOWN) / UP;
+    else {
+      params.blink = 0;
+      blinkPhase = blinkQueue > 0 ? (blinkQueue--, 0) : -1;
+    }
+    target.blink = params.blink;
     paintFace(params);
   }
 

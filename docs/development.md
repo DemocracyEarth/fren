@@ -30,8 +30,21 @@ loop — observe, store, summarize, chat — runs offline. Force it explicitly w
 `npm start` runs `start.js`, which spawns both and shuts both down when either
 exits. When developing one side, run the other in a second terminal.
 
-Everything is plain CommonJS. There is no build step, no bundler, no
-transpiler — edit a file, restart the process.
+Everything is plain CommonJS, with one deliberate exception: the renderer's
+face modules (`renderer/face/orb.js`, `face-texture.js`, `expressions.js`) and
+the vendored three.js in `renderer/vendor/` are ES modules, because three.js no
+longer ships a classic-script build.
+
+There is still no build step, no bundler and no transpiler — edit a file,
+restart the process. But ES modules do not load over `file://` (the browser
+treats them as cross-origin), so the main process serves the renderer over a
+custom `fren://` scheme instead of `loadFile`. That scheme is registered as
+standard and secure, so the existing `script-src` CSP still applies — it just
+has to name the scheme, since `'self'` alone does not cover module fetches on a
+non-HTTP origin.
+
+If you see the SVG face instead of the 3D one, a module failed to load. Check
+the renderer console: `window.FrenFace.renderer` reports `'3d'` or `'svg'`.
 
 ## Environment variables
 

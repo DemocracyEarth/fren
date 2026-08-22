@@ -19,8 +19,12 @@ panel so you can ask fren about your own activity. Pattern detection (M2) and
 proposed automations (M3) exist only as groundwork — schema and scaffolding, no
 behavior.
 
-This is a proof of concept, deliberately small: plain CommonJS JavaScript, no
-build step, no frameworks.
+This is a proof of concept, deliberately small: plain CommonJS JavaScript and
+no build step. The one exception is the face — it renders with WebGL via a
+vendored copy of three.js (~740KB, checked in, unmodified), because measurement
+showed the 3D renderer costs about a third of the CPU the SVG one did while
+looking considerably better. The SVG renderer is still in the tree and is used
+automatically if WebGL is unavailable.
 
 ## What hypothesis are we testing?
 
