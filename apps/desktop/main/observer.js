@@ -1,77 +1,28 @@
-// macOS activity observer for the Electron main process. Samples the frontmost
+// Activity observer for the Electron main process. Runs on macOS, Windows and
+// Linux; the platform-specific part lives in active-window.js. Samples the frontmost
 // app/window on an interval and occasionally grabs a downscaled screenshot.
 // Privacy invariant: stop() guarantees no further capture, and screenshots are
 // written to local disk only — this module never touches the network.
-const { execFile } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { config } = require('../../../packages/shared');
+const activeWindow = require('./active-window');
 
-const LSAPPINFO = '/usr/bin/lsappinfo';
-const OSASCRIPT = '/usr/bin/osascript';
-const LSAPPINFO_TIMEOUT_MS = 1000;
-const OSASCRIPT_TIMEOUT_MS = 1500;
 const TITLE_FAILURES_BEFORE_BACKOFF = 3;
-const TITLE_BACKOFF_MS = 5 * 60 * 1000; // avoid Accessibility permission-dialog spam
+const TITLE_BACKOFF_MS = 5 * 60 * 1000; // avoid permission-dialog spam
 
-const FRONT_WINDOW_TITLE_SCRIPT =
-  'tell application "System Events" to get title of front window of ' +
-  '(first application process whose frontmost is true)';
-
-function execFileP(cmd, args, timeout) {
-  return new Promise((resolve, reject) => {
-    execFile(cmd, args, { timeout }, (err, stdout) => {
-      if (err) reject(err);
-      else resolve(stdout);
-    });
-  });
-}
-
-// -> app name string, or "unknown" on any failure. Needs no permissions.
-async function getActiveApp() {
-  try {
-    const asn = (await execFileP(LSAPPINFO, ['front'], LSAPPINFO_TIMEOUT_MS)).trim();
-    if (!asn) return 'unknown';
-    const out = await execFileP(
-      LSAPPINFO,
-      ['info', '-only', 'name', asn],
-      LSAPPINFO_TIMEOUT_MS
-    );
-    const match = out.match(/"name"\s*=\s*"([^"]+)"/); // e.g. "name"="Safari"
-    return match ? match[1] : 'unknown';
-  } catch (_err) {
-    return 'unknown';
-  }
-}
-
-// -> window title string. Throws on failure (needs macOS Accessibility permission).
-async function getWindowTitle() {
-  const out = await execFileP(
-    OSASCRIPT,
-    ['-e', FRONT_WINDOW_TITLE_SCRIPT],
-    OSASCRIPT_TIMEOUT_MS
-  );
-  return out.trim();
-}
-
-// Combined sampler, exported for tests. `titleFailed` lets the caller do
-// failure bookkeeping without conflating "no title" and "lookup failed".
-async function getActiveWindowInfo({ skipTitle = false } = {}) {
-  const activeApp = await getActiveApp();
-  if (skipTitle) return { activeApp, windowTitle: undefined, titleFailed: false };
-  try {
-    const title = await getWindowTitle();
-    return { activeApp, windowTitle: title || undefined, titleFailed: false };
-  } catch (_err) {
-    return { activeApp, windowTitle: undefined, titleFailed: true };
-  }
-}
+// Sampling the front window is the one genuinely platform-specific thing fren
+// does. active-window.js keeps the three implementations apart; the contract
+// they share is that the app name degrades to "unknown" while the title THROWS,
+// so the back-off below can tell "no title" from "not allowed to read titles".
+const getActiveWindowInfo = activeWindow.getActiveWindowInfo;
 
 function createObserver({ onObservation, log = console.error }) {
   let timer = null;
   let ticking = false; // no overlapping ticks if child processes run long
   let sampleCount = 0;
   let titleFailures = 0;
+  let unknownApps = 0;
   let titleBackoffUntil = 0;
   let warnedNoScreenPermission = false;
   let screenshotDirMade = false;
@@ -95,8 +46,11 @@ function createObserver({ onObservation, log = console.error }) {
           // expected while permission is missing
         }
         log(
-          'observer: screenshots disabled — enable Screen Recording for this app in ' +
-            'System Settings > Privacy & Security, then restart fren'
+          'observer: screenshots disabled — ' +
+            (process.platform === 'darwin'
+              ? 'enable Screen Recording for this app in System Settings > ' +
+                'Privacy & Security, then restart fren'
+              : 'the system refused a screen capture')
         );
       }
       return undefined;
@@ -128,6 +82,19 @@ function createObserver({ onObservation, log = console.error }) {
 
     const skipTitle = ts < titleBackoffUntil;
     const info = await getActiveWindowInfo({ skipTitle });
+
+    // Guard against the silent-empty-input failure this app already had once:
+    // every sample returning "unknown" means fren is recording nothing usable,
+    // and nothing else in the system would ever say so.
+    if (info.activeApp === 'unknown') {
+      unknownApps += 1;
+      if (unknownApps === 10) {
+        log('observer: 10 samples in a row could not identify the front app — ' +
+            `fren is recording nothing usable. ${activeWindow.permissionHint()}`);
+      }
+    } else {
+      unknownApps = 0;
+    }
     if (!timer) return; // stopped mid-tick: drop the sample (privacy invariant)
 
     if (!skipTitle) {
@@ -136,7 +103,8 @@ function createObserver({ onObservation, log = console.error }) {
         if (titleFailures >= TITLE_FAILURES_BEFORE_BACKOFF) {
           titleFailures = 0;
           titleBackoffUntil = Date.now() + TITLE_BACKOFF_MS;
-          log('observer: window titles unavailable (Accessibility permission?); pausing title lookups for 5 minutes');
+          log(`observer: window titles unavailable — ${activeWindow.permissionHint()}. ` +
+              'Pausing title lookups for 5 minutes.');
         }
       } else {
         titleFailures = 0;

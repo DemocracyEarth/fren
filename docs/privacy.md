@@ -159,7 +159,9 @@ beyond the categories listed above.
 
 ## macOS permissions
 
-fren uses three permissions, and works with degraded data if you decline any:
+On macOS, fren uses three permissions, and works with degraded data if you
+decline any. Windows needs none of them for window titles; Linux needs
+`xdotool` and `xprop` installed rather than a permission.
 
 | Permission | Used for | Without it |
 |---|---|---|

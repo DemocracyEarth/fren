@@ -11,15 +11,32 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-// Homebrew installs `whisper-cli`; older builds call it `main`.
-const BIN_CANDIDATES = ['whisper-cli', 'whisper-cpp', 'whisper', 'main'];
+// Homebrew installs `whisper-cli`; older builds call it `main`. Windows adds
+// the .exe forms, since PATH lookup there is extension-driven.
+const BASE_BINS = ['whisper-cli', 'whisper-cpp', 'whisper', 'main'];
+const BIN_CANDIDATES = process.platform === 'win32'
+  ? BASE_BINS.flatMap((b) => [`${b}.exe`, b])
+  : BASE_BINS;
+
 const MODEL_CANDIDATES = [
   '~/.cache/whisper.cpp/ggml-base.en.bin',
   '~/.cache/whisper/ggml-base.en.bin',
   '~/whisper.cpp/models/ggml-base.en.bin',
+  // macOS / Linux package layouts
   '/opt/homebrew/share/whisper-cpp/ggml-base.en.bin',
   '/usr/local/share/whisper-cpp/ggml-base.en.bin',
+  '/usr/share/whisper.cpp/ggml-base.en.bin',
+  // Windows
+  '~/AppData/Local/whisper.cpp/ggml-base.en.bin',
+  '~/scoop/apps/whisper-cpp/current/models/ggml-base.en.bin',
 ];
+
+/** How to get whisper, in the words of whoever is actually reading this. */
+const INSTALL_HINT = {
+  darwin: 'brew install whisper-cpp',
+  win32: 'install whisper.cpp and put it on PATH, or set FREN_WHISPER_BIN',
+  linux: 'build whisper.cpp, or install it from your package manager, then set FREN_WHISPER_BIN if needed',
+}[process.platform] || 'set FREN_WHISPER_BIN to a whisper.cpp binary';
 
 const expand = (p) => (p.startsWith('~') ? path.join(os.homedir(), p.slice(1)) : p);
 
@@ -50,7 +67,7 @@ function detect() {
     });
   }
 
-  if (!bin) return { ready: false, reason: 'whisper.cpp is not installed (try: brew install whisper-cpp)' };
+  if (!bin) return { ready: false, reason: `whisper.cpp is not installed (${INSTALL_HINT})` };
   if (!model || !fs.existsSync(model)) {
     return { ready: false, bin, reason: 'no whisper model found — set FREN_WHISPER_MODEL to a ggml-*.bin file' };
   }

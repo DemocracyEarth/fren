@@ -2,7 +2,8 @@
 
 ## What is this?
 
-fren is a minimal ambient AI companion that lives on your macOS desktop. It is a
+fren is a minimal ambient AI companion that lives on your desktop — macOS,
+Windows or Linux. It is a
 small floating sphere with a face lit from within. When the light is **on** and
 the eyes are **open**, fren is observing what you do — which app is active, what
 the window title says, an occasional local screenshot. When the light goes
@@ -81,7 +82,21 @@ See [docs/architecture.md](docs/architecture.md) for the full picture.
 
 ## How do I run it?
 
-Requirements: macOS, Node.js >= 23 (for built-in `node:sqlite`).
+Requirements: Node.js >= 23 (for built-in `node:sqlite`), on macOS, Windows or
+Linux.
+
+Reading which window is in front is the one genuinely platform-specific thing
+fren does, and each platform pays a different price for it:
+
+| Platform | App name | Window title |
+|---|---|---|
+| macOS | `lsappinfo`, no permission needed | `osascript`, needs **Accessibility** |
+| Windows | PowerShell, no permission needed | same call, no permission needed |
+| Linux (X11) | `xdotool` + `xprop` | `xdotool` |
+| Linux (Wayland) | `xdotool` under XWayland, else unavailable | **not available** — the protocol does not permit it |
+
+Where a title cannot be read, fren records the app name alone and says so in the
+log rather than pretending. On Wayland that is the ceiling, not a bug.
 
 ```sh
 npm install
