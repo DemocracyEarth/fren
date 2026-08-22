@@ -1,26 +1,57 @@
 'use strict';
 /**
- * fren's face, drawn to a canvas so it can be used as a texture.
+ * fren's face, drawn to a canvas so it can be used as an emissive texture.
  *
- * This is deliberately the SAME geometry as the SVG renderer — the eyes are
- * plain circles, and the mouth is one path filled AND stroked with round caps
- * and joins so its outline is always round. Proving the drawing survives a
- * change of renderer is half the point of this prototype: the parameter space
- * is what the character is, not the SVG.
+ * Tuned for an ASSISTANT rather than a cartoon. Cuteness here comes from
+ * PROPORTION, not amplitude: large round eyes set wide and low, and a small
+ * mouth. That combination reads as friendly at rest, which means the
+ * expressions never have to shout to be legible. A wide grin on something
+ * that sits on your desktop all day stops looking friendly and starts
+ * looking manic, so the mouth stays small and the range stays narrow.
+ *
+ * The light is layered the way a warm source actually photographs: a blown
+ * white core falling off through amber into the material around it. On an
+ * emissive map that spill is what makes the features read as lit from inside
+ * the sphere instead of painted onto it.
  */
-export const FACE = { EYE_DX: 36, EYE_Y: 88, EYE_R: 11, MOUTH_Y: 118, MOUTH_W: 48 };
 
-/** The mouth path, in the same 200-unit space the SVG uses. */
+export const FACE = {
+  EYE_DX: 36,      // wide-set: baby schema, and it leaves the mouth room
+  EYE_Y: 91,       // slightly below centre, which reads younger and softer
+  EYE_R: 15.5,     // sized against the guide -- expressive without shouting
+  MOUTH_Y: 127,
+  MOUTH_W: 27,     // still small next to the eyes: that ratio is the sobriety
+};
+
+/** Warm falloff, widest and dimmest first. Radii are in face units. */
+const GLOW = [
+  { blur: 12.0, alpha: 0.30, color: '#FF7A00' },   // far spill, material hue
+  { blur: 7.5,  alpha: 0.34, color: '#FF8A00' },
+  { blur: 4.4,  alpha: 0.38, color: '#FFB14A' },   // halo, full amber
+  { blur: 2.5,  alpha: 0.42, color: '#FFD08A' },
+  { blur: 1.2,  alpha: 0.46, color: '#FFE9C4' },   // bloom, warm white
+];
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+/**
+ * The mouth. One path, filled AND stroked with round joins, so the outline
+ * can never come to a point -- a triangular mouth is the failure mode this
+ * construction exists to prevent.
+ *
+ * Control points sit near the corners so the sides stay vertical and the
+ * bottom stays round. Pull them inward and it becomes a wedge.
+ */
 function mouthPath(ctx, cx, cy, wScale, open, curve, wave) {
-  const w = FACE.MOUTH_W * Math.max(0.1, Math.min(1.6, wScale));
-  const c = Math.max(-1, Math.min(1, curve));
-  const kx = w * 0.94;              // near the corners -> vertical sides
-  const lip = c * 10;
-  const drop = open * (13 + w * 0.46);
+  const w = FACE.MOUTH_W * clamp(wScale, 0.1, 1.6);
+  const c = clamp(curve, -1, 1);
+  const kx = w * 0.94;
+  const lip = c * 5.0;                    // half the old lift: gentler curve
+  const drop = open * (7 + w * 0.42);     // and a shallower opening
   const top = lip - drop * 0.1;
   const bot = lip + drop;
   const k = 1.3333;
-  const s = wave * 8;
+  const s = wave * 4;
 
   ctx.beginPath();
   ctx.moveTo(cx - w, cy);
@@ -29,66 +60,127 @@ function mouthPath(ctx, cx, cy, wScale, open, curve, wave) {
   ctx.closePath();
 }
 
+/** A closed, resting smile: a stroked arc, no cavity. */
+function smileArc(ctx, cx, cy, wScale, curve) {
+  const w = FACE.MOUTH_W * clamp(wScale, 0.1, 1.6);
+  const c = clamp(curve, -1, 1);
+  ctx.beginPath();
+  ctx.moveTo(cx - w, cy - c * 1.5);
+  ctx.quadraticCurveTo(cx, cy + c * 9.0, cx + w, cy - c * 1.5);
+}
+
+/**
+ * Draw the eyes and mouth once, in one flat colour. Called repeatedly at
+ * different blur radii to build the falloff, then once sharp for the core.
+ */
+function paintFeatures(ctx, p, style, lineScale) {
+  const lidTop = clamp((p.lidTop ?? 0) + (p.blink ?? 0), 0, 1.25);
+  const open = clamp(p.mouthOpen ?? 0, 0, 1);
+
+  ctx.fillStyle = style;
+  ctx.strokeStyle = style;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+
+  // --- eyes -----------------------------------------------------------------
+  for (const side of [-1, 1]) {
+    const cx = 100 + side * FACE.EYE_DX;
+    const cy = FACE.EYE_Y;
+    const r = FACE.EYE_R * (side > 0 ? 1 - (p.eyeAsym ?? 0) : 1);
+    const shut = clamp((lidTop - 0.7) / 0.3, 0, 1);
+
+    if (shut < 0.99) {
+      const openTop = cy - r + lidTop * 2 * r;
+      ctx.beginPath();
+      if (openTop <= cy - r + 0.01) {
+        // Fully open. A touch taller than wide -- barely measurable,
+        // reliably cuter.
+        ctx.ellipse(cx, cy, r, r * 1.06, 0, 0, Math.PI * 2);
+      } else if (openTop < cy + r) {
+        // Partly lidded: the chord where the lid crosses, closed by the arc
+        // beneath it. Drawn as geometry so the glow falls off naturally
+        // instead of being sliced square by a clip region.
+        const dy = openTop - cy;
+        const dx = Math.sqrt(Math.max(0, r * r - dy * dy));
+        ctx.moveTo(cx - dx, openTop);
+        ctx.lineTo(cx + dx, openTop);
+        ctx.arc(cx, cy, r, Math.atan2(dy, dx), Math.atan2(dy, -dx), false);
+        ctx.closePath();
+      }
+      ctx.fill();
+    }
+
+    // A shut eye is a drawn curve, not an absence of one.
+    if (shut > 0.01) {
+      ctx.globalAlpha *= shut;
+      ctx.lineWidth = Math.max(3.4, r * 0.30) * lineScale;
+      ctx.beginPath();
+      ctx.moveTo(cx - r * 0.95, cy - 1);
+      ctx.quadraticCurveTo(cx, cy + r * 0.62, cx + r * 0.95, cy - 1);
+      ctx.stroke();
+      ctx.globalAlpha /= shut;
+    }
+  }
+
+  // --- mouth ----------------------------------------------------------------
+  // Below a threshold there is no cavity to draw: a resting mouth is a line,
+  // which is what keeps the neutral face calm instead of gormlessly agape.
+  if (open < 0.07) {
+    ctx.lineWidth = 7.0 * lineScale;
+    smileArc(ctx, 100, FACE.MOUTH_Y, p.mouthW ?? 1, p.mouthCurve ?? 0.8);
+    ctx.stroke();
+  } else {
+    ctx.lineWidth = 6.4 * lineScale;
+    mouthPath(ctx, 100, FACE.MOUTH_Y, p.mouthW ?? 1, open,
+              p.mouthCurve ?? 0.8, p.mouthWave ?? 0);
+    ctx.fill();
+    ctx.stroke();
+  }
+}
+
 /**
  * Paint the face into a canvas. `p` uses the same parameter names as the SVG
- * renderer, so both can be driven from one spring system.
+ * renderer, so one spring system can drive either.
  */
 export function drawFace(canvas, p) {
   const ctx = canvas.getContext('2d');
   const S = canvas.width / 200;          // the face lives in a 200-unit box
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // OPAQUE BLACK, not clear. This canvas becomes an emissive map, and an
+  // emissive map is sampled for RGB with the alpha channel discarded -- so a
+  // glow pixel at 5% alpha would read as FULL brightness, turning the whole
+  // falloff into a flat plateau with a hard edge. Compositing onto black
+  // bakes the alpha into the colour, which is what makes the gradient survive.
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.setTransform(S, 0, 0, S, 0, (canvas.height - 200 * S) / 2);
 
-  const lit = Math.max(0, Math.min(1, p.lit ?? 1));
-  if (lit <= 0.02) return;               // light off: nothing emits
+  const lit = clamp(p.lit ?? 1, 0, 1);
+  if (lit < 0.05) return;                // light off: nothing emits, ever
 
-  const ink = `rgba(255,255,255,${(0.9 + lit * 0.1).toFixed(3)})`;
+  // Additive, so each pass adds light rather than covering the one beneath.
+  ctx.globalCompositeOperation = 'lighter';
 
-  // --- eyes: plain circles with a hot core, so they read as lamps ---
-  const lidTop = Math.max(0, Math.min(1.25, (p.lidTop ?? 0) + (p.blink ?? 0)));
-  for (const side of [-1, 1]) {
-    const cx = 100 + side * FACE.EYE_DX;
-    const cy = FACE.EYE_Y;
-    const r = FACE.EYE_R * (side > 0 ? 1 - (p.eyeAsym ?? 0) : 1);
-
+  for (const g of GLOW) {
     ctx.save();
-    // Lid closure clips the circle from above.
-    const openTop = cy - r + lidTop * 2 * r;
-    ctx.beginPath();
-    ctx.rect(cx - r - 2, openTop, r * 2 + 4, cy + r + 2 - openTop);
-    ctx.clip();
-
-    const g = ctx.createRadialGradient(cx - r * 0.2, cy - r * 0.3, 0, cx, cy, r);
-    g.addColorStop(0, '#fff');
-    g.addColorStop(0.72, '#fff');
-    g.addColorStop(1, '#FFE0A8');
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fill();
+    // Canvas filters work in device pixels, so the radius has to be scaled
+    // out of face units or the blur changes size with the texture.
+    ctx.filter = `blur(${(g.blur * S).toFixed(2)}px)`;
+    ctx.globalAlpha = g.alpha * lit;
+    paintFeatures(ctx, p, g.color, 1);
     ctx.restore();
-
-    // A shut eye is a drawn line, not an absence.
-    const shut = Math.max(0, Math.min(1, (lidTop - 0.72) / 0.28));
-    if (shut > 0.01) {
-      ctx.strokeStyle = `rgba(255,255,255,${shut.toFixed(3)})`;
-      ctx.lineWidth = Math.max(3.5, r * 0.34);
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(cx - r, cy - 1);
-      ctx.quadraticCurveTo(cx, cy + r * 0.7, cx + r, cy - 1);
-      ctx.stroke();
-    }
   }
 
-  // --- mouth: filled AND stroked, so the outline is always round ---
-  ctx.fillStyle = ink;
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = 8;
-  ctx.lineJoin = 'round';
-  ctx.lineCap = 'round';
-  mouthPath(ctx, 100, FACE.MOUTH_Y, p.mouthW ?? 1, p.mouthOpen ?? 0.5, p.mouthCurve ?? 0.8, p.mouthWave ?? 0);
-  ctx.fill();
-  ctx.stroke();
+  // The crisp core last, on top, so the silhouette still reads sharply
+  // through all that bloom.
+  ctx.save();
+  ctx.filter = 'none';
+  ctx.globalAlpha = 0.86 * lit;
+  paintFeatures(ctx, p, '#FFFFFF', 1);
+  ctx.restore();
+
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
 }

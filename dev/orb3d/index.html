@@ -9,11 +9,24 @@
   #view { width: 100vw; height: 100vh; display: block; }
   #hint { position: fixed; left: 18px; bottom: 16px; color: #8b857c; font-size: 13px; }
   #hint b { color: #ED8A2F; }
+  #bar { position: fixed; left: 50%; transform: translateX(-50%); top: 18px;
+         display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
+         max-width: 92vw; }
+  #bar button { font: inherit; font-size: 12px; letter-spacing: 0.02em;
+                color: #cfc7bb; background: rgba(255,255,255,0.06);
+                border: 1px solid rgba(255,255,255,0.10); border-radius: 999px;
+                padding: 6px 13px; cursor: pointer; }
+  #bar button:hover { background: rgba(255,255,255,0.12); }
+  #bar button.on { background: #ED8A2F; border-color: #ED8A2F; color: #1a1206; }
+  #bar button.talk { border-color: rgba(255,255,255,0.28); }
+  #bar button.talk.on { background: #7ED0A0; border-color: #7ED0A0; color: #08170F; }
 </style>
 </head>
 <body>
   <canvas id="view"></canvas>
-  <div id="hint"><b>fren</b> 3D — move the pointer to make it turn, click to poke it</div>
+  <div id="bar"></div>
+  <div id="hint"><b>fren</b> 3D — pointer turns it, click pokes it,
+    <b>←/→</b> steps through expressions</div>
   <script type="module" src="./orb3d.js"></script>
 </body>
 </html>
