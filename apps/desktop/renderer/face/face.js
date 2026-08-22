@@ -264,16 +264,16 @@
             <stop class="a1" offset="100%"/>
           </radialGradient>
           <clipPath id="${id}-clip"><circle cx="100" cy="100" r="${R}"/></clipPath>
-          <filter id="${id}-bloom" x="-70%" y="-70%" width="240%" height="240%">
+          <filter id="${id}-bloom" x="-20%" y="-30%" width="140%" height="160%">
             <feGaussianBlur stdDeviation="4.5"/>
           </filter>
           <filter id="${id}-soft" x="-60%" y="-60%" width="220%" height="220%">
             <feGaussianBlur stdDeviation="7"/>
           </filter>
-          <filter id="${id}-halo" x="-140%" y="-140%" width="380%" height="380%">
+          <filter id="${id}-halo" x="-38%" y="-58%" width="176%" height="216%">
             <feGaussianBlur stdDeviation="10"/>
           </filter>
-          <filter id="${id}-spill" x="-260%" y="-260%" width="620%" height="620%">
+          <filter id="${id}-spill" x="-82%" y="-128%" width="264%" height="356%">
             <feGaussianBlur stdDeviation="24"/>
           </filter>
           <radialGradient id="${id}-mouthglow" cx="50%" cy="42%" r="66%">
@@ -466,7 +466,22 @@
     }
 
     _idle(dt) {
-      if (this.reduced) return;
+      // Transient state drains FIRST, and unconditionally. _atRest() is false
+      // while any particle is alive, so skipping this under reduced motion
+      // strands whatever was on screen and the loop can never halt.
+      for (const p of this.particles) p.life += dt;
+      this.particles = this.particles.filter((p) => p.life < p.max);
+      if (this.blink > 0) {
+        this.blink = Math.max(0, this.blink - dt * 8);
+        if (this.blink === 0 && this.blinkQueue > 0) {
+          this.blinkQueue -= 1;
+          this.blink = 1;
+        }
+      }
+      if (this.reduced) {
+        this.blinkQueue = 0;   // let a blink in flight finish, then stay open
+        return;
+      }
       const awake = this.target.lit > 0.4;
       this.nextBlink -= dt;
       if (this.nextBlink <= 0 && awake && this.target.lidTop < 0.5) {
@@ -474,13 +489,6 @@
         // Roughly one blink in five comes in a pair — real eyes do this.
         this.blinkQueue = Math.random() < 0.22 ? 1 : 0;
         this.nextBlink = 2.4 + Math.random() * 4;
-      }
-      if (this.blink > 0) {
-        this.blink = Math.max(0, this.blink - dt * 8);
-        if (this.blink === 0 && this.blinkQueue > 0) {
-          this.blinkQueue -= 1;
-          this.blink = 1;
-        }
       }
 
       // Involuntary shifts of weight, so it is never perfectly still.
@@ -504,8 +512,6 @@
         this.particles.push({ kind, life: 0, max: kind === 'z' ? 2.8 : 1.1, x: (Math.random() - 0.5) * 26 });
         this.nextParticle = kind === 'z' ? 1.5 : 0.28;
       }
-      for (const p of this.particles) p.life += dt;
-      this.particles = this.particles.filter((p) => p.life < p.max);
     }
 
     _draw() {

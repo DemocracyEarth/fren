@@ -61,7 +61,10 @@ function emotionFor(s) {
  * character looks it — no matter what the conversation is doing. (The mouth is
  * still free to move: fren can answer you without watching you.)
  */
+let owned = 'private';   // what the renderer would show if observation were on
+
 function setFace(name, opts) {
+  owned = name;
   face.set(state.observing ? name : 'private', opts);
 }
 
@@ -107,6 +110,12 @@ function render(next) {
 
   // Waking up is worth a little physical reaction.
   if (state.observing && !was.observing) {
+    // The line above deliberately does not touch the face mid-reply, so that a
+    // arriving answer is not stomped. But that also means waking up during a
+    // reply would leave fren dark while the observer is running, which breaks
+    // the one invariant that is not negotiable. Re-apply what we already own:
+    // it lights up without changing which expression is showing.
+    if (speaking) setFace(owned);
     mood.note('wake');
     face.pulse('stretch');            // it uncurls as the light comes on
     setTimeout(() => face.pulse('bounce'), 180);
