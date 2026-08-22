@@ -2,48 +2,50 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>fren — face texture, isolated</title>
+<title>fren — expression sheet</title>
 <style>
   html, body { margin: 0; background: #0B0B0D; color: #8b857c;
                font-family: ui-rounded, system-ui, sans-serif; }
-  .row { display: flex; flex-wrap: wrap; gap: 10px; padding: 14px; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; padding: 14px; }
   figure { margin: 0; text-align: center; }
-  /* Over the actual material colour, which is where the glow has to work. */
-  canvas { width: 240px; height: 240px; background: #ED8A2F; border-radius: 12px; }
-  figcaption { font-size: 12px; padding-top: 5px; }
-  h2 { font-size: 13px; font-weight: 500; padding: 0 14px; margin: 12px 0 0; }
-  .dark canvas { background: #0B0B0D; }
+  /* Each cell paints on that expression's own body colour, so the sheet shows
+     what you would actually see rather than a face floating on a swatch. */
+  .orb { width: 168px; height: 168px; border-radius: 50%; position: relative;
+         overflow: hidden; box-shadow: inset -14px -18px 34px rgba(0,0,0,0.42),
+                                       inset 12px 14px 26px rgba(255,255,255,0.16); }
+  .orb canvas { width: 100%; height: 100%; display: block; mix-blend-mode: screen; }
+  figcaption { font-size: 12px; padding-top: 6px; color: #cfc7bb; }
 </style>
 </head>
 <body>
-  <h2>on the material colour (what it looks like on the sphere)</h2>
-  <div class="row" id="onbody"></div>
-  <h2>on black (the emissive map itself)</h2>
-  <div class="row dark" id="onblack"></div>
+  <div class="row" id="sheet"></div>
 <script type="module">
   import { drawFace } from './face-texture.js';
+  import { TONE, EXPRESSIONS } from './expressions.js';
 
-  const SET = {
-    calm:      { lidTop: 0.00, mouthW: 1.00, mouthOpen: 0.00, mouthCurve: 0.65 },
-    attentive: { lidTop: 0.00, mouthW: 0.88, mouthOpen: 0.00, mouthCurve: 0.45 },
-    pleased:   { lidTop: 0.32, mouthW: 1.02, mouthOpen: 0.00, mouthCurve: 1.00 },
-    happy:     { lidTop: 0.05, mouthW: 1.10, mouthOpen: 0.28, mouthCurve: 0.90 },
-    listening: { lidTop: 0.00, mouthW: 0.52, mouthOpen: 0.40, mouthCurve: 0.10 },
-    thinking:  { lidTop: 0.24, eyeAsym: 0.16, mouthW: 0.70, mouthOpen: 0, mouthCurve: -0.12 },
-    sleepy:    { lidTop: 0.60, mouthW: 0.80, mouthOpen: 0.00, mouthCurve: 0.30 },
-  };
+  const host = document.getElementById('sheet');
+  for (const [name, e] of Object.entries(EXPRESSIONS)) {
+    const tone = TONE[e.tone] || TONE.base;
+    const hex = '#' + tone.color.toString(16).padStart(6, '0');
 
-  for (const host of [document.getElementById('onbody'), document.getElementById('onblack')]) {
-    for (const [name, p] of Object.entries(SET)) {
-      const fig = document.createElement('figure');
-      const c = document.createElement('canvas');
-      c.width = c.height = 512;
-      drawFace(c, { lit: 1, ...p });
-      const cap = document.createElement('figcaption');
-      cap.textContent = name;
-      fig.append(c, cap);
-      host.appendChild(fig);
-    }
+    const fig = document.createElement('figure');
+    const orb = document.createElement('div');
+    orb.className = 'orb';
+    // Dim the body the way the 3D material does when the light is low.
+    const lit = e.lit ?? 1;
+    orb.style.background = lit < 0.5
+      ? `color-mix(in srgb, ${hex} ${Math.round(lit * 105)}%, #46464a)`
+      : hex;
+
+    const c = document.createElement('canvas');
+    c.width = c.height = 512;
+    drawFace(c, { lit, ...e });
+
+    const cap = document.createElement('figcaption');
+    cap.textContent = name;
+    orb.appendChild(c);
+    fig.append(orb, cap);
+    host.appendChild(fig);
   }
 </script>
 </body>

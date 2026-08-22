@@ -16,11 +16,11 @@
  */
 
 export const FACE = {
-  EYE_DX: 36,      // wide-set: baby schema, and it leaves the mouth room
-  EYE_Y: 91,       // slightly below centre, which reads younger and softer
-  EYE_R: 15.5,     // sized against the guide -- expressive without shouting
-  MOUTH_Y: 127,
-  MOUTH_W: 27,     // still small next to the eyes: that ratio is the sobriety
+  EYE_DX: 38,      // wide-set: baby schema, and it leaves the mouth room
+  EYE_Y: 90,       // slightly below centre, which reads younger and softer
+  EYE_R: 15.2,     // steady: oversized eyes read glazed, not alert
+  MOUTH_Y: 128,
+  MOUTH_W: 32,     // still small next to the eyes: that ratio is the sobriety
 };
 
 /** Warm falloff, widest and dimmest first. Radii are in face units. */
@@ -86,51 +86,42 @@ function paintFeatures(ctx, p, style, lineScale) {
   for (const side of [-1, 1]) {
     const cx = 100 + side * FACE.EYE_DX;
     const cy = FACE.EYE_Y;
-    const r = FACE.EYE_R * (side > 0 ? 1 - (p.eyeAsym ?? 0) : 1);
-    const shut = clamp((lidTop - 0.7) / 0.3, 0, 1);
+    const r = FACE.EYE_R * (p.eyeScale ?? 1) * (side > 0 ? 1 - (p.eyeAsym ?? 0) : 1);
+    const lid = clamp(lidTop, 0, 1);
 
-    if (shut < 0.99) {
-      const openTop = cy - r + lidTop * 2 * r;
-      ctx.beginPath();
-      if (openTop <= cy - r + 0.01) {
-        // Fully open. A touch taller than wide -- barely measurable,
-        // reliably cuter.
-        ctx.ellipse(cx, cy, r, r * 1.06, 0, 0, Math.PI * 2);
-      } else if (openTop < cy + r) {
-        // Partly lidded: the chord where the lid crosses, closed by the arc
-        // beneath it. Drawn as geometry so the glow falls off naturally
-        // instead of being sliced square by a clip region.
-        const dy = openTop - cy;
-        const dx = Math.sqrt(Math.max(0, r * r - dy * dy));
-        ctx.moveTo(cx - dx, openTop);
-        ctx.lineTo(cx + dx, openTop);
-        ctx.arc(cx, cy, r, Math.atan2(dy, dx), Math.atan2(dy, -dx), false);
-        ctx.closePath();
-      }
-      ctx.fill();
+    ctx.beginPath();
+    if (lid <= 0.005) {
+      // Fully open. A touch taller than wide -- barely measurable, reliably
+      // cuter.
+      ctx.ellipse(cx, cy, r, r * 1.06, 0, 0, Math.PI * 2);
+    } else {
+      // The lid crosses the circle at a chord; what remains below it is the
+      // visible eye. SLIVER is the thickness left when fully shut, so the
+      // shape becomes a curved closed lid instead of disappearing -- which is
+      // what lets one shape cover the whole range.
+      const SLIVER = r * 0.38;
+      const openTop = cy - r + lid * (2 * r - SLIVER);
+      const dy = openTop - cy;
+      const dx = Math.sqrt(Math.max(0, r * r - dy * dy));
+      ctx.moveTo(cx - dx, openTop);
+      // A slight downward bow on the lid line, so a nearly-shut eye reads as
+      // a relaxed lid rather than a ruled edge.
+      ctx.quadraticCurveTo(cx, openTop + r * 0.10 * lid, cx + dx, openTop);
+      ctx.arc(cx, cy, r, Math.atan2(dy, dx), Math.atan2(dy, -dx), false);
+      ctx.closePath();
     }
-
-    // A shut eye is a drawn curve, not an absence of one.
-    if (shut > 0.01) {
-      ctx.globalAlpha *= shut;
-      ctx.lineWidth = Math.max(3.4, r * 0.30) * lineScale;
-      ctx.beginPath();
-      ctx.moveTo(cx - r * 0.95, cy - 1);
-      ctx.quadraticCurveTo(cx, cy + r * 0.62, cx + r * 0.95, cy - 1);
-      ctx.stroke();
-      ctx.globalAlpha /= shut;
-    }
+    ctx.fill();
   }
 
   // --- mouth ----------------------------------------------------------------
   // Below a threshold there is no cavity to draw: a resting mouth is a line,
   // which is what keeps the neutral face calm instead of gormlessly agape.
   if (open < 0.07) {
-    ctx.lineWidth = 7.0 * lineScale;
+    ctx.lineWidth = 7.8 * lineScale;
     smileArc(ctx, 100, FACE.MOUTH_Y, p.mouthW ?? 1, p.mouthCurve ?? 0.8);
     ctx.stroke();
   } else {
-    ctx.lineWidth = 6.4 * lineScale;
+    ctx.lineWidth = 7.0 * lineScale;
     mouthPath(ctx, 100, FACE.MOUTH_Y, p.mouthW ?? 1, open,
               p.mouthCurve ?? 0.8, p.mouthWave ?? 0);
     ctx.fill();

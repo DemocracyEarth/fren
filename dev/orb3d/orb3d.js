@@ -1,5 +1,6 @@
 import * as THREE from '/vendor/three.module.js';
 import { drawFace } from './face-texture.js';
+import { TONE, EXPRESSIONS } from './expressions.js';
 
 /**
  * A 3D fren, to answer one question: does real geometry buy anything the
@@ -146,32 +147,9 @@ scene.add(floor);
 // when down, red when cross, and drained of colour entirely when asleep. The
 // orange is home; everything else is a departure you can feel without having
 // to name it.
-const TONE = {
-  base:    { color: 0xff8a00, rough: 0.34, sheen: 0.40 },
-  warm:    { color: 0xffa51f, rough: 0.28, sheen: 0.55 },   // up, a bit brighter
-  excited: { color: 0xffb92e, rough: 0.20, sheen: 0.75 },   // glossier: it catches more light
-  blue:    { color: 0x7a8798, rough: 0.42, sheen: 0.26 },   // down, cooled off
-  red:     { color: 0xe04a24, rough: 0.30, sheen: 0.45 },   // cross
-  grey:    { color: 0x6d6d73, rough: 0.54, sheen: 0.08 },   // asleep, no colour left
-};
-
-const EXPRESSIONS = {
-  calm:      { tone: 'base',    lidTop: 0.00, eyeAsym: 0,    mouthW: 1.00, mouthOpen: 0.00, mouthCurve: 0.65 },
-  attentive: { tone: 'base',    lidTop: 0.00, eyeAsym: 0,    mouthW: 0.88, mouthOpen: 0.00, mouthCurve: 0.45 },
-  pleased:   { tone: 'warm',    lidTop: 0.32, eyeAsym: 0,    mouthW: 1.02, mouthOpen: 0.00, mouthCurve: 1.00 },
-  happy:     { tone: 'warm',    lidTop: 0.05, eyeAsym: 0,    mouthW: 1.10, mouthOpen: 0.26, mouthCurve: 0.90 },
-  excited:   { tone: 'excited', lidTop: 0.00, eyeAsym: 0,    mouthW: 1.14, mouthOpen: 0.38, mouthCurve: 0.85 },
-  listening: { tone: 'base',    lidTop: 0.00, eyeAsym: 0,    mouthW: 0.52, mouthOpen: 0.40, mouthCurve: 0.10 },
-  thinking:  { tone: 'base',    lidTop: 0.24, eyeAsym: 0.16, mouthW: 0.70, mouthOpen: 0.00, mouthCurve: -0.12 },
-  working:   { tone: 'base',    lidTop: 0.12, eyeAsym: 0,    mouthW: 0.76, mouthOpen: 0.12, mouthCurve: 0.32 },
-  sad:       { tone: 'blue',    lidTop: 0.34, eyeAsym: 0,    mouthW: 0.82, mouthOpen: 0.00, mouthCurve: -0.62 },
-  cross:     { tone: 'red',     lidTop: 0.40, eyeAsym: 0,    mouthW: 0.78, mouthOpen: 0.00, mouthCurve: -0.40 },
-  sleepy:    { tone: 'base',    lidTop: 0.60, eyeAsym: 0,    mouthW: 0.80, mouthOpen: 0.00, mouthCurve: 0.30 },
-  asleep:    { tone: 'grey',    lidTop: 0.95, eyeAsym: 0,    mouthW: 0.74, mouthOpen: 0.00, mouthCurve: 0.30, lit: 0.20 },
-};
 
 // ---- state -----------------------------------------------------------------
-const params = { lit: 1, lidTop: 0, blink: 0, eyeAsym: 0,
+const params = { lit: 1, lidTop: 0, blink: 0, eyeAsym: 0, eyeScale: 1,
                  mouthW: 1, mouthOpen: 0, mouthCurve: 0.65, mouthWave: 0 };
 const target = { ...params };
 let current = 'calm';
@@ -200,6 +178,7 @@ export function setExpression(name) {
   for (const k of ['lidTop', 'eyeAsym', 'mouthW', 'mouthOpen', 'mouthCurve']) {
     target[k] = e[k] ?? 0;
   }
+  target.eyeScale = e.eyeScale ?? 1;
   const tone = TONE[e.tone] || TONE.base;
   toneTo.setHex(tone.color);
   matTo.rough = tone.rough;
