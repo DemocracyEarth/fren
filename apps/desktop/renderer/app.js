@@ -301,10 +301,27 @@ const SETUP_STEPS = [
     key: 'work',
     ask: (a) => `Good to meet you, ${a.name}. What are you working on at the moment?`,
   },
+  // The next two are the ones that matter. They do not describe the user —
+  // they define fren, and they are written into SOUL.md as instructions the
+  // model is told to follow. This is the difference between a companion with a
+  // personality chosen for you and one you chose.
+  {
+    key: 'tone',
+    ask: () => "Now some things about me, so I don't have to guess.\n\n" +
+               "How should I talk to you? Short and factual, warmer and more " +
+               "conversational, dry — however you'd actually like it.",
+    pulse: 'nod',
+  },
+  {
+    key: 'initiative',
+    ask: () => "And when I notice something — a pattern, something repeated — " +
+               "should I say so straight away, or stay quiet until you ask?",
+    pulse: 'squash',
+  },
   {
     key: 'goals',
-    ask: () => "And what would be genuinely useful from me? I watch which apps and " +
-               "windows you use, and look for patterns worth mentioning.",
+    ask: () => "Last one. What would genuinely be useful from me? I watch which " +
+               "apps and windows you use, and look for things worth mentioning.",
   },
 ];
 
@@ -326,6 +343,11 @@ async function runSetupIfNeeded() {
 async function askSetupStep() {
   const step = SETUP_STEPS[setup.step];
   showSkip(true);
+  // Move before speaking. fren opens the conversation rather than sitting
+  // inert waiting to be discovered, and a small physical beat before each
+  // question reads as thinking rather than as a form advancing.
+  face.pulse(step.pulse || 'bounce');
+  await new Promise((r) => setTimeout(r, 260));
   await speak(step.ask(setup.answers));
 }
 
@@ -360,10 +382,13 @@ async function finishSetup() {
   const answers = { ...setup.answers };
   const profile = { ...answers, completedAt: Date.now() };
   await endSetup(profile);
+  face.pulse('stretch');
   await speak(
-    `Thanks, ${answers.name}. Two things and I'll leave you alone.\n\n` +
-    `Hold me to talk — you don't need this panel open. And I only watch while ` +
-    `my light is on, so tap me when you're ready for me to start.`
+    `Thanks, ${answers.name}. I've written that down as SOUL.md — it's how I'll ` +
+    `try to be. You can open it and change it any time, and I'll read it fresh ` +
+    `on the next thing you say.\n\n` +
+    `Hold me to talk; you don't need this panel open. And I only watch while my ` +
+    `light is on, so tap me when you're ready for me to start.`
   );
 }
 

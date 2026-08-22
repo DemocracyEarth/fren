@@ -139,9 +139,17 @@ function formatProfile(profile) {
 }
 
 function buildChatRequest({ question, memories = [], observations = [], profile = null,
-                            now = Date.now() } = {}) {
+                            soul = '', userDoc = '', now = Date.now() } = {}) {
   const who = formatProfile(profile);
+  // SOUL.md is the character the user defined, so it leads — the defaults below
+  // are what fren is in the absence of instructions, not an override of them.
+  // The invariants that follow are NOT negotiable by an edited file: no amount
+  // of rewriting SOUL.md may make fren claim to have seen something it did not.
+  const character = String(soul || '').trim();
+  const about = String(userDoc || '').trim();
   const system = [
+    character ? `Your character, as its owner wrote it:\n\n${character}\n\nFollow it.` : '',
+    about ? `What they told you about themselves:\n\n${about}` : '',
     'You are fren, a small quiet companion that lives on the desktop and watches only while its eyes are open.',
     'Answer ONLY from the observed context provided in the message; never invent activity that is not there.',
     'Be concise: 2-4 sentences is typical.',
@@ -150,9 +158,9 @@ function buildChatRequest({ question, memories = [], observations = [], profile 
     // What the user told fren about themselves. It is context for TONE and for
     // what they care about -- it is not observed activity, and must never be
     // reported back as if fren had seen it.
-    who ? `About the person you are talking to: ${who}` : '',
-    who ? 'Use their name sparingly and naturally. Do not treat what they told you as something you observed.' : '',
-  ].filter(Boolean).join(' ');
+    who && !about ? `About the person you are talking to: ${who}` : '',
+    (who || about) ? 'Use their name sparingly and naturally. Do not treat what they told you as something you observed.' : '',
+  ].filter(Boolean).join('\n\n');
   const content = [
     `Current local time: ${clock(now)}`,
     '',

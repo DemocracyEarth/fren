@@ -61,7 +61,7 @@ network requests with your data.
 | Your typed chat questions | When you send a chat message |
 | Derived activity summaries **and the recent raw timeline** (up to the last 50 observed app/title entries) as context | When you send a chat message |
 | Transcribed text of what you said (never the audio) | When you use push-to-talk |
-| Your name and the two setup answers, as chat context | With every chat message, once you have completed first-run setup |
+| The contents of `SOUL.md` and `USER.md` | With every chat message, once you have completed first-run setup |
 | The text of fren's reply, to ElevenLabs | Only when a voice key is configured |
 
 Chat context is drawn from what was captured earlier: asking a question while
@@ -93,10 +93,27 @@ different data-handling policies — read the one you pick.
 Everything is local, under Electron's userData folder:
 
 ```
-~/Library/Application Support/fren/
+<userData>/
+├── SOUL.md          # who fren is — written from your first conversation
+├── USER.md          # what you told fren about yourself
+├── MEMORY.md        # durable facts worth keeping
+├── memory/
+│   └── 2026-08-22.md    # what fren observed that day
 ├── fren.db          # SQLite: observations, memories, suggestions, settings
 └── (screenshots)    # JPEG files, max width 1280px
 ```
+
+`<userData>` is `~/Library/Application Support/fren` on macOS,
+`%APPDATA%\fren` on Windows, and `~/.config/fren` on Linux.
+
+The Markdown files are deliberately Markdown. You can open `SOUL.md`, read
+exactly what fren believes it is supposed to be, rewrite it, and it takes effect
+on your next message — the file is read fresh every time, not cached at launch.
+A companion that has formed opinions about you in a binary you cannot read is a
+worse thing than one that has not formed any.
+
+`SOUL.md` and `USER.md` are sent to the model with each chat message. The daily
+logs and `MEMORY.md` are not sent; they are for you.
 
 The `settings` table holds what you TOLD fren during first-run setup — your
 name and your two answers about what you are working on and what you would like

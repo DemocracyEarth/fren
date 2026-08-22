@@ -10,6 +10,7 @@ const gateway = require('./gatewayClient');
 const { createObserver } = require('./observer');
 const { createSummarizer } = require('./summarizer');
 const whisper = require('./whisper');
+const soul = require('./soul');
 
 loadEnv();
 // The desktop process must never hold provider credentials — only the gateway
@@ -148,7 +149,13 @@ app.whenReady().then(() => {
     onObservation: (obs) => memory.addObservation(obs),
     log,
   });
-  summarizer = createSummarizer({ memory, log });
+  summarizer = createSummarizer({
+    memory,
+    log,
+    // Every summary also lands in memory/YYYY-MM-DD.md, so a day fren spent
+    // with you can be read as a document rather than queried out of SQLite.
+    onSummary: (activity, ts) => soul.appendDailyLog(app.getPath('userData'), activity, ts),
+  });
   summarizer.start();
 
   createWindow();
@@ -254,6 +261,16 @@ app.whenReady().then(() => {
   ipcMain.handle('fren:setProfile', (_e, profile) => {
     const clean = profile && typeof profile === 'object' ? profile : null;
     memory.setSetting('profile', clean);
+    // The interview also becomes fren's character, as Markdown the user can
+    // read and edit. Skipping writes nothing: there is no character to define.
+    if (clean && clean.name && !clean.skipped) {
+      try {
+        const p = soul.writeSoul(app.getPath('userData'), clean);
+        log(`[setup] wrote ${path.basename(p.soul)} and ${path.basename(p.user)}`);
+      } catch (err) {
+        log(`[setup] could not write the soul files: ${err.message}`);
+      }
+    }
     log(`[setup] profile saved (${clean ? Object.keys(clean).join(', ') : 'cleared'})`);
     return memory.getSetting('profile');
   });
@@ -271,7 +288,13 @@ app.whenReady().then(() => {
         .getRecentObservations({ limit: 50 })
         .map(({ ts, activeApp, windowTitle }) => ({ ts, activeApp, windowTitle }));
       const profile = memory.getSetting('profile');
-      const { reply } = await gateway.chat({ question, memories, observations, profile });
+      // Read from disk every time, so editing SOUL.md takes effect on the next
+      // message rather than the next launch.
+      const character = soul.readContext(app.getPath('userData'));
+      const { reply } = await gateway.chat({
+        question, memories, observations, profile,
+        soul: character.soul, userDoc: character.user,
+      });
       return { reply };
     } catch (err) {
       log(`[chat] failed: ${err.message}`);

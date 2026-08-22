@@ -6,7 +6,7 @@ const { config } = require('../../../packages/shared');
 const gateway = require('./gatewayClient');
 const state = require('./state');
 
-function createSummarizer({ memory, log = console.log }) {
+function createSummarizer({ memory, log = console.log, onSummary = null }) {
   let timer = null;
   let running = false;
 
@@ -51,6 +51,13 @@ function createSummarizer({ memory, log = console.log }) {
           rawCount: observations.length,
         });
         memory.markSummarized(observations.map((o) => o.id));
+        // Also append it to today's Markdown log, so the day is readable
+        // without a database client. Best-effort: a failed write here must
+        // never cost the memory that was just stored.
+        if (typeof onSummary === 'function') {
+          try { onSummary(summary.activity, observations[0].ts); }
+          catch (err) { log(`[summarizer] daily log write failed: ${err.message}`); }
+        }
         // PRIVACY: counts only — the activity text is derived from window
         // titles and must not end up in logs.
         log(`[summarizer] created a memory from ${observations.length} observations`);
