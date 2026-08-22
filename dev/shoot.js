@@ -23,8 +23,10 @@ if (process.env.FREN_SHOT_SOFTWARE === '1') app.disableHardwareAcceleration();
 
 app.whenReady().then(async () => {
   const win = new BrowserWindow({
-    width: OPEN ? 360 : 150,
-    height: OPEN ? 600 : 150,
+    // Match ORB_SIZE / PANEL_SIZE in apps/desktop/main/index.js, or the
+    // capture clips the very thing it is meant to show.
+    width: OPEN ? 344 : 200,
+    height: OPEN ? 618 : 200,
     show: false,
     frame: false,
     transparent: true,

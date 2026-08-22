@@ -88,7 +88,12 @@ class Orb {
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(30, 1, 0.1, 100);
-    this.camera.position.set(0, 0, 8.0);
+    // Framed so the sphere fills the canvas the way the SVG face did. At the
+    // old distance it occupied under half the height, which is most of why it
+    // read as small. The view centre sits below the sphere centre to leave the
+    // contact shadow in frame.
+    this.camera.position.set(0, -0.30, 5.35);
+    this.camera.lookAt(0, -0.30, 0);
 
     this.scene.environment = this._studioEnv();
 

@@ -35,7 +35,7 @@ const els = {
   mic: document.getElementById('mic'),
 };
 
-const face = new window.FrenFace.Face(els.orb, { size: 108 });
+const face = new window.FrenFace.Face(els.orb, { size: els.orb.clientWidth || 164 });
 // fren's temperament: the same nudge shouldn't always get the same face.
 const mood = window.FrenReactions.createReactions();
 setInterval(() => mood.decay(5000), 5000);

@@ -44,8 +44,8 @@ function serveRenderer() {
   });
 }
 
-const ORB_SIZE = { width: 148, height: 148 };
-const PANEL_SIZE = { width: 344, height: 566 };
+const ORB_SIZE = { width: 200, height: 200 };
+const PANEL_SIZE = { width: 344, height: 618 };
 const MARGIN = 24;
 
 let win = null;
@@ -89,7 +89,7 @@ function createWindow() {
 
 function orbCenter() {
   const b = win.getBounds();
-  return { x: b.x + b.width - 74, y: b.y + b.height - 74 };
+  return { x: b.x + b.width - ORB_SIZE.width / 2, y: b.y + b.height - ORB_SIZE.height / 2 };
 }
 
 /**
