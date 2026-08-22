@@ -270,6 +270,18 @@
           <filter id="${id}-soft" x="-60%" y="-60%" width="220%" height="220%">
             <feGaussianBlur stdDeviation="7"/>
           </filter>
+          <filter id="${id}-halo" x="-140%" y="-140%" width="380%" height="380%">
+            <feGaussianBlur stdDeviation="10"/>
+          </filter>
+          <filter id="${id}-spill" x="-260%" y="-260%" width="620%" height="620%">
+            <feGaussianBlur stdDeviation="24"/>
+          </filter>
+          <radialGradient id="${id}-mouthglow" cx="50%" cy="42%" r="66%">
+            <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0"/>
+            <stop offset="52%" stop-color="#FFE7B5" stop-opacity="0"/>
+            <stop offset="82%" stop-color="#FFC46A" stop-opacity="0.55"/>
+            <stop offset="100%" stop-color="#FF9A2E" stop-opacity="0.92"/>
+          </radialGradient>
           <radialGradient id="${id}-eyeglow" cx="42%" cy="36%" r="72%">
             <stop offset="0%" stop-color="#fff"/>
             <stop offset="72%" stop-color="#fff"/>
@@ -302,8 +314,11 @@
           <g clip-path="url(#${id}-clip)">
             <ellipse class="rim"/>
             <ellipse class="blushL"/><ellipse class="blushR"/>
+            <use class="spill" href="#${id}-feat" filter="url(#${id}-spill)" style="mix-blend-mode:screen"/>
+            <use class="halo" href="#${id}-feat" filter="url(#${id}-halo)" style="mix-blend-mode:screen"/>
             <use class="bloom" href="#${id}-feat" filter="url(#${id}-bloom)" style="mix-blend-mode:screen"/>
             <use class="core" href="#${id}-feat"/>
+            <path class="mouthHot" fill="url(#${id}-mouthglow)" style="mix-blend-mode:multiply"/>
             <path class="tongue"/>
             <ellipse class="spec"/>
           </g>
@@ -316,6 +331,7 @@
       this.g = {
         amb: q('.amb'), ao: q('.ao'), body: q('.body'), sphere: q('.sphere'), rim: q('.rim'),
         spec: q('.spec'), bloom: q('.bloom'), core: q('.core'), fx: q('.fx'),
+        spill: q('.spill'), halo: q('.halo'), mouthHot: q('.mouthHot'),
         blushL: q('.blushL'), blushR: q('.blushR'), tongue: q('.tongue'),
         eyeL: q(`#${id}-feat .eyeL`), eyeR: q(`#${id}-feat .eyeR`),
         glowL: q('.glowL'), glowR: q('.glowR'),
@@ -539,8 +555,24 @@
         : step(h, s, l, RAMP.dark);
       g.core.style.color = core;
       g.core.setAttribute('opacity', (0.9 + lit * 0.1).toFixed(3));
-      g.bloom.style.color = hsl(h, Math.min(1, s), Math.min(0.9, l + 0.3));
-      g.bloom.setAttribute('opacity', (lit * 0.55 * this.finish.glow).toFixed(3));
+
+      // A filament is never perfectly steady. Tie a small flicker to the same
+      // clock as the breath so the light reads as powered, not painted.
+      const flicker = this.reduced
+        ? 1
+        : 1 + Math.sin(this.t * 2.3) * 0.05 + Math.sin(this.t * 6.1) * 0.018;
+      const glow = lit * this.finish.glow * flicker;
+
+      // Near the source: warm white, only just off the core.
+      g.bloom.style.color = hsl(h + 12, Math.min(1, s * 0.55), Math.min(0.95, l + 0.42));
+      g.bloom.setAttribute('opacity', (glow * 0.78).toFixed(3));
+      // Mid falloff: full amber.
+      g.halo.style.color = hsl(h + 5, Math.min(1, s * 0.95), Math.min(0.88, l + 0.3));
+      g.halo.setAttribute('opacity', (glow * 0.5).toFixed(3));
+      // Far spill: the material's own hue, so the sphere looks lit from within
+      // rather than having something bright sitting on top of it.
+      g.spill.style.color = hsl(h, Math.min(1, s), Math.min(0.72, l + 0.16));
+      g.spill.setAttribute('opacity', (glow * 0.42).toFixed(3));
 
       // ---- eyes: plain white circles, expression is closure only ----
       const lidTop = clamp(p.lidTop + this.blink, 0, 1.25);
@@ -569,7 +601,11 @@
         const wave = Math.sin(this.talkPhase * 15) * 0.5 + Math.sin(this.talkPhase * 23.7) * 0.3;
         open = clamp(0.5 + wave * 0.36, 0.06, 1);
       }
-      g.mouth.setAttribute('d', this._mouthPath(p.mouthW, open, p.mouthCurve, p.mouthWave));
+      const mouthD = this._mouthPath(p.mouthW, open, p.mouthCurve, p.mouthWave);
+      g.mouth.setAttribute('d', mouthD);
+      g.mouthHot.setAttribute('d', mouthD);
+      // Only worth showing once the mouth is open enough to have an inside.
+      g.mouthHot.setAttribute('opacity', (lit * clamp(open * 1.6, 0, 1) * 0.9).toFixed(3));
 
       // ---- kawaii extras ----
       const bl = clamp(p.blush, 0, 1);
