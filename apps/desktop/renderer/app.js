@@ -422,7 +422,19 @@ async function handleSetupAnswer(answer) {
     await speak("Fine by me. Hold me any time you want to talk.");
     return;
   }
-  setup.answers[SETUP_STEPS[setup.step].key] = answer;
+  const step = SETUP_STEPS[setup.step];
+  // Spoken answers are sentences, not values. "yeah hi, my name is Santi" has
+  // to become "Santi", or fren addresses someone as a whole sentence forever.
+  let value = answer;
+  try {
+    const res = await window.fren.extractSetup({
+      field: step.key,
+      question: step.ask(setup.answers),
+      answer,
+    });
+    if (res && res.value) value = res.value;
+  } catch { /* keep the raw answer rather than lose it */ }
+  setup.answers[step.key] = value;
   setup.step += 1;
   if (setup.step < SETUP_STEPS.length) return askSetupStep();
   return finishSetup();

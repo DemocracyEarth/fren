@@ -43,4 +43,5 @@ module.exports = {
   summarize: (observations) =>
     request('/v1/summarize', { method: 'POST', body: { observations } }),
   chat: (payload) => request('/v1/chat', { method: 'POST', body: payload, timeoutMs: 90_000 }),
+  extract: (payload) => request('/v1/extract', { method: 'POST', body: payload, timeoutMs: 20_000 }),
 };

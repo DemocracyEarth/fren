@@ -199,6 +199,59 @@ const PATTERN_SCHEMA = {
   },
 };
 
+const EXTRACT_SCHEMA = {
+  type: 'object',
+  properties: {
+    value: { type: 'string', description: 'the extracted answer, or an empty string if there is none' },
+  },
+  required: ['value'],
+};
+
+/**
+ * People do not answer questions the way forms expect. Asked their name they
+ * say "yeah hi, my name is Santi", and storing that verbatim means fren spends
+ * the rest of its life addressing someone as an entire sentence.
+ *
+ * Two different jobs, depending on the field. A NAME is a value to be pulled
+ * out. An instruction about tone is the user telling fren how to behave, and
+ * rewriting it would be presumptuous — so that one is only tidied, never
+ * reworded.
+ */
+const EXTRACT_RULES = {
+  name: 'Return ONLY what they want to be called. Strip greetings and framing: ' +
+        '"yeah hi, my name is Santi" -> "Santi". Keep their capitalisation. ' +
+        'If they gave several forms, prefer the short one they would be called day to day.',
+  work: 'Return a short phrase describing what they are working on, in their own ' +
+        'words, with framing removed. "um I guess mostly building this fren thing" ' +
+        '-> "building fren".',
+  tone: 'Return their instruction about how to be spoken to, in THEIR OWN WORDS. ' +
+        'Remove only filler and framing. Do not paraphrase, soften, or expand it — ' +
+        'this becomes a standing instruction and it must stay theirs.',
+  initiative: 'Return their instruction about when to speak up, in THEIR OWN WORDS. ' +
+        'Remove only filler. Do not paraphrase or expand it.',
+  goals: 'Return what they want help with, in their own words, with framing removed.',
+};
+
+function buildExtractRequest({ field, question, answer } = {}) {
+  const rule = EXTRACT_RULES[field] || 'Return the substance of their answer, with framing removed.';
+  return {
+    system: [
+      'You clean up a single answer from a short spoken interview.',
+      'The answer was spoken aloud, so expect filler, false starts and politeness.',
+      rule,
+      'Never invent anything that is not in the answer. If the answer contains no ' +
+      'usable value, return an empty string.',
+      'Return JSON only.',
+    ].join(' '),
+    messages: [{
+      role: 'user',
+      content: `Question asked: ${question}
+Their answer: ${answer}`,
+    }],
+    schema: EXTRACT_SCHEMA,
+  };
+}
+
 function buildPatternRequest({ memories = [] } = {}) {
   const system = [
     'You are the pattern detector for fren, an ambient desktop companion.',
@@ -224,4 +277,6 @@ module.exports = {
   buildChatRequest,
   formatProfile,
   buildPatternRequest,
+  buildExtractRequest,
+  EXTRACT_SCHEMA,
 };

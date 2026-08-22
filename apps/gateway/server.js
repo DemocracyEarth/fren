@@ -75,6 +75,34 @@ async function handleSummarize(provider, body, res) {
   send(res, 200, summary);
 }
 
+/**
+ * Pull the actual answer out of a spoken reply. Falls back to the raw answer on
+ * any failure — a messy stored name is far better than a lost one.
+ */
+async function handleExtract(provider, body, res) {
+  const { field, question, answer } = body || {};
+  if (typeof answer !== 'string' || !answer.trim()) {
+    return send(res, 400, { error: 'answer must be a non-empty string' });
+  }
+  const request = intelligence.buildExtractRequest({
+    field: String(field || ''),
+    question: String(question || ''),
+    answer,
+  });
+  const raw = await callProvider(provider, request, res);
+  if (raw === null) return;
+  let value = '';
+  try {
+    const parsed = JSON.parse(String(raw).replace(/^```(?:json)?|```$/gm, '').trim());
+    value = typeof parsed.value === 'string' ? parsed.value.trim() : '';
+  } catch {
+    value = '';
+  }
+  // Never return nothing: the user did answer, and losing it is worse than
+  // keeping it untidy.
+  send(res, 200, { value: value || answer.trim() });
+}
+
 async function handleChat(provider, body, res) {
   const question = body && body.question;
   if (typeof question !== 'string' || question.trim() === '') {
@@ -120,7 +148,8 @@ async function handle(provider, voice, req, res, pathname) {
     });
   }
 
-  if (req.method === 'POST' && (pathname === '/v1/summarize' || pathname === '/v1/chat' || pathname === '/v1/speak')) {
+  if (req.method === 'POST' && (pathname === '/v1/summarize' || pathname === '/v1/chat' ||
+                                pathname === '/v1/speak' || pathname === '/v1/extract')) {
     if (req.headers.authorization !== `Bearer ${config.GATEWAY_TOKEN}`) {
       return send(res, 401, { error: 'unauthorized' });
     }
@@ -131,6 +160,7 @@ async function handle(provider, voice, req, res, pathname) {
       return send(res, err.status || 400, { error: err.message });
     }
     if (pathname === '/v1/summarize') return handleSummarize(provider, body, res);
+    if (pathname === '/v1/extract') return handleExtract(provider, body, res);
     if (pathname === '/v1/speak') return handleSpeak(voice, body, res);
     return handleChat(provider, body, res);
   }

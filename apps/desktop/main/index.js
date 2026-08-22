@@ -290,6 +290,24 @@ app.whenReady().then(() => {
     return memory.getSetting('profile');
   });
 
+  // Spoken answers arrive as sentences. Pull the actual value out, and fall
+  // back to the raw text if anything goes wrong.
+  ipcMain.handle('fren:extractSetup', async (_e, payload) => {
+    const answer = String((payload && payload.answer) || '').slice(0, 800);
+    if (!answer.trim()) return { value: '' };
+    try {
+      const { value } = await gateway.extract({
+        field: String((payload && payload.field) || ''),
+        question: String((payload && payload.question) || '').slice(0, 400),
+        answer,
+      });
+      return { value: value || answer };
+    } catch (err) {
+      log(`[setup] extraction failed, keeping the raw answer: ${err.message}`);
+      return { value: answer };
+    }
+  });
+
   ipcMain.handle('fren:quit', () => app.quit());
 
   ipcMain.handle('fren:chat', async (_e, text) => {

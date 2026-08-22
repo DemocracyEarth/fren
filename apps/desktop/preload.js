@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('fren', {
   quit: () => ipcRenderer.invoke('fren:quit'),
   getProfile: () => ipcRenderer.invoke('fren:getProfile'),
   setProfile: (p) => ipcRenderer.invoke('fren:setProfile', p),
+  extractSetup: (p) => ipcRenderer.invoke('fren:extractSetup', p),
   dragStart: () => ipcRenderer.invoke('fren:dragStart'),
   dragEnd: () => ipcRenderer.invoke('fren:dragEnd'),
   onCursor: (cb) => ipcRenderer.on('fren:cursor', (_e, p) => cb(p)),
