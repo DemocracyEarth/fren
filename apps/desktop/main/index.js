@@ -82,6 +82,12 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
+  // Forward the renderer's voice tracing into the run log, so a hold-to-talk
+  // failure can be read afterwards rather than reproduced.
+  win.webContents.on('console-message', (...args) => {
+    const msg = typeof args[0] === 'object' && args[0] && args[0].message ? args[0].message : args[2];
+    if (msg && String(msg).startsWith('[voice]')) log(String(msg));
+  });
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   win.loadURL(`${SCHEME}://app/index.html`);
   positionWindow(ORB_SIZE);

@@ -185,6 +185,10 @@ The orb takes three gestures:
 | Hold | Records while held, sends on release |
 | Drag | Carries fren anywhere on screen |
 
+You can talk over it. Holding the orb while fren is replying cuts the reply
+short and starts listening, and anything you say while it is still thinking is
+answered next rather than discarded.
+
 The first time you run fren it introduces itself and asks three short questions
 — your name, what you are working on, and what would be useful from it. That
 happens while fren is still **dark**, and it says so: nothing is being recorded

@@ -155,6 +155,9 @@ function showTyping(on) {
  * lips match the voice instead of miming. Resolves when playback ends, or
  * immediately with false if there is no voice configured.
  */
+/** Set while audio is playing, so a reply can be cut short. */
+let audioStop = null;
+
 async function playVoice(audioBuffer) {
   const ctx = new AudioContext();
   let raf = 0;
@@ -194,16 +197,26 @@ async function playVoice(audioBuffer) {
       const done = () => { clearTimeout(guard); resolve(); };
       const guard = setTimeout(done, (decoded.duration + 2) * 1000);
       src.onended = done;
+      // Interrupting stops the source, which fires 'ended' and settles this.
+      audioStop = () => { try { src.stop(); } catch { done(); } };
       src.start();
       pump();
     });
     return true;
   } finally {
+    audioStop = null;
     cancelAnimationFrame(raf);
     face.setSpeechLevel(null);
     ctx.close();
   }
 }
+
+/**
+ * Set while a reply is being delivered. Calling it cuts the reply short: the
+ * text completes instantly and any audio stops. This is what makes it possible
+ * to talk over fren instead of waiting for it to finish.
+ */
+let cutReplyShort = null;
 
 /** fren says it out loud: the mouth moves while the words arrive. */
 async function speak(text) {
@@ -232,8 +245,14 @@ async function speak(text) {
     }
 
     let i = 0;
+    let cut = false;
+    cutReplyShort = () => {
+      cut = true;
+      if (audioStop) audioStop();
+    };
     const step = () => {
       // A few characters per frame keeps long answers from dragging.
+      if (cut) { bubble.textContent = text; return finish(); }
       i += Math.max(1, Math.round(text.length / 90));
       bubble.textContent = text.slice(0, i);
       scrollDown();
@@ -243,6 +262,7 @@ async function speak(text) {
     setTimeout(step, 90);
 
     async function finish() {
+      cutReplyShort = null;
       if (spoken) await spoken;     // let the voice finish before settling
       bubble.textContent = text;
       face.stopTalking();
@@ -354,10 +374,22 @@ async function handleSetupAnswer(answer) {
   return finishSetup();
 }
 
+/** Something said while fren was still busy. Answered next, never dropped. */
+let queued = null;
+
 async function sendMessage(text) {
   const question = (text ?? els.input.value).trim();
-  if (!question || awaitingReply) return;
-  els.input.value = '';
+  if (!question) return;
+  // Speaking again while a reply is in flight used to discard what was said
+  // outright -- the transcription happened, the words went nowhere. Hold it
+  // instead and answer it when the current one finishes.
+  if (awaitingReply) {
+    queued = question;
+    els.input.value = '';
+    addBubble('user', question);
+    vlog('queued-while-busy');
+    return;
+  }
   addBubble('user', question);
   // During setup the answers are for fren, not for the model.
   if (setup) return handleSetupAnswer(question);
@@ -398,6 +430,13 @@ async function sendMessage(text) {
     awaitingReply = false;
     els.send.disabled = false;
     speaking = false;
+    vlog('reply:complete');
+    if (queued) {
+      const next = queued;
+      queued = null;
+      // Already shown as a bubble when it was queued.
+      setTimeout(() => sendMessage(next), 0);
+    }
   }
 }
 
@@ -513,11 +552,52 @@ els.orb.addEventListener('mouseleave', () => {
  */
 let wantRecording = false;
 
+/**
+ * Voice tracing. This path has now failed twice in ways that could not be
+ * reproduced in a harness, so it says what it is doing. Main forwards these to
+ * its own stdout, which means the run log shows exactly where a hold-to-talk
+ * attempt stopped. Never logs audio or transcripts — only state transitions.
+ */
+function vlog(step, extra) {
+  const state = {
+    wantRecording,
+    awaitingReply,
+    speaking,
+    recording: !!(mic && mic.isRecording()),
+    voiceReady,
+  };
+  console.log('[voice]', step, JSON.stringify(extra ? { ...state, ...extra } : state));
+}
+
 async function startTalking() {
-  if (!mic || !voiceReady || awaitingReply) return;
+  vlog('startTalking:enter');
+  if (!mic || !voiceReady) {
+    vlog('startTalking:BLOCKED', { reason: !mic ? 'no mic' : 'voice not ready' });
+    return;
+  }
+
+  // THE BUG THIS FIXES. Delivering one reply -- transcribe, think, fetch the
+  // voice, type it out, say it aloud -- takes nine to fifteen seconds, and for
+  // all of it `awaitingReply` was set and startTalking() returned in silence.
+  // Press the orb a second after answering and nothing whatsoever happened,
+  // which is indistinguishable from a broken microphone. It is also just wrong:
+  // you should be able to talk over something that is talking to you.
+  if (cutReplyShort) {
+    vlog('startTalking:interrupting');
+    cutReplyShort();
+    // Cutting it short lets sendMessage's `finally` run and clear the flag,
+    // well before this recording could finish.
+  } else if (awaitingReply) {
+    // Still waiting on the model, so there is nothing to interrupt yet. Say so
+    // with a movement rather than by doing nothing.
+    vlog('startTalking:BUSY-thinking');
+    face.pulse('shake');
+    return;
+  }
   wantRecording = true;
   try {
     await mic.start();
+    vlog('startTalking:recording');
     // Opening the microphone is asynchronous, and the button can be released
     // before it finishes. Without this check the recorder would start with
     // nobody holding it and keep listening until the next press.
@@ -534,22 +614,35 @@ async function startTalking() {
   }
 }
 
+let stopping = false;
+
 async function stopTalkingAndSend() {
   wantRecording = false;
-  if (!mic || !mic.isRecording()) return;
+  // Two separate window-level mouseup handlers can both land here for one
+  // gesture; a second entry must not stop a recorder the first is already
+  // draining.
+  if (stopping) return;
+  if (!mic || !mic.isRecording()) { vlog('stop:nothing-recording'); return; }
+  stopping = true;
   els.mic.classList.remove('recording');
   setFace('thinking');
   let wav = null;
   try {
     wav = await mic.stop();
   } catch (err) {
+    vlog('stop:FAILED', { err: String(err && err.message || err) });
     surface('That recording did not come through cleanly.');
     setFace(emotionFor(state));
+    stopping = false;
     return;
+  } finally {
+    stopping = false;
   }
-  if (!wav) { setFace(emotionFor(state)); return; }   // too short to be speech
+  if (!wav) { vlog('stop:too-short'); setFace(emotionFor(state)); return; }
 
+  vlog('transcribe:start', { bytes: wav.length });
   const res = await window.fren.transcribe(wav);
+  vlog('transcribe:done', { chars: (res && res.text || '').length, error: (res && res.error) || null });
   if (res && res.error) {
     surface('I could not transcribe that: ' + res.error);
     setFace(emotionFor(state));

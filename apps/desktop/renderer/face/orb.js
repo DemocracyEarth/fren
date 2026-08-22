@@ -80,8 +80,6 @@ class Orb {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     this.renderer.setSize(size, size, false);
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     // No filmic tone mapping: it desaturates #FF8A00 off the brand ramp.
     this.renderer.toneMapping = THREE.NoToneMapping;
     this.renderer.setClearAlpha(0);
@@ -143,7 +141,6 @@ class Orb {
     };
 
     this.orb = new THREE.Mesh(new THREE.SphereGeometry(1, 128, 128), this.material);
-    this.orb.castShadow = true;
     this.scene.add(this.orb);
 
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.35));
@@ -154,37 +151,11 @@ class Orb {
     this.key.castShadow = false;
     this.scene.add(this.key);
 
-    // A second light exists only to CAST. It sits well in front and slightly
-    // up-left so the shadow lands on the backdrop offset down and to the
-    // right -- the direction a UI drop shadow falls, which is what sells the
-    // orb as floating in front of the screen. Its own contribution is
-    // negligible; ShadowMaterial takes its darkness from opacity, not from
-    // light intensity, so this shapes nothing and only throws the shape.
-    this.caster = new THREE.DirectionalLight(0xffffff, 0.02);
-    this.caster.position.set(-1.4, 1.9, 5.0);
-    this.caster.castShadow = true;
-    this.caster.shadow.mapSize.set(512, 512);
-    this.caster.shadow.radius = 8;
-    this.caster.shadow.camera.near = 1;
-    this.caster.shadow.camera.far = 18;
-    this.scene.add(this.caster);
-    const rim = new THREE.DirectionalLight(0xffb14a, 1.5);
-    rim.position.set(2.8, -1.4, -2.2);
-    this.scene.add(rim);
-
-    // The shadow falls on a plane BEHIND the orb rather than a floor beneath
-    // it. A ground shadow says "resting on a surface"; a shadow cast backwards
-    // onto the wall behind says "hovering in front of it", which is what the
-    // orb is actually doing — floating above the desktop. The window is
-    // transparent, so what the user sees is the orb's shadow on their own
-    // screen.
-    this.floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(16, 16),
-      new THREE.ShadowMaterial({ opacity: 0.42 })
-    );
-    this.floor.position.z = -3.5;      // faces +Z by default: straight at us
-    this.floor.receiveShadow = true;
-    this.scene.add(this.floor);
+    // Nothing casts a shadow in the scene. A plane can only receive a shadow
+    // ONTO itself, which is the wrong shape entirely -- what the orb needs is a
+    // halo hugging its own silhouette. CSS drop-shadow does that from the
+    // canvas alpha (see styles.css), so it traces the outline exactly and keeps
+    // tracing it while the surface bulges from a poke, and costs no shadow map.
 
     this.toneNow = new THREE.Color(TONE.grey.color);
     this.toneTo = new THREE.Color(TONE.grey.color);
@@ -298,8 +269,6 @@ class Orb {
     this.orb.geometry.dispose();
     this.material.dispose();
     this.faceTex.dispose();
-    this.floor.geometry.dispose();
-    this.floor.material.dispose();
     this.renderer.dispose();
     if (this.canvas.parentNode) this.canvas.parentNode.removeChild(this.canvas);
   }
