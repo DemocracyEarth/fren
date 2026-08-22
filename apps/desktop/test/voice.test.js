@@ -82,3 +82,130 @@ test('transcription rejects with the reason when whisper is absent', async () =>
     Object.assign(process.env, saved);
   }
 });
+
+// ---------------------------------------------------------------------------
+// The microphone lifecycle.
+//
+// docs/privacy.md offers the macOS recording indicator as a second source of
+// truth for "fren only listens while you are holding it". That promise is only
+// true if the stream is genuinely handed back after every recording, so these
+// assert the handing back rather than the recording.
+
+const { createMic } = require('../renderer/mic.js');
+
+/** Minimal getUserMedia + MediaRecorder so the lifecycle can be driven. */
+function installFakes({ tracks } = {}) {
+  const saved = {
+    navigator: globalThis.navigator,
+    MediaRecorder: globalThis.MediaRecorder,
+  };
+  const handed = [];
+  const nextTracks = tracks || (() => [{ readyState: 'live', stop() { this.readyState = 'ended'; } }]);
+
+  Object.defineProperty(globalThis, 'navigator', {
+    value: {
+      mediaDevices: {
+        async getUserMedia() {
+          const t = nextTracks();
+          const stream = { getTracks: () => t };
+          handed.push(stream);
+          return stream;
+        },
+      },
+    },
+    configurable: true,
+    writable: true,
+  });
+
+  let recorder = null;
+  globalThis.MediaRecorder = class {
+    constructor(stream) {
+      this.stream = stream;
+      this.state = 'inactive';
+      recorder = this;
+    }
+    start() { this.state = 'recording'; }
+    stop() {
+      this.state = 'inactive';
+      if (this.onstop) this.onstop();
+    }
+  };
+
+  return {
+    handed,
+    get recorder() { return recorder; },
+    liveCount: () => handed.filter((s) => s.getTracks().some((t) => t.readyState === 'live')).length,
+    restore() {
+      Object.defineProperty(globalThis, 'navigator', {
+        value: saved.navigator, configurable: true, writable: true,
+      });
+      globalThis.MediaRecorder = saved.MediaRecorder;
+    },
+  };
+}
+
+test('the microphone is handed back when a recording ends, not held for the session', async () => {
+  const g = installFakes();
+  try {
+    const mic = createMic();
+    await mic.start();
+    assert.equal(g.liveCount(), 1, 'held while recording');
+    // Under the 350ms floor, so it resolves null without needing to decode.
+    const wav = await mic.stop();
+    assert.equal(wav, null, 'too short to be speech');
+    assert.equal(g.liveCount(), 0, 'released the moment the recording ended');
+  } finally {
+    g.restore();
+  }
+});
+
+test('cancel() discards the recording and hands the microphone back', async () => {
+  const g = installFakes();
+  try {
+    const mic = createMic();
+    await mic.start();
+    mic.cancel();
+    assert.equal(mic.isRecording(), false);
+    assert.equal(g.liveCount(), 0, 'a cancelled recording must not leave the mic open');
+  } finally {
+    g.restore();
+  }
+});
+
+test('a track that died is replaced rather than reused', async () => {
+  let n = 0;
+  const g = installFakes({
+    // The first stream comes back already dead — a device change or a
+    // sleep/wake. Reusing it would record silence forever without erroring.
+    tracks: () => [n++ === 0
+      ? { readyState: 'ended', stop() {} }
+      : { readyState: 'live', stop() { this.readyState = 'ended'; } }],
+  });
+  try {
+    const mic = createMic();
+    await mic.warmUp();
+    await mic.warmUp();
+    assert.equal(g.handed.length, 2, 'must re-acquire rather than reuse a dead track');
+  } finally {
+    g.restore();
+  }
+});
+
+test('two recordings in a row both work', async () => {
+  const g = installFakes();
+  try {
+    const mic = createMic();
+    await mic.start();
+    await mic.stop();
+    // The reported bug was that voice worked exactly once. Whatever the cause,
+    // a second round trip must still acquire, record and release.
+    await mic.start();
+    assert.equal(mic.isRecording(), true, 'second recording must start');
+    assert.equal(g.liveCount(), 1, 'and must hold a live microphone');
+    await mic.stop();
+    assert.equal(g.liveCount(), 0);
+    assert.equal(g.handed.length, 2, 'one acquisition per recording');
+  } finally {
+    g.restore();
+  }
+});

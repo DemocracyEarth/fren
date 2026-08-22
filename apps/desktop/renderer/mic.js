@@ -67,10 +67,28 @@
     let chunks = [];
     let startedAt = 0;
 
+    /**
+     * Give the microphone back to the OS. Called after EVERY recording, not
+     * just on teardown.
+     *
+     * This matters more than the small cost of re-acquiring: an open track
+     * keeps the macOS recording indicator lit, and docs/privacy.md offers that
+     * indicator as the second source of truth for "fren is only listening
+     * while you hold it". Holding the stream open between recordings would
+     * leave the indicator on all day and make that promise false.
+     */
+    function releaseStream() {
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+      stream = null;
+    }
+
     return {
-      /** Ask for the microphone once, so the OS prompt isn't mid-gesture. */
+      /** Acquire the microphone. Held only for the duration of a recording. */
       async warmUp() {
-        if (stream) return true;
+        // A track can end underneath us — device change, sleep/wake — and a
+        // dead track records silence forever without erroring.
+        if (stream && stream.getTracks().some((t) => t.readyState === 'live')) return true;
+        releaseStream();
         stream = await navigator.mediaDevices.getUserMedia({
           audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
         });
@@ -108,18 +126,32 @@
             } finally {
               chunks = [];
               recorder = null;
+              releaseStream();      // indicator goes out the moment you let go
             }
           };
           recorder.stop();
         });
       },
 
+      /**
+       * Throw away a recording in progress without transcribing it. Used when
+       * the button is released before the microphone finished opening: the
+       * recorder would otherwise start with nobody holding it and keep
+       * listening until the next press.
+       */
+      cancel() {
+        if (recorder && recorder.state === 'recording') {
+          recorder.onstop = null;
+          recorder.stop();
+        }
+        recorder = null;
+        chunks = [];
+        releaseStream();
+      },
+
       /** Release the microphone entirely — the OS indicator goes out. */
       release() {
-        if (recorder && recorder.state === 'recording') recorder.stop();
-        recorder = null;
-        if (stream) stream.getTracks().forEach((t) => t.stop());
-        stream = null;
+        this.cancel();
       },
     };
   }

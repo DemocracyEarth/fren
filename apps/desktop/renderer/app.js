@@ -371,6 +371,16 @@ async function setPanel(open) {
 }
 
 /**
+ * Say something that must not be missed. Voice can now be used with the panel
+ * closed, so a bubble alone is invisible — anything the user needs to see has
+ * to bring the panel with it.
+ */
+async function surface(text) {
+  addBubble('fren', text);
+  if (!state.panelOpen) await setPanel(true);
+}
+
+/**
  * Tapping the orb. Asleep, one tap wakes it. Awake, it toggles the chat panel.
  *
  * Waking deliberately does NOT open the panel any more: you can hold the orb
@@ -463,10 +473,17 @@ els.orb.addEventListener('mouseleave', () => {
  * audio is transcribed by whisper on this machine, and the transcript goes
  * through the same path as anything you type.
  */
+let wantRecording = false;
+
 async function startTalking() {
   if (!mic || !voiceReady || awaitingReply) return;
+  wantRecording = true;
   try {
     await mic.start();
+    // Opening the microphone is asynchronous, and the button can be released
+    // before it finishes. Without this check the recorder would start with
+    // nobody holding it and keep listening until the next press.
+    if (!wantRecording) { mic.cancel(); setFace(emotionFor(state)); return; }
     els.mic.classList.add('recording');
     // The face IS the feedback when talking from the orb -- there may be no
     // panel open to show anything else.
@@ -474,12 +491,13 @@ async function startTalking() {
     face.pulse('nod');
   } catch (err) {
     els.mic.classList.remove('recording');
-    addBubble('fren', 'I could not open the microphone: ' + (err && err.message ? err.message : err));
+    surface('I could not open the microphone: ' + (err && err.message ? err.message : err));
     setFace(emotionFor(state));
   }
 }
 
 async function stopTalkingAndSend() {
+  wantRecording = false;
   if (!mic || !mic.isRecording()) return;
   els.mic.classList.remove('recording');
   setFace('thinking');
@@ -487,7 +505,7 @@ async function stopTalkingAndSend() {
   try {
     wav = await mic.stop();
   } catch (err) {
-    addBubble('fren', 'That recording did not come through cleanly.');
+    surface('That recording did not come through cleanly.');
     setFace(emotionFor(state));
     return;
   }
@@ -495,7 +513,7 @@ async function stopTalkingAndSend() {
 
   const res = await window.fren.transcribe(wav);
   if (res && res.error) {
-    addBubble('fren', 'I could not transcribe that: ' + res.error);
+    surface('I could not transcribe that: ' + res.error);
     setFace(emotionFor(state));
     return;
   }
