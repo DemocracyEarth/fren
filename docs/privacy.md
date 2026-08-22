@@ -60,6 +60,7 @@ network requests with your data.
 | App names, window titles, timestamps (the activity timeline) | Summarize cycle, every 2 minutes while observing |
 | Your typed chat questions | When you send a chat message |
 | Derived activity summaries **and the recent raw timeline** (up to the last 50 observed app/title entries) as context | When you send a chat message |
+| Derived activity summaries from the last 8 hours | Every 12 minutes while observing, to look for a repeated workflow |
 | Transcribed text of what you said (never the audio) | When you use push-to-talk |
 | The contents of `SOUL.md` and `USER.md` | With every chat message, once you have completed first-run setup |
 | The text of fren's reply, to ElevenLabs | Only when a voice key is configured |

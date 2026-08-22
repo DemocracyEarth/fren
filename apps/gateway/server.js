@@ -103,6 +103,31 @@ async function handleExtract(provider, body, res) {
   send(res, 200, { value: value || answer.trim() });
 }
 
+/** Look at recent summaries and decide whether anything is worth saying. */
+async function handlePattern(provider, body, res) {
+  const memories = body && body.memories;
+  if (!Array.isArray(memories) || memories.length === 0) {
+    return send(res, 400, { error: 'memories must be a non-empty array' });
+  }
+  const request = intelligence.buildPatternRequest({ memories });
+  const raw = await callProvider(provider, request, res);
+  if (raw === null) return;
+  try {
+    const parsed = JSON.parse(String(raw).replace(/^```(?:json)?|```$/gm, '').trim());
+    // Silence is the default, so an unusable answer means silence.
+    send(res, 200, {
+      interrupt: !!parsed.interrupt,
+      reason: String(parsed.reason || ''),
+      confidence: Number(parsed.confidence) || 0,
+      message: String(parsed.message || ''),
+      pattern: String(parsed.pattern || ''),
+      occurrences: Number(parsed.occurrences) || 0,
+    });
+  } catch {
+    send(res, 200, { interrupt: false, reason: 'unparseable', confidence: 0, message: '', pattern: '', occurrences: 0 });
+  }
+}
+
 async function handleChat(provider, body, res) {
   const question = body && body.question;
   if (typeof question !== 'string' || question.trim() === '') {
@@ -149,7 +174,8 @@ async function handle(provider, voice, req, res, pathname) {
   }
 
   if (req.method === 'POST' && (pathname === '/v1/summarize' || pathname === '/v1/chat' ||
-                                pathname === '/v1/speak' || pathname === '/v1/extract')) {
+                                pathname === '/v1/speak' || pathname === '/v1/extract' ||
+                                pathname === '/v1/pattern')) {
     if (req.headers.authorization !== `Bearer ${config.GATEWAY_TOKEN}`) {
       return send(res, 401, { error: 'unauthorized' });
     }
@@ -161,6 +187,7 @@ async function handle(provider, voice, req, res, pathname) {
     }
     if (pathname === '/v1/summarize') return handleSummarize(provider, body, res);
     if (pathname === '/v1/extract') return handleExtract(provider, body, res);
+    if (pathname === '/v1/pattern') return handlePattern(provider, body, res);
     if (pathname === '/v1/speak') return handleSpeak(voice, body, res);
     return handleChat(provider, body, res);
   }

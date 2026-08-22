@@ -335,9 +335,9 @@ const SETUP_STEPS = [
 ];
 
 let setup = null;      // { step, answers } while the interview is running
+let profile = null;    // what the user told fren about itself, once known
 
 async function runSetupIfNeeded() {
-  let profile = null;
   try { profile = await window.fren.getProfile(); } catch { /* first run */ }
   // `skipped` counts as answered: having declined once, being asked again on
   // every launch would be nagging.
@@ -391,11 +391,14 @@ function showSkip(on) {
 }
 
 /** Leave the interview, for whatever reason, and stop capturing input. */
-async function endSetup(profile) {
+async function endSetup(saved) {
   if (!setup) return;
   setup = null;
   showSkip(false);
-  try { await window.fren.setProfile(profile); } catch { /* not worth failing over */ }
+  // Keep the live copy current: `initiative` decides whether fren volunteers
+  // what it notices, and it has to be readable long after setup is over.
+  profile = saved;
+  try { await window.fren.setProfile(saved); } catch { /* not worth failing over */ }
 }
 
 async function finishSetup() {
@@ -537,6 +540,8 @@ async function activateOrb() {
     await window.fren.toggleObservation();    // main flips it and broadcasts
     return;
   }
+  // If fren has been sitting on something, that is what a tap is for.
+  if (await deliverPendingSuggestion()) return;
   react('click');
   await setPanel(!state.panelOpen);
 }
@@ -743,6 +748,58 @@ for (const chip of document.querySelectorAll('.chip')) {
   chip.addEventListener('click', () => sendMessage(chip.textContent));
 }
 
+/**
+ * fren noticed something.
+ *
+ * Whether it says so out loud is the user's decision, taken during setup and
+ * recorded in SOUL.md. Someone who said "only if I keep repeating something,
+ * otherwise stay quiet" has asked not to be interrupted, and a companion that
+ * ignores that answer made the question dishonest.
+ *
+ * The reserved behaviour is not silence, though — it lights up with an idea and
+ * waits. Noticing is visible; interrupting is opt-in.
+ */
+const EAGER = /(right away|straight away|immediately|tell me|speak up|say so|as soon|always|any ?time)/i;
+const RESERVED = /(quiet|don'?t interrupt|only if|wait|ask|later|not unless|rarely|never)/i;
+
+function volunteersOutLoud() {
+  const said = String((profile && profile.initiative) || '');
+  if (!said) return false;                 // unstated: stay reserved
+  if (RESERVED.test(said)) return false;   // an explicit request to hold back wins
+  return EAGER.test(said);
+}
+
+let pendingSuggestion = null;
+
+async function onSuggestion({ message }) {
+  if (!message || speaking || awaitingReply) { pendingSuggestion = message; return; }
+  pendingSuggestion = message;
+  mood.note('idea');
+  setFace('realization');
+  face.pulse('bounce');
+
+  if (volunteersOutLoud()) {
+    pendingSuggestion = null;
+    await speak(message);
+    return;
+  }
+  // Reserved: hold the thought and look like it. Tapping fren, or asking it
+  // anything, delivers it.
+  els.orb.title = 'fren noticed something — tap to hear it';
+}
+
+/** Deliver whatever fren has been sitting on, if anything. */
+async function deliverPendingSuggestion() {
+  if (!pendingSuggestion || speaking || awaitingReply) return false;
+  const message = pendingSuggestion;
+  pendingSuggestion = null;
+  els.orb.title = voiceReady
+    ? 'Tap to wake · hold to talk · drag to move'
+    : 'Tap to wake · drag to move';
+  await speak(message);
+  return true;
+}
+
 // Every so often, with nothing prompting it, fren has a passing thought.
 function scheduleWander() {
   setTimeout(() => {
@@ -780,6 +837,7 @@ scheduleWander();
     if (els.mic) els.mic.disabled = true;
   }
 
+  window.fren.onSuggestion(onSuggestion);
   window.fren.onStateChanged(render);          // subscribe before the first fetch
   render(await window.fren.getState());
   setFace(emotionFor(state), { immediate: true });

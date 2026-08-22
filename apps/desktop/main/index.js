@@ -9,6 +9,7 @@ const state = require('./state');
 const gateway = require('./gatewayClient');
 const { createObserver } = require('./observer');
 const { createSummarizer } = require('./summarizer');
+const { createPatternWatcher } = require('./patterns');
 const whisper = require('./whisper');
 const soul = require('./soul');
 
@@ -55,6 +56,7 @@ let gazeTimer = null;
 let drag = null;
 let observer = null;
 let summarizer = null;
+let patterns = null;
 
 const log = (...args) => console.log(...args);
 
@@ -157,6 +159,23 @@ app.whenReady().then(() => {
     onSummary: (activity, ts) => soul.appendDailyLog(app.getPath('userData'), activity, ts),
   });
   summarizer.start();
+
+  // The whole point of the product: notice a repeated workflow nobody
+  // mentioned, and say something about it. It only ever looks while observing,
+  // and it tells the renderer rather than deciding for itself whether to
+  // interrupt — how forward to be is the user's call, recorded in SOUL.md.
+  patterns = createPatternWatcher({
+    memory,
+    gateway,
+    state,
+    log,
+    onSuggestion: ({ message, pattern }) => {
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('fren:suggestion', { message, pattern });
+      }
+    },
+  });
+  patterns.start();
 
   createWindow();
 
@@ -348,5 +367,6 @@ app.on('before-quit', () => {
   if (drag) clearInterval(drag.timer);
   if (observer) observer.stop();
   if (summarizer) summarizer.stop();
+  if (patterns) patterns.stop();
   if (memory) memory.close();
 });

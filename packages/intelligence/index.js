@@ -178,7 +178,7 @@ function buildChatRequest({ question, memories = [], observations = [], profile 
 const PATTERN_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['interrupt', 'reason', 'confidence', 'message'],
+  required: ['interrupt', 'reason', 'confidence', 'message', 'pattern', 'occurrences'],
   properties: {
     interrupt: {
       type: 'boolean',
@@ -195,6 +195,16 @@ const PATTERN_SCHEMA = {
     message: {
       type: 'string',
       description: 'What to say to the user when interrupting; empty string otherwise.',
+    },
+    pattern: {
+      type: 'string',
+      description: 'The repeated workflow itself, named plainly, so the same one is ' +
+                   'not raised twice. Empty string when there is no pattern.',
+    },
+    occurrences: {
+      type: 'number',
+      description: 'How many DISTINCT times this sequence appears across the summaries. ' +
+                   'Twice is a coincidence; be strict.',
     },
   },
 };
@@ -257,6 +267,11 @@ function buildPatternRequest({ memories = [] } = {}) {
     'You are the pattern detector for fren, an ambient desktop companion.',
     'Silence is the default: most activity is not worth interrupting for.',
     'Only flag genuinely repetitive, automatable workflows — the same manual sequence recurring across the summaries.',
+    'Working on one thing for a long stretch is NOT a pattern; neither is using the same app repeatedly.',
+    'A pattern is a SEQUENCE the person repeats: the same few steps, in the same order, on separate occasions.',
+    'If you interrupt, say the specific thing you saw and why it looked repeated — never generic advice.',
+    'When in doubt, set interrupt to false. A false alarm costs far more than a missed one: ' +
+    'this thing lives on their desktop all day and will be muted if it cries wolf.',
   ].join(' ');
   return {
     system,

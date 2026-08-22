@@ -15,4 +15,5 @@ contextBridge.exposeInMainWorld('fren', {
   transcribe: (bytes) => ipcRenderer.invoke('fren:transcribe', bytes),
   speak: (text) => ipcRenderer.invoke('fren:speak', text),
   onStateChanged: (cb) => ipcRenderer.on('fren:stateChanged', (_e, state) => cb(state)),
+  onSuggestion: (cb) => ipcRenderer.on('fren:suggestion', (_e, s) => cb(s)),
 });

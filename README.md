@@ -15,10 +15,16 @@ fren's long-term loop is:
 
 **OBSERVE → UNDERSTAND → REMEMBER → DETECT PATTERNS → SUGGEST → AUTOMATE**
 
-Version 0.1 (Milestone 1) implements the loop through REMEMBER, plus a chat
-panel so you can ask fren about your own activity. Pattern detection (M2) and
-proposed automations (M3) exist only as groundwork — schema and scaffolding, no
-behavior.
+Version 0.1 implements the loop through **SUGGEST**. fren observes, remembers,
+summarises, and looks across hours of those summaries for a workflow you repeat.
+When it finds one it either says so or lights up and waits — which of those
+depends on what you told it during setup. Proposed automations (M3) are still
+groundwork only: fren notices and suggests, it does not act.
+
+Restraint is the hard part, not detection. A companion that volunteers something
+every ten minutes gets muted on day one, and a muted companion has failed
+completely — so a pattern must recur at least three separate times, clear a
+confidence floor, and never have been raised before.
 
 This is a proof of concept, deliberately small: plain CommonJS JavaScript and
 no build step. The one exception is the face — it renders with WebGL via a
