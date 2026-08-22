@@ -14,6 +14,11 @@ const DEFAULTS = {
   baseUrl: 'https://api.elevenlabs.io',
 };
 
+const num = (v, fallback) => {
+  const n = Number.parseFloat(v);
+  return Number.isFinite(n) && n >= 0 && n <= 1 ? n : fallback;
+};
+
 function createElevenLabsProvider() {
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) throw new Error('ELEVENLABS_API_KEY is not set');
@@ -39,7 +44,14 @@ function createElevenLabsProvider() {
           body: JSON.stringify({
             text,
             model_id: model,
-            voice_settings: { stability: 0.4, similarity_boost: 0.75 },
+            voice_settings: {
+              // Lower stability = more expressive but wobblier; higher = calmer
+              // and more consistent. A companion that speaks rarely benefits
+              // from a little steadiness.
+              stability: num(process.env.ELEVENLABS_STABILITY, 0.45),
+              similarity_boost: num(process.env.ELEVENLABS_SIMILARITY, 0.75),
+              style: num(process.env.ELEVENLABS_STYLE, 0),
+            },
           }),
           signal: AbortSignal.timeout(timeoutMs),
         }
