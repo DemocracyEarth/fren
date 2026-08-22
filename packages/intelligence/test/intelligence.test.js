@@ -180,9 +180,19 @@ test('buildPatternRequest: shape and schema', () => {
   const s = req.schema;
   assert.equal(s.type, 'object');
   assert.equal(s.additionalProperties, false);
-  assert.deepEqual(s.required.sort(), ['confidence', 'interrupt', 'message', 'reason']);
+  // `pattern` and `occurrences` are required, not decorative. `pattern` names
+  // the behaviour so the same one is not raised twice however differently the
+  // model words it on a later pass, and `occurrences` is what separates a
+  // repeated workflow from something that happened to be done twice. Both are
+  // the difference between a useful companion and one that gets muted.
+  assert.deepEqual(
+    s.required.slice().sort(),
+    ['confidence', 'interrupt', 'message', 'occurrences', 'pattern', 'reason']
+  );
   assert.equal(s.properties.interrupt.type, 'boolean');
   assert.equal(s.properties.reason.type, 'string');
   assert.equal(s.properties.confidence.type, 'number');
   assert.equal(s.properties.message.type, 'string');
+  assert.equal(s.properties.pattern.type, 'string');
+  assert.equal(s.properties.occurrences.type, 'number');
 });
