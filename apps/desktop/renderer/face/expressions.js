@@ -17,6 +17,11 @@
  *   Lowered lids read as ANGER. It is the strongest single cue on a face, so
  *   it belongs to `annoyed` and to genuine sleepiness, and nothing else may
  *   borrow it. Sadness is carried by the mouth and the cooled body instead.
+ *
+ *   The eyes are ALWAYS symmetric. An uneven pair reads as a wink or a smirk,
+ *   which is charming in a toy and wrong in an assistant that sits on someone's
+ *   desktop all day. `eyeAsym` still exists in the parameter space, and is
+ *   deliberately never set.
  */
 
 /** One palette, anchored on the brand orange. Mood shifts hue within a family. */
@@ -46,8 +51,8 @@ export const EXPRESSIONS = {
   love:         E('warm',    0.05, 1.05, 1.10, 0.30, 0.95),
 
   // ---- lit, and up to something -------------------------------------------
-  playful:      E('warm',    0.05, 1.02, 1.00, 0.26, 0.85, { eyeAsym: 0.22 }),
-  cheeky:       E('warm',    0.10, 1.00, 0.96, 0.30, 0.80, { eyeAsym: 0.30 }),
+  playful:      E('warm',    0.05, 1.02, 1.00, 0.26, 0.85),
+  cheeky:       E('warm',    0.10, 1.00, 0.96, 0.30, 0.80),
   silly:        E('warm',    0.00, 1.05, 1.02, 0.36, 0.50, { mouthWave: 1 }),
   blushing:     E('warm',    0.20, 0.98, 0.86, 0.08, 0.80),
   shy:          E('warm',    0.32, 0.95, 0.70, 0.00, 0.60),
@@ -57,17 +62,17 @@ export const EXPRESSIONS = {
   watching:     E('base',    0.00, 1.05, 0.74, 0.00, 0.30),
   listening:    E('base',    0.00, 1.14, 0.42, 0.58, 0.05),
   talking:      E('base',    0.02, 1.00, 0.90, 0.40, 0.40),
-  thinking:     E('base',    0.04, 0.98, 0.54, 0.00, -0.05, { eyeAsym: 0.30 }),
+  thinking:     E('base',    0.04, 0.98, 0.54, 0.00, -0.05),
   processing:   E('base',    0.10, 0.98, 0.56, 0.12, 0.20),
   focused:      E('base',    0.12, 0.96, 0.60, 0.00, 0.10),
   determined:   E('base',    0.16, 0.98, 0.70, 0.00, 0.05),
-  curious:      E('base',    0.00, 1.10, 0.50, 0.30, 0.20, { eyeAsym: 0.22 }),
+  curious:      E('base',    0.00, 1.10, 0.50, 0.30, 0.20),
   surprised:    E('base',    0.00, 1.20, 0.46, 0.75, 0.00),
   realization:  E('excited', 0.00, 1.16, 0.52, 0.60, 0.30),
 
   // ---- lit, and not glad --------------------------------------------------
   // Round OPEN eyes on all of these. Narrow them and they read as angry.
-  confused:     E('base',    0.06, 1.00, 0.60, 0.10, -0.20, { eyeAsym: 0.30 }),
+  confused:     E('base',    0.06, 1.00, 0.60, 0.10, -0.20),
   concerned:    E('blue',    0.04, 1.02, 0.80, 0.00, -0.55),
   worried:      E('blue',    0.02, 1.05, 0.86, 0.08, -0.70),
   sad:          E('blue',    0.02, 1.04, 0.92, 0.00, -1.00),

@@ -25,8 +25,8 @@ app.whenReady().then(async () => {
   const win = new BrowserWindow({
     // Match ORB_SIZE / PANEL_SIZE in apps/desktop/main/index.js, or the
     // capture clips the very thing it is meant to show.
-    width: OPEN ? 344 : 200,
-    height: OPEN ? 618 : 200,
+    width: OPEN ? 344 : 150,
+    height: OPEN ? 578 : 150,
     show: false,
     frame: false,
     transparent: true,

@@ -92,8 +92,8 @@ class Orb {
     // old distance it occupied under half the height, which is most of why it
     // read as small. The view centre sits below the sphere centre to leave the
     // contact shadow in frame.
-    this.camera.position.set(0, -0.30, 5.35);
-    this.camera.lookAt(0, -0.30, 0);
+    this.camera.position.set(0, -0.12, 5.25);
+    this.camera.lookAt(0, -0.12, 0);
 
     this.scene.environment = this._studioEnv();
 
@@ -147,26 +147,42 @@ class Orb {
     this.scene.add(this.orb);
 
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+    // The key SHAPES the sphere. High and up-left, and it casts nothing --
+    // from up there the shadow would land far below the frame.
     this.key = new THREE.DirectionalLight(0xfff1dc, 3.1);
     this.key.position.set(-2.2, 4.2, 3.0);
-    this.key.castShadow = true;
-    this.key.shadow.mapSize.set(512, 512);
-    this.key.shadow.radius = 6;
-    this.key.shadow.camera.near = 1;
-    this.key.shadow.camera.far = 14;
+    this.key.castShadow = false;
     this.scene.add(this.key);
+
+    // A second light exists only to CAST. It sits well in front and slightly
+    // up-left so the shadow lands on the backdrop offset down and to the
+    // right -- the direction a UI drop shadow falls, which is what sells the
+    // orb as floating in front of the screen. Its own contribution is
+    // negligible; ShadowMaterial takes its darkness from opacity, not from
+    // light intensity, so this shapes nothing and only throws the shape.
+    this.caster = new THREE.DirectionalLight(0xffffff, 0.02);
+    this.caster.position.set(-1.4, 1.9, 5.0);
+    this.caster.castShadow = true;
+    this.caster.shadow.mapSize.set(512, 512);
+    this.caster.shadow.radius = 8;
+    this.caster.shadow.camera.near = 1;
+    this.caster.shadow.camera.far = 18;
+    this.scene.add(this.caster);
     const rim = new THREE.DirectionalLight(0xffb14a, 1.5);
     rim.position.set(2.8, -1.4, -2.2);
     this.scene.add(rim);
 
-    // The contact shadow. It is what makes the orb read as floating above the
-    // desktop rather than pasted onto it.
+    // The shadow falls on a plane BEHIND the orb rather than a floor beneath
+    // it. A ground shadow says "resting on a surface"; a shadow cast backwards
+    // onto the wall behind says "hovering in front of it", which is what the
+    // orb is actually doing — floating above the desktop. The window is
+    // transparent, so what the user sees is the orb's shadow on their own
+    // screen.
     this.floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(14, 14),
-      new THREE.ShadowMaterial({ opacity: 0.36 })
+      new THREE.PlaneGeometry(16, 16),
+      new THREE.ShadowMaterial({ opacity: 0.42 })
     );
-    this.floor.rotation.x = -Math.PI / 2;
-    this.floor.position.y = -1.42;
+    this.floor.position.z = -3.5;      // faces +Z by default: straight at us
     this.floor.receiveShadow = true;
     this.scene.add(this.floor);
 

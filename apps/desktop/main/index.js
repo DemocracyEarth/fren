@@ -44,8 +44,8 @@ function serveRenderer() {
   });
 }
 
-const ORB_SIZE = { width: 200, height: 200 };
-const PANEL_SIZE = { width: 344, height: 618 };
+const ORB_SIZE = { width: 150, height: 150 };
+const PANEL_SIZE = { width: 344, height: 578 };
 const MARGIN = 24;
 
 let win = null;
