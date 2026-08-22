@@ -407,7 +407,23 @@ async function endSetup(saved) {
 
 async function finishSetup() {
   const answers = { ...setup.answers };
-  const profile = { ...answers, completedAt: Date.now() };
+
+  // Decide once, here, whether fren may speak up — rather than guessing at the
+  // sentence every time it notices something. The model reads it the way a
+  // person would; a keyword test does not.
+  let volunteer = false;
+  if (answers.initiative) {
+    try {
+      const res = await window.fren.extractSetup({
+        field: 'initiativeMode',
+        question: 'Should fren raise things on its own, or wait to be asked?',
+        answer: answers.initiative,
+      });
+      volunteer = /volunteer/i.test((res && res.value) || '');
+    } catch { /* unclear means wait: see the rule */ }
+  }
+
+  const profile = { ...answers, volunteer, completedAt: Date.now() };
   await endSetup(profile);
   face.pulse('stretch');
   await speak(
@@ -909,14 +925,11 @@ for (const chip of document.querySelectorAll('.chip')) {
  * The reserved behaviour is not silence, though — it lights up with an idea and
  * waits. Noticing is visible; interrupting is opt-in.
  */
-const EAGER = /(right away|straight away|immediately|tell me|speak up|say so|as soon|always|any ?time)/i;
-const RESERVED = /(quiet|don'?t interrupt|only if|wait|ask|later|not unless|rarely|never)/i;
-
 function volunteersOutLoud() {
-  const said = String((profile && profile.initiative) || '');
-  if (!said) return false;                 // unstated: stay reserved
-  if (RESERVED.test(said)) return false;   // an explicit request to hold back wins
-  return EAGER.test(said);
+  // Decided by the model when the interview finished, because reading "you can
+  // interrupt me" as permission is a language problem, not a keyword problem.
+  // Anything unstated or undecidable stays reserved.
+  return !!(profile && profile.volunteer);
 }
 
 let pendingSuggestion = null;

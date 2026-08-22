@@ -269,6 +269,22 @@ const EXTRACT_RULES = {
   initiative: 'Return their instruction about when to speak up, in THEIR OWN WORDS. ' +
         'Remove only filler. Do not paraphrase or expand it.',
   goals: 'Return what they want help with, in their own words, with framing removed.',
+  // Not an extraction — a DECISION, and the only one in the interview that
+  // changes fren's behaviour rather than its notes. It decides whether fren
+  // may interrupt, so it must be read the way a person would read it: "you can
+  // interrupt me", "feel free" and "whenever you think it matters" all mean
+  // yes, and none of them contain any of the words a keyword test would look
+  // for. Getting this wrong means either nagging someone who asked for quiet,
+  // or staying mute at someone who invited you to speak.
+  initiativeMode:
+    'Decide what they want. Answer with EXACTLY one word and nothing else: ' +
+    '"volunteer" if they are happy for fren to raise things on its own — ' +
+    'including "you can interrupt me", "feel free", "whenever you think it matters", ' +
+    '"go ahead", "up to you". ' +
+    '"wait" if they want fren to stay quiet until asked — including "only if it keeps ' +
+    'happening", "stay quiet", "ask me first", "not unless it is important". ' +
+    'If it is genuinely unclear, answer "wait": interrupting someone who did not ask ' +
+    'for it is the worse mistake.',
 };
 
 function buildExtractRequest({ field, question, answer, asked = {} } = {}) {

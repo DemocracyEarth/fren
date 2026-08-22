@@ -84,3 +84,32 @@ test('what is already recorded is shown, so a correction has something to correc
   assert.match(r.messages[0].content, /Recorded so far/);
   assert.match(r.messages[0].content, /Hi, you can call me Santi\./);
 });
+
+// --- the one answer that changes behaviour rather than notes ----------------
+// "You can interrupt me" is permission, and contains none of the words a
+// keyword test would look for. A regex got four of seven real answers wrong,
+// including that one, which would have left fren mute at someone who had just
+// invited it to speak.
+
+test('deciding whether fren may interrupt is a classification, not a keyword match', () => {
+  const r = buildExtractRequest({
+    field: 'initiativeMode',
+    question: 'Should fren raise things on its own, or wait to be asked?',
+    answer: 'You can interrupt me',
+  });
+  assert.match(r.system, /EXACTLY one word/);
+  assert.match(r.system, /"volunteer"/);
+  assert.match(r.system, /"wait"/);
+  // The phrasings that broke the keyword version are named explicitly.
+  assert.match(r.system, /you can interrupt me/i);
+  assert.match(r.system, /feel free/i);
+  assert.match(r.system, /whenever you think it matters/i);
+});
+
+test('an undecidable answer defaults to staying quiet', () => {
+  const r = buildExtractRequest({ field: 'initiativeMode', question: 'q', answer: 'dunno' });
+  assert.match(r.system, /genuinely unclear, answer "wait"/);
+  // Stated outright, because the asymmetry is the whole point: nagging someone
+  // who asked for quiet is worse than missing one observation.
+  assert.match(r.system, /interrupting someone who did not ask for it is the worse mistake/);
+});
