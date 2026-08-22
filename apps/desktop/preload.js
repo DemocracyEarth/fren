@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld('fren', {
   chat: (text) => ipcRenderer.invoke('fren:chat', text),
   setPanelOpen: (open) => ipcRenderer.invoke('fren:setPanelOpen', open),
   quit: () => ipcRenderer.invoke('fren:quit'),
+  getProfile: () => ipcRenderer.invoke('fren:getProfile'),
+  setProfile: (p) => ipcRenderer.invoke('fren:setProfile', p),
   dragStart: () => ipcRenderer.invoke('fren:dragStart'),
   dragEnd: () => ipcRenderer.invoke('fren:dragEnd'),
   onCursor: (cb) => ipcRenderer.on('fren:cursor', (_e, p) => cb(p)),

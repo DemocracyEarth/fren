@@ -171,6 +171,27 @@ What **never** leaves your machine:
 
 Full details in [docs/privacy.md](docs/privacy.md).
 
+## How do I talk to it?
+
+**Hold the orb and speak.** Release to send. You do not need the chat panel open
+— the reply is spoken aloud, and the panel is there for reading back what was
+said rather than as the way in.
+
+The orb takes three gestures:
+
+| Gesture | What happens |
+|---|---|
+| Tap | Wakes fren; once awake, opens or closes the chat panel |
+| Hold | Records while held, sends on release |
+| Drag | Carries fren anywhere on screen |
+
+The first time you run fren it introduces itself and asks three short questions
+— your name, what you are working on, and what would be useful from it. That
+happens while fren is still **dark**, and it says so: nothing is being recorded
+during setup, and starting to watch is a separate decision you make afterwards
+by tapping it. Your answers are stored locally and sent to the model as context
+with each chat.
+
 ## How do I turn observation on and off?
 
 fren starts asleep — dark, eyes closed, capturing nothing. **Click it to wake

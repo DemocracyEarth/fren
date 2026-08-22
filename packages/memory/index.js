@@ -19,6 +19,11 @@ CREATE TABLE IF NOT EXISTS memories (
   confidence REAL,
   raw_count INTEGER
 );
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS suggestions (
   id INTEGER PRIMARY KEY,
   ts INTEGER,
@@ -182,6 +187,23 @@ function openMemory(dbPath) {
       }
 
       return { deletedObservations, screenshotPathsToDelete };
+    },
+
+    /**
+     * Small key/value store for what the user TELLS fren, as opposed to what
+     * fren observes. Kept apart from memories on purpose: observations expire,
+     * and someone's name should not.
+     */
+    getSetting(key) {
+      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(String(key));
+      if (!row) return null;
+      try { return JSON.parse(row.value); } catch { return null; }
+    },
+
+    setSetting(key, value) {
+      db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ' +
+                 'ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+        .run(String(key), JSON.stringify(value ?? null));
     },
 
     close() {

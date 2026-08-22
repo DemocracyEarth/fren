@@ -149,7 +149,11 @@ function showTyping(on) {
  */
 async function playVoice(audioBuffer) {
   const ctx = new AudioContext();
+  let raf = 0;
   try {
+    // A context created without a gesture can start suspended, in which case
+    // nothing plays and 'ended' never arrives.
+    if (ctx.state === 'suspended') await ctx.resume();
     const decoded = await ctx.decodeAudioData(audioBuffer.slice(0));
     const src = ctx.createBufferSource();
     src.buffer = decoded;
@@ -159,7 +163,6 @@ async function playVoice(audioBuffer) {
     analyser.connect(ctx.destination);
 
     const samples = new Uint8Array(analyser.frequencyBinCount);
-    let raf = 0;
     const pump = () => {
       analyser.getByteTimeDomainData(samples);
       let sum = 0;
@@ -173,14 +176,22 @@ async function playVoice(audioBuffer) {
       raf = requestAnimationFrame(pump);
     };
 
+    // THIS is what killed the microphone. If 'ended' never fires -- a
+    // suspended context, a device change, an audio stack hiccup -- this promise
+    // stays pending forever. speak() then never resolves, sendMessage's
+    // `finally` never runs, `awaitingReply` stays true, and startTalking()
+    // returns early for the rest of the session. One missed event, and voice
+    // input is dead until restart. So it cannot be allowed to wait forever.
     await new Promise((resolve) => {
-      src.onended = resolve;
+      const done = () => { clearTimeout(guard); resolve(); };
+      const guard = setTimeout(done, (decoded.duration + 2) * 1000);
+      src.onended = done;
       src.start();
       pump();
     });
-    cancelAnimationFrame(raf);
     return true;
   } finally {
+    cancelAnimationFrame(raf);
     face.setSpeechLevel(null);
     ctx.close();
   }
@@ -242,11 +253,76 @@ async function speak(text) {
   });
 }
 
+/**
+ * First run. fren introduces itself and asks a few things, because it is about
+ * to spend all day watching someone it knows nothing about.
+ *
+ * It runs while fren is DARK, and says so. That is not a limitation to work
+ * around — it is the most important thing to demonstrate at the very first
+ * meeting: the light is off, so nothing is being recorded, and starting is the
+ * user's decision to make rather than a default they have to discover and undo.
+ */
+const SETUP_STEPS = [
+  {
+    key: 'name',
+    ask: () => "Hi — I'm fren. I'll live down here in the corner.\n\n" +
+               "Notice I'm dark right now: that means I'm not watching anything yet. " +
+               "Before I start, what should I call you?",
+  },
+  {
+    key: 'work',
+    ask: (a) => `Good to meet you, ${a.name}. What are you working on at the moment?`,
+  },
+  {
+    key: 'goals',
+    ask: () => "And what would be genuinely useful from me? I watch which apps and " +
+               "windows you use, and look for patterns worth mentioning.",
+  },
+];
+
+let setup = null;      // { step, answers } while the interview is running
+
+async function runSetupIfNeeded() {
+  let profile = null;
+  try { profile = await window.fren.getProfile(); } catch { /* first run */ }
+  if (profile && profile.name) return false;
+
+  setup = { step: 0, answers: {} };
+  await setPanel(true);              // the interview is worth reading
+  await askSetupStep();
+  return true;
+}
+
+async function askSetupStep() {
+  const step = SETUP_STEPS[setup.step];
+  await speak(step.ask(setup.answers));
+}
+
+async function finishSetup() {
+  const profile = { ...setup.answers, completedAt: Date.now() };
+  setup = null;
+  try { await window.fren.setProfile(profile); } catch { /* keep going regardless */ }
+  await speak(
+    `Thanks, ${profile.name}. Two things and I'll leave you alone.\n\n` +
+    `Hold me to talk — you don't need this panel open. And I only watch while ` +
+    `my light is on, so tap me when you're ready for me to start.`
+  );
+}
+
+async function handleSetupAnswer(answer) {
+  setup.answers[SETUP_STEPS[setup.step].key] = answer;
+  setup.step += 1;
+  if (setup.step < SETUP_STEPS.length) return askSetupStep();
+  return finishSetup();
+}
+
 async function sendMessage(text) {
   const question = (text ?? els.input.value).trim();
   if (!question || awaitingReply) return;
   els.input.value = '';
   addBubble('user', question);
+  // During setup the answers are for fren, not for the model.
+  if (setup) return handleSetupAnswer(question);
   awaitingReply = true;
   els.send.disabled = true;
   showTyping(true);
@@ -264,7 +340,13 @@ async function sendMessage(text) {
     clearTimeout(thinkingTimer);
     const reply = typeof res === 'string' ? res : (res && res.reply) || '(no reply)';
     showTyping(false);
-    await speak(reply);
+    // Belt and braces. The audio guard above should make speak() always
+    // settle, but `awaitingReply` gates the microphone, so a bug anywhere in
+    // the speaking path must not be able to disable voice input permanently.
+    await Promise.race([
+      speak(reply),
+      new Promise((r) => setTimeout(r, 90_000)),
+    ]);
   } catch (err) {
     clearTimeout(thinkingTimer);
     showTyping(false);
@@ -289,16 +371,17 @@ async function setPanel(open) {
 }
 
 /**
- * Clicking the orb: if fren is asleep, one click wakes it AND opens the panel,
- * so a single gesture gets you to a usable state instead of a dark ball that
- * appears to do nothing. Once awake, clicking just toggles the panel.
+ * Tapping the orb. Asleep, one tap wakes it. Awake, it toggles the chat panel.
+ *
+ * Waking deliberately does NOT open the panel any more: you can hold the orb
+ * and talk to it without ever seeing a chat window, and forcing the transcript
+ * into view made reading it feel compulsory rather than available.
  */
 async function activateOrb() {
   face.pulse('bounce');
   if (!state.observing) {
     mood.note('wake');
     await window.fren.toggleObservation();    // main flips it and broadcasts
-    if (!state.panelOpen) await setPanel(true);
     return;
   }
   react('click');
@@ -311,20 +394,57 @@ async function togglePanel() {
   await setPanel(!state.panelOpen);
 }
 
-// Press and drag to carry fren anywhere on screen; press and release without
-// moving to open the panel. Main owns the window position, so it also tells us
-// whether this gesture was a drag or a click.
+/**
+ * The orb takes three gestures, and talking is the one that matters most.
+ *
+ *   tap        -> wake, or toggle the chat panel once awake
+ *   hold       -> TALK. Speak while held, release to send.
+ *   press+drag -> carry fren somewhere else on screen
+ *
+ * Holding the character itself to speak to it is the whole point: voice should
+ * not require finding a small button inside a panel that has to be opened
+ * first. The chat panel is for reading back what was said, and is optional.
+ *
+ * Main owns the window position, so it is also what tells us whether a gesture
+ * turned out to be a drag.
+ */
+const HOLD_TO_TALK_MS = 300;
 let pressing = false;
+let holdTimer = null;
+let talkingFromOrb = false;
+
+function cancelHold() {
+  if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+}
+
 els.orb.addEventListener('mousedown', (e) => {
   if (e.button !== 0) return;
   pressing = true;
+  talkingFromOrb = false;
   window.fren.dragStart();
+  holdTimer = setTimeout(async () => {
+    holdTimer = null;
+    if (!pressing) return;
+    // Settle the drag first, or the window keeps chasing the cursor while the
+    // user holds still trying to speak.
+    const { moved } = (await window.fren.dragEnd()) || {};
+    if (moved) { pressing = false; return; }    // they were repositioning it
+    talkingFromOrb = true;
+    startTalking();
+  }, HOLD_TO_TALK_MS);
 });
+
 window.addEventListener('mouseup', async () => {
   if (!pressing) return;
   pressing = false;
+  if (talkingFromOrb) {
+    talkingFromOrb = false;
+    stopTalkingAndSend();
+    return;                                     // drag was already ended above
+  }
+  cancelHold();
   const { moved } = (await window.fren.dragEnd()) || {};
-  if (!moved) activateOrb();     // a click, not a reposition
+  if (!moved) activateOrb();     // a tap, not a reposition
 });
 
 // Keyboard activation still opens the panel (detail 0 == not a mouse click).
@@ -348,10 +468,14 @@ async function startTalking() {
   try {
     await mic.start();
     els.mic.classList.add('recording');
-    react('hover');
+    // The face IS the feedback when talking from the orb -- there may be no
+    // panel open to show anything else.
+    setFace('listening');
+    face.pulse('nod');
   } catch (err) {
     els.mic.classList.remove('recording');
     addBubble('fren', 'I could not open the microphone: ' + (err && err.message ? err.message : err));
+    setFace(emotionFor(state));
   }
 }
 
@@ -444,4 +568,10 @@ scheduleWander();
   window.fren.onStateChanged(render);          // subscribe before the first fetch
   render(await window.fren.getState());
   setFace(emotionFor(state), { immediate: true });
+
+  els.orb.title = voiceReady
+    ? 'Tap to wake · hold to talk · drag to move'
+    : 'Tap to wake · drag to move';
+
+  await runSetupIfNeeded();
 })();

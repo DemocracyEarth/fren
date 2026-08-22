@@ -84,6 +84,8 @@ async function handleChat(provider, body, res) {
     question,
     memories: Array.isArray(body.memories) ? body.memories : [],
     observations: Array.isArray(body.observations) ? body.observations : [],
+    // What the user told fren about themselves during setup. Never logged.
+    profile: body.profile && typeof body.profile === 'object' ? body.profile : null,
   });
   const reply = await callProvider(provider, request, res);
   if (reply === null) return;

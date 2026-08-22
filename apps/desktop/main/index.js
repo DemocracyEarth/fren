@@ -241,6 +241,17 @@ app.whenReady().then(() => {
     }
   });
 
+  // What the user told fren about themselves during first-run setup. Stored
+  // locally in the same SQLite file as everything else; it is sent to the model
+  // as chat context and nowhere else.
+  ipcMain.handle('fren:getProfile', () => memory.getSetting('profile'));
+  ipcMain.handle('fren:setProfile', (_e, profile) => {
+    const clean = profile && typeof profile === 'object' ? profile : null;
+    memory.setSetting('profile', clean);
+    log(`[setup] profile saved (${clean ? Object.keys(clean).join(', ') : 'cleared'})`);
+    return memory.getSetting('profile');
+  });
+
   ipcMain.handle('fren:quit', () => app.quit());
 
   ipcMain.handle('fren:chat', async (_e, text) => {
@@ -253,7 +264,8 @@ app.whenReady().then(() => {
       const observations = memory
         .getRecentObservations({ limit: 50 })
         .map(({ ts, activeApp, windowTitle }) => ({ ts, activeApp, windowTitle }));
-      const { reply } = await gateway.chat({ question, memories, observations });
+      const profile = memory.getSetting('profile');
+      const { reply } = await gateway.chat({ question, memories, observations, profile });
       return { reply };
     } catch (err) {
       log(`[chat] failed: ${err.message}`);

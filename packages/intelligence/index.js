@@ -129,14 +129,30 @@ function formatMemories(memories) {
     .join('\n');
 }
 
-function buildChatRequest({ question, memories = [], observations = [], now = Date.now() } = {}) {
+function formatProfile(profile) {
+  if (!profile || typeof profile !== 'object') return '';
+  const bits = [];
+  if (profile.name) bits.push(`Their name is ${profile.name}.`);
+  if (profile.work) bits.push(`They described their current work as: ${profile.work}`);
+  if (profile.goals) bits.push(`They asked fren to help with: ${profile.goals}`);
+  return bits.join(' ');
+}
+
+function buildChatRequest({ question, memories = [], observations = [], profile = null,
+                            now = Date.now() } = {}) {
+  const who = formatProfile(profile);
   const system = [
     'You are fren, a small quiet companion that lives on the desktop and watches only while its eyes are open.',
     'Answer ONLY from the observed context provided in the message; never invent activity that is not there.',
     'Be concise: 2-4 sentences is typical.',
     'If the context is insufficient or observation was off, say so plainly instead of guessing.',
     'No generic productivity advice.',
-  ].join(' ');
+    // What the user told fren about themselves. It is context for TONE and for
+    // what they care about -- it is not observed activity, and must never be
+    // reported back as if fren had seen it.
+    who ? `About the person you are talking to: ${who}` : '',
+    who ? 'Use their name sparingly and naturally. Do not treat what they told you as something you observed.' : '',
+  ].filter(Boolean).join(' ');
   const content = [
     `Current local time: ${clock(now)}`,
     '',
@@ -198,5 +214,6 @@ module.exports = {
   buildSummarizeRequest,
   parseSummary,
   buildChatRequest,
+  formatProfile,
   buildPatternRequest,
 };
