@@ -8,6 +8,7 @@ const state = require('./state');
 const gateway = require('./gatewayClient');
 const { createObserver } = require('./observer');
 const { createSummarizer } = require('./summarizer');
+const whisper = require('./whisper');
 
 loadEnv();
 // The desktop process must never hold provider credentials — only the gateway
@@ -15,6 +16,7 @@ loadEnv();
 delete process.env.ANTHROPIC_API_KEY;
 delete process.env.ANTHROPIC_AUTH_TOKEN;
 delete process.env.DEEPSEEK_API_KEY;
+delete process.env.ELEVENLABS_API_KEY;
 
 const ORB_SIZE = { width: 148, height: 148 };
 const PANEL_SIZE = { width: 344, height: 566 };
@@ -182,6 +184,34 @@ app.whenReady().then(() => {
     const moved = drag.moved;
     drag = null;
     return { moved };
+  });
+
+  // Voice. Transcription runs locally: the audio is written to a temp file,
+  // handed to whisper.cpp, and deleted. It never touches the network.
+  ipcMain.handle('fren:voiceStatus', () => {
+    const w = whisper.detect();
+    return { stt: w.ready, reason: w.reason || null };
+  });
+
+  ipcMain.handle('fren:transcribe', async (_e, bytes) => {
+    try {
+      const text = await whisper.transcribe(Buffer.from(bytes));
+      log(`[voice] transcribed ${bytes.byteLength} bytes -> ${text.length} chars`);
+      return { text };
+    } catch (err) {
+      log(`[voice] transcription failed: ${err.message}`);
+      return { error: err.message };
+    }
+  });
+
+  ipcMain.handle('fren:speak', async (_e, text) => {
+    try {
+      const audio = await gateway.speak(String(text ?? '').slice(0, 2000));
+      return { audio: audio.buffer.slice(audio.byteOffset, audio.byteOffset + audio.byteLength) };
+    } catch (err) {
+      log(`[voice] speech failed: ${err.message}`);
+      return { error: err.message };
+    }
   });
 
   ipcMain.handle('fren:quit', () => app.quit());

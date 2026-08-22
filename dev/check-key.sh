@@ -8,3 +8,8 @@ case "$health" in
   *'"provider":"mock"'*)      echo "✗ still mock — no key picked up (restart fren after editing .env)" ;;
   *)                          echo "✗ gateway not reachable — is it running?" ;;
 esac
+
+case "$health" in
+  *'"voice":"elevenlabs"'*) echo "✓ voice configured (ElevenLabs)" ;;
+  *'"voice":null'*)         echo "· no voice key — fren replies in text only" ;;
+esac

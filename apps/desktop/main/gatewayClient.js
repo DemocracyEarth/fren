@@ -19,7 +19,26 @@ async function request(pathname, { method = 'GET', body, timeoutMs = 60_000 } = 
   return res.json();
 }
 
+/** Speech audio comes back as bytes, not JSON. */
+async function speak(text) {
+  const res = await fetch(`${config.GATEWAY_URL}/v1/speak`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${config.GATEWAY_TOKEN}`,
+    },
+    body: JSON.stringify({ text }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`gateway /v1/speak -> ${res.status} ${detail.slice(0, 160)}`);
+  }
+  return Buffer.from(await res.arrayBuffer());
+}
+
 module.exports = {
+  speak,
   health: () => request('/health', { timeoutMs: 3_000 }),
   summarize: (observations) =>
     request('/v1/summarize', { method: 'POST', body: { observations } }),

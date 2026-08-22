@@ -10,6 +10,7 @@ const intelligence = require('../../packages/intelligence');
 const { createAnthropicProvider } = require('./providers/anthropic');
 const { createDeepSeekProvider } = require('./providers/deepseek');
 const { createMockProvider } = require('./providers/mock');
+const { createElevenLabsProvider } = require('./providers/elevenlabs');
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -89,12 +90,32 @@ async function handleChat(provider, body, res) {
   send(res, 200, { reply });
 }
 
-async function handle(provider, req, res, pathname) {
+async function handleSpeak(voice, body, res) {
+  const text = body && body.text;
+  if (typeof text !== 'string' || text.trim() === '') {
+    return send(res, 400, { error: 'text must be a non-empty string' });
+  }
+  if (!voice) return send(res, 503, { error: 'no voice provider configured' });
+  try {
+    const { audio, contentType } = await voice.speak(text.slice(0, 2000));
+    res.writeHead(200, { 'content-type': contentType, 'content-length': audio.length });
+    res.end(audio);
+  } catch (err) {
+    send(res, 502, { error: (err && err.message) || 'voice error' });
+  }
+}
+
+async function handle(provider, voice, req, res, pathname) {
   if (req.method === 'GET' && pathname === '/health') {
-    return send(res, 200, { ok: true, provider: provider.name, model: provider.model });
+    return send(res, 200, {
+      ok: true,
+      provider: provider.name,
+      model: provider.model,
+      voice: voice ? voice.name : null,
+    });
   }
 
-  if (req.method === 'POST' && (pathname === '/v1/summarize' || pathname === '/v1/chat')) {
+  if (req.method === 'POST' && (pathname === '/v1/summarize' || pathname === '/v1/chat' || pathname === '/v1/speak')) {
     if (req.headers.authorization !== `Bearer ${config.GATEWAY_TOKEN}`) {
       return send(res, 401, { error: 'unauthorized' });
     }
@@ -105,13 +126,14 @@ async function handle(provider, req, res, pathname) {
       return send(res, err.status || 400, { error: err.message });
     }
     if (pathname === '/v1/summarize') return handleSummarize(provider, body, res);
+    if (pathname === '/v1/speak') return handleSpeak(voice, body, res);
     return handleChat(provider, body, res);
   }
 
   send(res, 404, { error: 'not found' });
 }
 
-function createServer(provider) {
+function createServer(provider, voice = null) {
   return http.createServer((req, res) => {
     const started = Date.now();
     const pathname = (req.url || '/').split('?')[0];
@@ -119,7 +141,7 @@ function createServer(provider) {
       // PRIVACY: method, path, status, duration only. Never log bodies.
       console.log(`[gateway] ${req.method} ${pathname} ${res.statusCode} ${Date.now() - started}ms`);
     });
-    handle(provider, req, res, pathname).catch((err) => {
+    handle(provider, voice, req, res, pathname).catch((err) => {
       if (!res.headersSent) {
         send(res, 502, { error: (err && err.message) || 'internal error' });
       }
@@ -138,6 +160,17 @@ function hasAnthropicCredentials() {
     return fs.readdirSync(path.join(configDir, 'credentials')).length > 0;
   } catch {
     return false;
+  }
+}
+
+/** Text-to-speech is optional; without a key fren simply stays quiet. */
+function pickVoice() {
+  if (!process.env.ELEVENLABS_API_KEY) return null;
+  try {
+    return createElevenLabsProvider();
+  } catch (err) {
+    console.warn(`[gateway] voice unavailable (${err.message})`);
+    return null;
   }
 }
 
@@ -179,10 +212,12 @@ function pickProvider() {
 if (require.main === module) {
   loadEnv();
   const provider = pickProvider();
-  const server = createServer(provider);
+  const voice = pickVoice();
+  const server = createServer(provider, voice);
   server.listen(config.GATEWAY_PORT, '127.0.0.1', () => {
     console.log(
-      `[gateway] listening on http://127.0.0.1:${config.GATEWAY_PORT} (provider=${provider.name}, model=${provider.model})`
+      `[gateway] listening on http://127.0.0.1:${config.GATEWAY_PORT} ` +
+        `(provider=${provider.name}, model=${provider.model}, voice=${voice ? voice.name : 'none'})`
     );
   });
 }

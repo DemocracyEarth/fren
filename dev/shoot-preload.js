@@ -17,5 +17,8 @@ contextBridge.exposeInMainWorld('fren', {
   dragStart: async () => {},
   dragEnd: async () => ({ moved: false }),
   onCursor: () => {},
+  voiceStatus: async () => ({ stt: false, reason: 'harness' }),
+  transcribe: async () => ({ error: 'harness' }),
+  speak: async () => ({ error: 'harness' }),
   onStateChanged: () => {},
 });

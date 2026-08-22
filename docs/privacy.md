@@ -25,6 +25,27 @@ dark: the fallback fails closed.
 Keystrokes are **never captured in any state**. fren has no keylogger, no input
 monitoring, no clipboard access.
 
+## The microphone
+
+fren does **not** listen continuously, and there is no wake word. The
+microphone is opened only while you are physically holding the mic button
+down, and released the moment you let go — the macOS recording indicator is
+the second source of truth for this.
+
+What happens to that audio matters more than how it is captured:
+
+| Step | Where it happens |
+|---|---|
+| Recording | In the app, only while the button is held |
+| Transcription | **On this machine**, by `whisper.cpp` — a temp `.wav` is written, read, and deleted |
+| The transcript | Sent to your model provider exactly like a message you typed |
+| The audio itself | **Never leaves the machine. Never stored. Never sent to any API.** |
+
+This is why fren uses local whisper rather than a cloud speech API: a cloud
+API would mean streaming your room — and anyone else in it — to a third party.
+If `whisper.cpp` is not installed the mic button is disabled and says so; voice
+input simply does not work, rather than quietly falling back to the network.
+
 ## What leaves the machine
 
 Data leaves your machine on exactly one path: desktop app → local gateway
@@ -39,6 +60,8 @@ network requests with your data.
 | App names, window titles, timestamps (the activity timeline) | Summarize cycle, every 2 minutes while observing |
 | Your typed chat questions | When you send a chat message |
 | Derived activity summaries **and the recent raw timeline** (up to the last 50 observed app/title entries) as context | When you send a chat message |
+| Transcribed text of what you said (never the audio) | When you use push-to-talk |
+| The text of fren's reply, to ElevenLabs | Only when a voice key is configured |
 
 Chat context is drawn from what was captured earlier: asking a question while
 paused still sends recent history that was recorded while fren was lit.
@@ -52,6 +75,8 @@ Pausing stops new capture; it does not redact what you already let fren see.
   timeline alone.
 - **The SQLite database.** It never leaves the userData folder.
 - **Keystrokes.** Not captured at all (see above), so there is nothing to send.
+- **Microphone audio.** Transcribed locally and deleted; only the resulting
+  text is ever transmitted.
 
 The API key is used only by the gateway process. The desktop app reads the
 shared `.env` for its own settings but deletes `DEEPSEEK_API_KEY`,
@@ -89,9 +114,13 @@ on the gateway being reachable, or on you remembering to clean up.
 
 ## How to pause
 
-Click the sphere to open the panel, then click **"pause watching"**. The light
-goes out, the eyes close, everything stops. Same two clicks to resume ("wake up"). There is no partial
-state and no background trickle while paused.
+fren starts asleep and captures nothing until you wake it. Clicking the sphere
+wakes it — that is a deliberate act, and the change is unmistakable: the light
+comes on, the colour warms, the eyes open.
+
+To stop, open the panel and click **"pause watching"**. The light goes out, the
+eyes close, everything stops. There is no partial state and no background
+trickle while paused.
 
 ## How to delete everything
 
@@ -106,12 +135,13 @@ beyond the categories listed above.
 
 ## macOS permissions
 
-fren uses two permissions, and works with degraded data if you decline:
+fren uses three permissions, and works with degraded data if you decline any:
 
 | Permission | Used for | Without it |
 |---|---|---|
 | Screen Recording | Screenshots | No screenshots; app names + window titles only |
 | Accessibility | Window titles (via System Events) | App names only |
+| Microphone | Push-to-talk voice input | Mic button disabled; typing still works |
 
 How they are requested: the first time you wake fren up, the window-title
 lookup triggers the Accessibility/Automation prompt, and fren makes one

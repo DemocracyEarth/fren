@@ -246,3 +246,34 @@ button { font-family: inherit; -webkit-app-region: no-drag; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ------------------------------------------------------------ push to talk */
+#mic {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(26, 23, 18, .14);
+  border-radius: 50%;
+  background: #fff;
+  color: var(--ink-soft);
+  display: grid;
+  place-items: center;
+  transition: background .18s var(--ease-soft), color .18s var(--ease-soft),
+              transform .18s var(--ease-out), box-shadow .18s var(--ease-soft);
+}
+#mic:hover { color: var(--ink); background: #fffdf8; }
+#mic[disabled] { opacity: .45; cursor: default; }
+
+/* Held down: fren is listening, and it should be obvious. */
+#mic.recording {
+  background: var(--orange);
+  border-color: var(--orange);
+  color: var(--ink);
+  transform: scale(1.06);
+  box-shadow: 0 0 0 6px rgba(237, 138, 47, .22);
+  animation: mic-pulse 1.1s infinite var(--ease-soft);
+}
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 5px rgba(237, 138, 47, .24); }
+  50%      { box-shadow: 0 0 0 10px rgba(237, 138, 47, .10); }
+}

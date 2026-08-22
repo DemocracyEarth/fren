@@ -216,6 +216,7 @@
       this.gaze = { x: 0, y: 0 };     // whole-orb lean toward the pointer
       this.gazeTarget = { x: 0, y: 0 };
       this.talkPhase = -1;
+      this.speechLevel = null;    // when set, real audio drives the mouth
       this.particles = [];
       this.nextParticle = 0;
 
@@ -359,7 +360,7 @@
     }
 
     _atRest() {
-      if (this.blink > 0 || this.talkPhase >= 0 || this.particles.length) return false;
+      if (this.blink > 0 || this.talkPhase >= 0 || this.speechLevel !== null || this.particles.length) return false;
       for (const k in this.p) {
         if (Math.abs(this.target[k] - this.p[k]) > 0.0015) return false;
         if (Math.abs(this.v[k]) > 0.0015) return false;
@@ -398,7 +399,17 @@
     lookAway() { this.gazeTarget = { x: 0, y: 0 }; this._wake(); }
 
     startTalking() { this.talkPhase = 0; this._wake(); }
-    stopTalking() { this.talkPhase = -1; }
+    stopTalking() { this.talkPhase = -1; this.speechLevel = null; }
+
+    /**
+     * Drive the mouth from the actual audio being played (0..1), so the lips
+     * match the voice instead of miming to a sine wave. Pass null to fall
+     * back to the synthetic pattern.
+     */
+    setSpeechLevel(v) {
+      this.speechLevel = v === null || v === undefined ? null : clamp(v, 0, 1);
+      this._wake();
+    }
 
     /** One-shot elastic reactions — the orb is plastic, so it wobbles. */
     pulse(kind = 'bounce') {
@@ -552,7 +563,9 @@
 
       // ---- mouth ----
       let open = clamp(p.mouthOpen, 0, 1);
-      if (this.talkPhase >= 0) {
+      if (this.speechLevel !== null) {
+        open = clamp(0.06 + this.speechLevel * 0.9, 0.06, 1);
+      } else if (this.talkPhase >= 0) {
         const wave = Math.sin(this.talkPhase * 15) * 0.5 + Math.sin(this.talkPhase * 23.7) * 0.3;
         open = clamp(0.5 + wave * 0.36, 0.06, 1);
       }

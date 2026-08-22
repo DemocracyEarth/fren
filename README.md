@@ -93,7 +93,7 @@ Other commands:
 ```sh
 npm run gateway    # gateway only
 npm run desktop    # desktop app only (expects a gateway on 127.0.0.1:4519)
-npm test           # node --test suites for memory, intelligence, gateway
+npm test           # node --test suites for memory, intelligence, gateway, desktop
 ```
 
 The first time you wake fren up, macOS will prompt for Accessibility and
@@ -106,8 +106,31 @@ Electron binary:
   gracefully to app + window title only.
 - **Accessibility** — needed for window titles. Without it, fren degrades to
   app names only.
+- **Microphone** — only for push-to-talk. Declining disables the mic button;
+  typing still works.
 
 Permission changes require an app restart.
+
+### Giving fren a voice
+
+Both halves are optional and independent.
+
+**Listening** is local. Install whisper.cpp and a model:
+
+```sh
+brew install whisper-cpp
+mkdir -p ~/.cache/whisper.cpp
+curl -L -o ~/.cache/whisper.cpp/ggml-base.en.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
+```
+
+Both are auto-detected. Then **hold** the mic button in the panel to talk and
+release to send. Nothing is recorded unless the button is down, and the audio
+is transcribed on this machine — it never leaves it.
+
+**Speaking** uses ElevenLabs. Put `ELEVENLABS_API_KEY` in `.env`. Without it
+fren simply replies in text. When it is set, the reply text (only) is sent to
+ElevenLabs and the mouth is driven by the returned audio's own amplitude.
 
 ## Where is data stored?
 
@@ -130,19 +153,25 @@ Only this, and only via the local gateway:
 - your typed chat questions
 - derived activity summaries and the recent raw timeline (up to the last 50
   observed app/title entries), sent as context with each chat message
+- the transcript of anything you say with push-to-talk — never the audio
+- the text of fren's reply, if you configured a voice
 
 What **never** leaves your machine:
 
 - screenshots (captured only while observing, stored locally, pruned
   automatically — not even sent to the gateway)
+- microphone audio (recorded only while you hold the button, transcribed
+  locally by whisper.cpp, then deleted)
 - the SQLite database
 - keystrokes (never captured at all, by anything)
 
 Full details in [docs/privacy.md](docs/privacy.md).
 
-## How do I turn observation off?
+## How do I turn observation on and off?
 
-Open the panel and click "pause watching". The light goes out, the eyes close,
+fren starts asleep — dark, eyes closed, capturing nothing. **Click it to wake
+it up**; that one click lights it, starts observing, and opens the panel. To
+stop, click "pause watching". The light goes out, the eyes close,
 and observation stops — no sampling, no screenshots, no summarizing. This is a
 single boolean in the main process, and every face change in the renderer is
 funnelled through a check on it: fren cannot look awake while capture is off,
@@ -153,7 +182,7 @@ and capture cannot run while it looks asleep.
 These are designed to exist later. They are not built now, and the code does not
 pretend otherwise:
 
-- voice input/output
+- always-on listening (voice is push-to-talk only, by design)
 - autonomous mouse/keyboard control (fren proposes; it does not act)
 - a browser extension
 - WhatsApp or mobile clients
