@@ -203,8 +203,12 @@ The orb takes three gestures:
 | Gesture | What happens |
 |---|---|
 | Tap | Wakes fren; once awake, opens or closes the chat panel |
-| Hold | Records while held, sends on release |
-| Drag | Carries fren anywhere on screen |
+| Hold still | Records while held, sends on release |
+| Press and move | Carries fren anywhere on screen |
+
+The three are told apart by what your hand does, not by a timer: move past a few
+pixels and you are carrying it, stay put and you are talking to it. Holding
+still never drags the orb, and a slow deliberate drag never starts a recording.
 
 You can talk over it. Holding the orb while fren is replying cuts the reply
 short and starts listening, and anything you say while it is still thinking is
@@ -222,6 +226,12 @@ pausing fren.
 The last two answers are not about you — they define fren. They are written to
 `SOUL.md` in fren's data folder as instructions it is told to follow, and you
 can open that file, rewrite it, and have it take effect on your next message.
+
+**To see everything fren holds about you**, open the panel and press ☰. It shows
+`SOUL.md`, `USER.md`, `MEMORY.md` and the daily logs verbatim, exactly as they
+are on disk, with a button to open the folder in your file manager. Nothing is
+summarised on the way out — a companion whose notes about you cannot be
+inspected is not a companion.
 
 ## How do I turn observation on and off?
 

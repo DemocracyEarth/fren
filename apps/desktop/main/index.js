@@ -1,7 +1,7 @@
 // Electron main process: creates the mascot window and wires the loop
 // observe -> remember -> summarize -> chat. Owns the observation on/off state.
 const path = require('path');
-const { app, BrowserWindow, ipcMain, screen, protocol, net } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, protocol, net, shell } = require('electron');
 const { pathToFileURL } = require('node:url');
 const { config, loadEnv } = require('../../../packages/shared');
 const { openMemory } = require('../../../packages/memory');
@@ -326,6 +326,17 @@ app.whenReady().then(() => {
       log(`[setup] extraction failed, keeping the raw answer: ${err.message}`);
       return { value: answer };
     }
+  });
+
+  // What fren holds about you, as the actual files. Nothing is summarised or
+  // paraphrased on the way out: the point is to show the bytes.
+  ipcMain.handle('fren:readSoul', () => soul.readAll(app.getPath('userData')));
+  ipcMain.handle('fren:readLog', (_e, name) => soul.readLog(app.getPath('userData'), name));
+  // And a way out to the folder itself, so the files can be edited in a real
+  // editor rather than only read here.
+  ipcMain.handle('fren:openDataFolder', async () => {
+    const err = await shell.openPath(app.getPath('userData'));
+    return { ok: !err, error: err || null };
   });
 
   ipcMain.handle('fren:quit', () => app.quit());

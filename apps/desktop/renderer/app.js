@@ -33,6 +33,10 @@ const els = {
   input: document.getElementById('chat-input'),
   send: document.getElementById('send'),
   mic: document.getElementById('mic'),
+  know: document.getElementById('know'),
+  knowFiles: document.getElementById('know-files'),
+  knowBtn: document.getElementById('what-i-know'),
+  openFolder: document.getElementById('open-folder'),
 };
 
 const face = new window.FrenFace.Face(els.orb, { size: els.orb.clientWidth || 164 });
@@ -586,43 +590,73 @@ async function togglePanel() {
  * Main owns the window position, so it is also what tells us whether a gesture
  * turned out to be a drag.
  */
-const HOLD_TO_TALK_MS = 300;
+const HOLD_TO_TALK_MS = 320;
+const DRAG_SLOP_PX = 6;      // hand tremor, not an intention to move it
+
 let pressing = false;
 let holdTimer = null;
 let talkingFromOrb = false;
+let dragging = false;
+let pressAt = { x: 0, y: 0 };
 
 function cancelHold() {
   if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
 }
 
+/**
+ * Three gestures share one button, so they have to be told apart by what the
+ * hand actually does rather than by a stopwatch.
+ *
+ * The previous version began the drag on mousedown and, 320ms later, asked
+ * whether the window had moved. That put the two gestures in direct conflict:
+ * pressing and holding still is how you START a careful drag, and it is also
+ * exactly how you begin talking — so a slow drag became a recording, while a
+ * quick one meant the window chased the cursor for a third of a second before
+ * anyone had expressed an intention.
+ *
+ * MOVEMENT is the signal. Move past a few pixels and it is a drag, whenever
+ * that happens. Stay put for the hold and it is speech. The drag does not
+ * begin at all until movement proves it, so holding still never moves the orb.
+ */
 els.orb.addEventListener('mousedown', (e) => {
   if (e.button !== 0) return;
   pressing = true;
+  dragging = false;
   talkingFromOrb = false;
-  window.fren.dragStart();
-  holdTimer = setTimeout(async () => {
+  pressAt = { x: e.screenX, y: e.screenY };
+  holdTimer = setTimeout(() => {
     holdTimer = null;
-    if (!pressing) return;
-    // Settle the drag first, or the window keeps chasing the cursor while the
-    // user holds still trying to speak.
-    const { moved } = (await window.fren.dragEnd()) || {};
-    if (moved) { pressing = false; return; }    // they were repositioning it
+    if (!pressing || dragging) return;
     talkingFromOrb = true;
     startTalking();
   }, HOLD_TO_TALK_MS);
 });
 
+window.addEventListener('mousemove', (e) => {
+  if (!pressing || dragging || talkingFromOrb) return;
+  if (Math.hypot(e.screenX - pressAt.x, e.screenY - pressAt.y) < DRAG_SLOP_PX) return;
+  // Moving means carrying it. Main takes the cursor offset from here, so the
+  // orb keeps its position under the pointer instead of jumping.
+  dragging = true;
+  cancelHold();
+  window.fren.dragStart();
+});
+
 window.addEventListener('mouseup', async () => {
   if (!pressing) return;
   pressing = false;
+  cancelHold();
   if (talkingFromOrb) {
     talkingFromOrb = false;
     stopTalkingAndSend();
-    return;                                     // drag was already ended above
+    return;
   }
-  cancelHold();
-  const { moved } = (await window.fren.dragEnd()) || {};
-  if (!moved) activateOrb();     // a tap, not a reposition
+  if (dragging) {
+    dragging = false;
+    await window.fren.dragEnd();     // put it down where it was left
+    return;
+  }
+  activateOrb();                     // a tap: nothing moved, nothing was said
 });
 
 // Keyboard activation still opens the panel (detail 0 == not a mouse click).
@@ -753,6 +787,102 @@ if (els.mic) {
   });
   els.mic.addEventListener('keyup', (e) => {
     if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); stopTalkingAndSend(); }
+  });
+}
+
+/**
+ * Show the person what has been written about them.
+ *
+ * Verbatim, and as files rather than as a rendered summary. A companion that
+ * has formed views about you which you cannot inspect is not a companion, and
+ * paraphrasing its own notes back would defeat the point of keeping them in
+ * Markdown in the first place.
+ */
+async function showWhatIKnow() {
+  let data = null;
+  try {
+    data = await window.fren.readSoul();
+  } catch (err) {
+    els.knowFiles.textContent = '';
+    const p = document.createElement('p');
+    p.className = 'know-why';
+    p.textContent = 'I could not read my own files: ' + (err && err.message ? err.message : err);
+    els.knowFiles.appendChild(p);
+    return;
+  }
+  els.knowFiles.textContent = '';
+
+  for (const f of data.files) {
+    const box = document.createElement('div');
+    box.className = 'know-file';
+    const h = document.createElement('h3');
+    h.textContent = f.name;
+    const why = document.createElement('p');
+    why.className = 'know-why';
+    why.textContent = f.title;
+    const pre = document.createElement('pre');
+    if (f.text.trim()) {
+      pre.textContent = f.text;
+    } else {
+      pre.textContent = 'Nothing written yet.';
+      pre.className = 'empty';
+    }
+    box.append(h, why, pre);
+    els.knowFiles.appendChild(box);
+  }
+
+  // The daily logs are listed rather than dumped: there can be a lot of them,
+  // and they are the one thing here fren wrote by itself.
+  const days = document.createElement('div');
+  days.className = 'know-file';
+  const dh = document.createElement('h3');
+  dh.textContent = 'memory/';
+  const dw = document.createElement('p');
+  dw.className = 'know-why';
+  dw.textContent = data.logs.length
+    ? `What fren observed, one file per day — ${data.logs.length} so far`
+    : 'What fren observes, once it has watched for a while';
+  days.append(dh, dw);
+
+  const list = document.createElement('div');
+  list.id = 'know-days';
+  for (const log of data.logs) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = `${log.name}  ·  ${Math.max(1, Math.round(log.bytes / 1024))} KB`;
+    b.addEventListener('click', async () => {
+      const text = await window.fren.readLog(log.name);
+      const pre = document.createElement('pre');
+      pre.textContent = text || 'Empty.';
+      b.replaceWith(pre);
+    });
+    list.appendChild(b);
+  }
+  days.appendChild(list);
+  els.knowFiles.appendChild(days);
+}
+
+async function toggleWhatIKnow() {
+  const showing = !els.know.hidden;
+  if (showing) {
+    els.know.hidden = true;
+    els.messages.hidden = false;
+    els.knowBtn.innerHTML = '&#9776;';
+    els.knowBtn.title = 'What fren has written about you';
+    return;
+  }
+  await showWhatIKnow();
+  els.know.hidden = false;
+  els.messages.hidden = true;
+  els.knowBtn.innerHTML = '&#8592;';
+  els.knowBtn.title = 'Back to the conversation';
+}
+
+if (els.knowBtn) els.knowBtn.addEventListener('click', toggleWhatIKnow);
+if (els.openFolder) {
+  els.openFolder.addEventListener('click', async () => {
+    const r = await window.fren.openDataFolder();
+    if (r && !r.ok) surface('I could not open the folder: ' + r.error);
   });
 }
 

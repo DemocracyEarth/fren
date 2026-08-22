@@ -30,9 +30,21 @@
         </svg>
         <span id="gateway-dot" title="thinking half"></span>
         <span class="spacer"></span>
+        <button id="what-i-know" class="icon" aria-label="What fren has written about you"
+                title="What fren has written about you">&#9776;</button>
         <button id="toggle-observe" class="ghost">wake up</button>
         <button id="quit" class="icon" title="Quit fren">&#215;</button>
       </header>
+
+      <section id="know" hidden aria-label="What fren has recorded about you">
+        <p class="know-intro">
+          Everything fren holds about you, exactly as it is written on disk.
+          These are plain files — edit them and the changes take effect on your
+          next message.
+        </p>
+        <div id="know-files"></div>
+        <button id="open-folder" class="ghost">open the folder</button>
+      </section>
 
       <div id="messages" role="log" aria-live="polite" aria-label="Conversation with fren">
         <div id="empty">

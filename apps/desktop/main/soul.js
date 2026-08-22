@@ -154,11 +154,54 @@ function appendDailyLog(dir, text, now = Date.now()) {
   return file;
 }
 
+/**
+ * Everything fren holds about someone, for showing it to them.
+ *
+ * A companion that has formed views about you which you cannot inspect is not
+ * a companion. This returns the files as they are on disk, plus the daily logs
+ * it has written, so the answer to "what do you know about me" is the actual
+ * bytes rather than a summary of them.
+ */
+function readAll(dir) {
+  const p = paths(dir);
+  const read = (f) => {
+    try { return fs.readFileSync(f, 'utf8'); } catch { return ''; }
+  };
+  let logs = [];
+  try {
+    logs = fs.readdirSync(p.logs)
+      .filter((f) => f.endsWith('.md'))
+      .sort()
+      .reverse()
+      .slice(0, 30)
+      .map((f) => ({
+        name: f,
+        bytes: (() => { try { return fs.statSync(path.join(p.logs, f)).size; } catch { return 0; } })(),
+      }));
+  } catch { /* no logs written yet */ }
+
+  return {
+    dir,
+    files: [
+      { name: FILES.soul, title: 'Who fren tries to be', text: read(p.soul) },
+      { name: FILES.user, title: 'What you told it about yourself', text: read(p.user) },
+      { name: FILES.memory, title: 'Durable facts', text: read(p.memory) },
+    ],
+    logs,
+  };
+}
+
+/** One day's log, read on demand rather than all of them at once. */
+function readLog(dir, name) {
+  if (!/^\d{4}-\d{2}-\d{2}\.md$/.test(String(name || ''))) return '';
+  try { return fs.readFileSync(path.join(paths(dir).logs, name), 'utf8'); } catch { return ''; }
+}
+
 function hasSoul(dir) {
   try { return fs.statSync(paths(dir).soul).size > 0; } catch { return false; }
 }
 
 module.exports = {
-  paths, writeSoul, readContext, appendDailyLog, hasSoul,
+  paths, writeSoul, readContext, appendDailyLog, hasSoul, readAll, readLog,
   renderSoul, renderUser, renderMemoryIndex, FILES,
 };
