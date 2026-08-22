@@ -108,6 +108,14 @@ function render(next) {
   // pausing mid-reply closes the eyes immediately.
   if (!speaking || !state.observing) setFace(emotionFor(state));
 
+  // Waking up during the interview ends it. Someone who taps to start has
+  // told you what they want more clearly than the questionnaire would have,
+  // and the script's "I'm dark right now" line is no longer even true.
+  if (state.observing && !was.observing && setup) {
+    endSetup({ skipped: true });
+    addBubble('fren', "Right — I'll skip the questions. Hold me any time to talk.");
+  }
+
   // Waking up is worth a little physical reaction.
   if (state.observing && !was.observing) {
     // The line above deliberately does not touch the face mid-reply, so that a
@@ -285,7 +293,9 @@ let setup = null;      // { step, answers } while the interview is running
 async function runSetupIfNeeded() {
   let profile = null;
   try { profile = await window.fren.getProfile(); } catch { /* first run */ }
-  if (profile && profile.name) return false;
+  // `skipped` counts as answered: having declined once, being asked again on
+  // every launch would be nagging.
+  if (profile && (profile.name || profile.skipped)) return false;
 
   setup = { step: 0, answers: {} };
   await setPanel(true);              // the interview is worth reading
@@ -295,15 +305,43 @@ async function runSetupIfNeeded() {
 
 async function askSetupStep() {
   const step = SETUP_STEPS[setup.step];
+  showSkip(true);
   await speak(step.ask(setup.answers));
 }
 
-async function finishSetup() {
-  const profile = { ...setup.answers, completedAt: Date.now() };
+/**
+ * An escape hatch, because an introduction that cannot be declined is an
+ * interrogation. Without this, every message typed while setup was pending
+ * would be swallowed as an answer -- ask fren a real question during setup and
+ * it would be filed as your name.
+ */
+function showSkip(on) {
+  let el = document.getElementById('skip-setup');
+  if (!on) { if (el) el.remove(); return; }
+  if (el) return;
+  el = document.createElement('button');
+  el.id = 'skip-setup';
+  el.className = 'chip';
+  el.textContent = 'skip this';
+  el.addEventListener('click', () => endSetup({ skipped: true }));
+  els.messages.insertBefore(el, els.typing);
+  scrollDown();
+}
+
+/** Leave the interview, for whatever reason, and stop capturing input. */
+async function endSetup(profile) {
+  if (!setup) return;
   setup = null;
-  try { await window.fren.setProfile(profile); } catch { /* keep going regardless */ }
+  showSkip(false);
+  try { await window.fren.setProfile(profile); } catch { /* not worth failing over */ }
+}
+
+async function finishSetup() {
+  const answers = { ...setup.answers };
+  const profile = { ...answers, completedAt: Date.now() };
+  await endSetup(profile);
   await speak(
-    `Thanks, ${profile.name}. Two things and I'll leave you alone.\n\n` +
+    `Thanks, ${answers.name}. Two things and I'll leave you alone.\n\n` +
     `Hold me to talk — you don't need this panel open. And I only watch while ` +
     `my light is on, so tap me when you're ready for me to start.`
   );
