@@ -2,7 +2,7 @@
   "name": "fren",
   "version": "0.1.0",
   "private": true,
-  "description": "fren \u2014 a minimal ambient AI companion that lives on your desktop (macOS proof of concept)",
+  "description": "fren — a minimal ambient AI companion that lives on your desktop (macOS proof of concept)",
   "scripts": {
     "start": "node start.js",
     "gateway": "node apps/gateway/server.js",
@@ -13,6 +13,7 @@
     "@anthropic-ai/sdk": "^0.117.1"
   },
   "devDependencies": {
-    "electron": "^38.8.6"
+    "electron": "^38.8.6",
+    "three": "^0.185.1"
   }
 }

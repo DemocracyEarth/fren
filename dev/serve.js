@@ -7,11 +7,32 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..', 'apps', 'desktop', 'renderer');
+const REPO = path.join(__dirname, '..');
+// Dev-only aliases so the 3D prototype can load three.js and its own sources
+// without moving anything into the shipped renderer.
+const ALIAS = {
+  '/vendor/three.module.js': path.join(REPO, 'node_modules', 'three', 'build', 'three.module.js'),
+  '/vendor/three.core.js': path.join(REPO, 'node_modules', 'three', 'build', 'three.core.js'),
+};
 const PORT = Number(process.argv[2]) || 8777;
 const TYPES = {
   '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript',
   '.svg': 'image/svg+xml', '.json': 'application/json',
 };
+
+function serveFile(file, res) {
+  fs.readFile(file, (err, body) => {
+    if (err) {
+      res.writeHead(404).end('not found');
+      return;
+    }
+    res.writeHead(200, {
+      'content-type': TYPES[path.extname(file)] || 'application/octet-stream',
+      'cache-control': 'no-store, must-revalidate',
+    });
+    res.end(body);
+  });
+}
 
 http
   .createServer((req, res) => {
@@ -21,6 +42,11 @@ http
     } catch {
       res.writeHead(400).end('bad request');   // malformed percent-escape
       return;
+    }
+    if (ALIAS[rel]) return serveFile(ALIAS[rel], res);
+    if (rel.startsWith('/orb3d/')) {
+      const p3 = path.resolve(path.join(REPO, 'dev', 'orb3d'), '.' + rel.slice('/orb3d'.length));
+      if (!path.relative(path.join(REPO, 'dev', 'orb3d'), p3).startsWith('..')) return serveFile(p3, res);
     }
     const file = path.resolve(ROOT, '.' + (rel === '/' ? '/index.html' : rel));
     // Refuse anything outside the renderer directory. A prefix test would also
