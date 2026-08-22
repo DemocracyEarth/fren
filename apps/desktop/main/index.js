@@ -160,6 +160,21 @@ app.whenReady().then(() => {
 
   createWindow();
 
+  // On a first launch fren wakes up by itself and introduces itself. Every
+  // later launch starts paused, as before.
+  //
+  // This is a real trade: being lit means fren IS watching, so capture starts
+  // before anyone has agreed to it. It is defensible only because the very
+  // first thing fren says is that its light is on, what that means, and how to
+  // turn it off — and because the alternative, a dark ball that has to be
+  // discovered, is how the last few sessions ended with the interview ignored.
+  // If it were lit WITHOUT observing, the light would be a lie, which is worse.
+  const firstLaunch = !memory.getSetting('profile');
+  if (firstLaunch) {
+    log('[setup] first launch — waking up to introduce myself');
+    startObserving();
+  }
+
   state.subscribe((s) => {
     if (win && !win.isDestroyed()) win.webContents.send('fren:stateChanged', s);
   });

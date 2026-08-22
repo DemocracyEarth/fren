@@ -204,16 +204,28 @@ You can talk over it. Holding the orb while fren is replying cuts the reply
 short and starts listening, and anything you say while it is still thinking is
 answered next rather than discarded.
 
-The first time you run fren it introduces itself and asks three short questions
-— your name, what you are working on, and what would be useful from it. That
-happens while fren is still **dark**, and it says so: nothing is being recorded
-during setup, and starting to watch is a separate decision you make afterwards
-by tapping it. Your answers are stored locally and sent to the model as context
-with each chat.
+The first time you run fren it wakes up, says hello, and asks five short
+questions — your name, what you are working on, how it should talk to you,
+whether it should speak up or stay quiet, and what would actually be useful.
+
+It asks **out loud**, and the chat panel stays shut: hold the orb to answer.
+The panel only opens if you open it, or if fren has no voice configured and
+therefore cannot be heard at all. Saying "skip" ends the interview, and so does
+pausing fren.
+
+The last two answers are not about you — they define fren. They are written to
+`SOUL.md` in fren's data folder as instructions it is told to follow, and you
+can open that file, rewrite it, and have it take effect on your next message.
 
 ## How do I turn observation on and off?
 
-fren starts asleep — dark, eyes closed, capturing nothing. **Click it to wake
+On the **first** launch fren wakes by itself to introduce itself, and says so:
+its light is on, that means it is watching, and tapping it stops that. Capture
+is real for that conversation. Lighting up without watching would make the light
+a lie, which is worse than starting awake and saying so.
+
+Every launch after that starts asleep — dark, eyes closed, capturing nothing.
+**Click it to wake
 it up**; that one click lights it, starts observing, and opens the panel. To
 stop, click "pause watching". The light goes out, the eyes close,
 and observation stops — no sampling, no screenshots, no summarizing. This is a

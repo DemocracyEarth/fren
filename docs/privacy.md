@@ -138,7 +138,18 @@ on the gateway being reachable, or on you remembering to clean up.
 
 ## How to pause
 
-fren starts asleep and captures nothing until you wake it. Clicking the sphere
+**The very first launch is the exception, and it matters.** fren wakes up by
+itself to introduce itself, which means it is watching from the moment it
+appears. The first thing it says is exactly that — its light is on, that means
+it is watching, and tapping it stops that. Capture is real during the
+introduction: app names and window titles are recorded like any other time.
+
+If it were lit without observing, the light would be a lie, and the light is the
+whole basis on which this app asks to be trusted. So it is genuinely on, and it
+says so first.
+
+**Every launch after the first starts paused.** fren captures nothing until you
+wake it. Clicking the sphere
 wakes it — that is a deliberate act, and the change is unmistakable: the light
 comes on, the colour warms, the eyes open.
 

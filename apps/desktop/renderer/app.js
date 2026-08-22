@@ -108,12 +108,12 @@ function render(next) {
   // pausing mid-reply closes the eyes immediately.
   if (!speaking || !state.observing) setFace(emotionFor(state));
 
-  // Waking up during the interview ends it. Someone who taps to start has
-  // told you what they want more clearly than the questionnaire would have,
-  // and the script's "I'm dark right now" line is no longer even true.
-  if (state.observing && !was.observing && setup) {
+  // Pausing fren during the interview ends it. Turning the light off is a
+  // clear statement, and carrying on interviewing someone who just asked you to
+  // stop watching them would be tone deaf.
+  if (!state.observing && was.observing && setup) {
     endSetup({ skipped: true });
-    addBubble('fren', "Right — I'll skip the questions. Hold me any time to talk.");
+    addBubble('fren', "Understood — light off, questions dropped. Tap me when you want me back.");
   }
 
   // Waking up is worth a little physical reaction.
@@ -211,6 +211,9 @@ async function playVoice(audioBuffer) {
   }
 }
 
+/** Whether the last reply was actually audible, rather than only typed. */
+let spokeAloud = false;
+
 /**
  * Set while a reply is being delivered. Calling it cuts the reply short: the
  * text completes instantly and any audio stops. This is what makes it possible
@@ -231,6 +234,7 @@ async function speak(text) {
     const res = await window.fren.speak(text);
     if (res && res.audio) audio = res.audio;
   } catch { /* stay quiet rather than fail the reply */ }
+  spokeAloud = !!audio;
 
   face.startTalking();
   const spoken = audio ? playVoice(audio).catch(() => false) : null;
@@ -293,9 +297,14 @@ async function speak(text) {
 const SETUP_STEPS = [
   {
     key: 'name',
-    ask: () => "Hi — I'm fren. I'll live down here in the corner.\n\n" +
-               "Notice I'm dark right now: that means I'm not watching anything yet. " +
-               "Before I start, what should I call you?",
+    // "your fren" — the name is friend worn down, and it should introduce
+    // itself as one rather than as a product.
+    ask: () => "Hi. I'm your fren.\n\n" +
+               "Not a typo — friend, worn down to the part that matters. " +
+               "I live down here in the corner.\n\n" +
+               "My light is on, which means I'm watching what you're doing. " +
+               "Tap me whenever you want that to stop.\n\n" +
+               "First though — hold me and tell me what to call you.",
   },
   {
     key: 'work',
@@ -335,7 +344,11 @@ async function runSetupIfNeeded() {
   if (profile && (profile.name || profile.skipped)) return false;
 
   setup = { step: 0, answers: {} };
-  await setPanel(true);              // the interview is worth reading
+  // Voice first. The chat panel opens when the user asks for it and not
+  // before — fren talks, and holding it is how you answer. The exception is
+  // when there is no voice available at all, in which case typing is the only
+  // way to reply and the panel has to be there.
+  if (!voiceReady) await setPanel(true);
   await askSetupStep();
   return true;
 }
@@ -349,6 +362,11 @@ async function askSetupStep() {
   face.pulse(step.pulse || 'bounce');
   await new Promise((r) => setTimeout(r, 260));
   await speak(step.ask(setup.answers));
+  // Keeping the panel shut only works if fren can actually be HEARD. With no
+  // voice configured, a closed panel and a silent orb is nothing at all — so
+  // the first unheard question opens the panel and the interview is read
+  // instead.
+  if (setup && !spokeAloud && !state.panelOpen) await setPanel(true);
 }
 
 /**
@@ -361,6 +379,8 @@ function showSkip(on) {
   let el = document.getElementById('skip-setup');
   if (!on) { if (el) el.remove(); return; }
   if (el) return;
+  // Lives in the panel, so it is only visible to someone who opened it. The
+  // other exits — saying "skip", or just pausing fren — do not need it.
   el = document.createElement('button');
   el.id = 'skip-setup';
   el.className = 'chip';
@@ -392,7 +412,16 @@ async function finishSetup() {
   );
 }
 
+const SKIP_WORDS = /^(skip|no|nope|not now|later|pass|nothing|no thanks)\.?$/i;
+
 async function handleSetupAnswer(answer) {
+  // Saying "skip" out loud has to work, because with the panel closed the chip
+  // is not on screen to be clicked.
+  if (SKIP_WORDS.test(answer.trim())) {
+    await endSetup({ skipped: true });
+    await speak("Fine by me. Hold me any time you want to talk.");
+    return;
+  }
   setup.answers[SETUP_STEPS[setup.step].key] = answer;
   setup.step += 1;
   if (setup.step < SETUP_STEPS.length) return askSetupStep();
