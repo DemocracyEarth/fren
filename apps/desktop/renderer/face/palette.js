@@ -3,8 +3,9 @@
  * What colour fren is.
  *
  * The tone palette in expressions.js is not a list of colours, it is a set of
- * RELATIONSHIPS. `warm` is the base hue nudged 3.4 degrees and lifted 6% in
- * lightness; `excited` is +7.4 and +9; `hearing` is +7.5 and +18. Saturation is
+ * RELATIONSHIPS. `warm` is the base hue lifted 6% in lightness and `excited`
+ * +9%, both at the base hue exactly; `hearing` alone shifts, +7.5 degrees and
+ * +18%, because it is the only one that should read as gold. Saturation is
  * identical across all of them. Those numbers are what make the moods read as
  * the same character in different states rather than as different characters,
  * so re-colouring means moving the base and reapplying the offsets — not
@@ -31,9 +32,24 @@
   // To three places, so choosing the default colour reproduces the original
   // palette byte for byte rather than approximately.
   const FAMILY = {
-    base:    { dH: 0,     dL: 0 },
-    warm:    { dH: 3.422, dL: 6.078 },
-    excited: { dH: 7.434, dL: 9.020 },
+    // The moods do not move in HUE. Only `hearing` does.
+    //
+    // They used to: excited was +7.434 degrees and hearing +7.529, which is the
+    // same colour to within a tenth of a degree. That was survivable while the
+    // listening tone was a state you glanced at, and stopped being survivable
+    // when the orb started PULSING toward it — an excited fren and a listening
+    // fren were the same yellow, and the only difference was how bright.
+    //
+    // There is nowhere for a mood to go in hue anyway. The band is narrow:
+    // cross sits at 12 degrees, the base orange at 32.5, listening at 40. Drift
+    // warmer and you land on listening; drift cooler and you land on cross. So
+    // the moods differ by BRIGHTNESS and GLOSS, which they already did — warm
+    // and excited were never carrying their weight in hue.
+    base:    { dH: 0, dL: 0 },
+    warm:    { dH: 0, dL: 6.078 },
+    excited: { dH: 0, dL: 9.020 },
+    // The one tone that goes gold, and now the only one. Everything else stays
+    // on the base hue, so "fren has turned yellow" means exactly one thing.
     hearing: { dH: 7.529, dL: 17.647 },
   };
   const SHEEN = { dH: 2.160, dL: 20.784 };
