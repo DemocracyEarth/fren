@@ -98,3 +98,91 @@ test('unknown route -> 404', async () => {
   const body = await res.json();
   assert.equal(typeof body.error, 'string');
 });
+
+// --- curiosity ---------------------------------------------------------------
+// Both of these routes must fail toward doing nothing. Silence and forgetting
+// are recoverable; a dull interruption and a wrong "fact" in a file the user
+// reads are not.
+
+test('POST /v1/curious requires the token', async () => {
+  const res = await fetch(`${base}/v1/curious`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ memories: [] }),
+  });
+  assert.equal(res.status, 401);
+});
+
+test('POST /v1/curious answers "no" when the model says nothing usable', async () => {
+  // The mock returns a summary shape, which is not a curiosity answer. An
+  // unreadable answer must mean silence, never a half-parsed question.
+  const res = await fetch(`${base}/v1/curious`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ memories: [{ activity: 'in Figma', apps: ['Figma'] }] }),
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.ask, false);
+  assert.equal(body.question, '');
+});
+
+test('POST /v1/curious will not report ask:true with no question to ask', async () => {
+  const server2 = createServer({
+    name: 'stub',
+    model: 'stub',
+    async complete() { return JSON.stringify({ ask: true, question: '   ', about: 'x', why: 'y' }); },
+  });
+  server2.listen(0, '127.0.0.1');
+  await once(server2, 'listening');
+  try {
+    const res = await fetch(`http://127.0.0.1:${server2.address().port}/v1/curious`, {
+      method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ memories: [] }),
+    });
+    const body = await res.json();
+    assert.equal(body.ask, false, 'an empty question is not a question');
+  } finally {
+    await new Promise((r) => server2.close(r));
+  }
+});
+
+test('POST /v1/learn keeps nothing it cannot read', async () => {
+  const res = await fetch(`${base}/v1/learn`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ question: 'What is that?', answer: 'A landing page for fren.' }),
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.worthKeeping, false, 'an unparseable verdict means remember nothing');
+});
+
+test('POST /v1/learn refuses an empty answer rather than inventing a fact', async () => {
+  const res = await fetch(`${base}/v1/learn`, {
+    method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ question: 'q', answer: '  ' }),
+  });
+  assert.equal(res.status, 400);
+});
+
+test('POST /v1/learn passes a real verdict through', async () => {
+  const server2 = createServer({
+    name: 'stub',
+    model: 'stub',
+    async complete() {
+      return '```json\n{"worthKeeping":true,"fact":"Ships the billing rewrite with Ana."}\n```';
+    },
+  });
+  server2.listen(0, '127.0.0.1');
+  await once(server2, 'listening');
+  try {
+    const res = await fetch(`http://127.0.0.1:${server2.address().port}/v1/learn`, {
+      method: 'POST', headers: JSON_HEADERS,
+      body: JSON.stringify({ question: 'Who is on billing with you?', answer: 'Ana, mostly.' }),
+    });
+    const body = await res.json();
+    assert.equal(body.worthKeeping, true);
+    assert.match(body.fact, /Ana/);
+  } finally {
+    await new Promise((r) => server2.close(r));
+  }
+});

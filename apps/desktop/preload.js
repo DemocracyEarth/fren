@@ -40,4 +40,7 @@ contextBridge.exposeInMainWorld('fren', {
   speak: (text) => ipcRenderer.invoke('fren:speak', text),
   onStateChanged: (cb) => ipcRenderer.on('fren:stateChanged', (_e, state) => cb(state)),
   onSuggestion: (cb) => ipcRenderer.on('fren:suggestion', (_e, s) => cb(s)),
+  onCurious: (cb) => ipcRenderer.on('fren:curious', (_e, q) => cb(q)),
+  learn: (question, answer) => ipcRenderer.invoke('fren:learn', question, answer),
+  setVolunteer: (on) => ipcRenderer.invoke('fren:setVolunteer', on),
 });

@@ -35,6 +35,8 @@ const els = {
   mic: document.getElementById('mic'),
   know: document.getElementById('know'),
   knowFiles: document.getElementById('know-files'),
+  volunteerRow: document.getElementById('volunteer-row'),
+  volunteer: document.getElementById('volunteer'),
   patterns: document.getElementById('patterns'),
   patternsBody: document.getElementById('patterns-body'),
   patternCount: document.getElementById('pattern-count'),
@@ -570,6 +572,8 @@ async function sendMessage(text) {
   addBubble('user', question);
   // During setup the answers are for fren, not for the model.
   if (setup) return handleSetupAnswer(question);
+  // If fren asked something, this is the answer — see if it taught anything.
+  learnFrom(question);
   // "every weekday at nine, tell me what I did" is not a question to answer
   // once — it is a routine to set up.
   if (looksScheduled(question) && await tryRoutine(question)) return;
@@ -940,6 +944,14 @@ if (els.mic) {
  * Markdown in the first place.
  */
 async function showWhatIKnow() {
+  // The interrupt switch sits above the files because it is the only thing on
+  // this pane that changes what fren DOES, rather than showing what it holds.
+  // Hidden until setup is done: there is no profile to flip before then.
+  if (els.volunteerRow) {
+    els.volunteerRow.hidden = !profile;
+    if (profile) els.volunteer.checked = !!profile.volunteer;
+  }
+
   let data = null;
   try {
     data = await window.fren.readSoul();
@@ -1261,6 +1273,53 @@ function volunteersOutLoud() {
 
 let pendingSuggestion = null;
 
+/**
+ * Curiosity, from fren's side.
+ *
+ * A suggestion is something fren wants to DO for you; a question is something
+ * it wants to KNOW about you, and the two should not feel the same. This one
+ * arrives with the curious face rather than the realization one.
+ *
+ * It does NOT force the panel open. speak() already opens it when nothing will
+ * be heard — no voice configured, or a muted machine — which is exactly the
+ * case where an unread question would be unanswerable. When fren can be heard,
+ * the panel staying shut is the whole point of it being voice-first.
+ *
+ * Whatever is said next is treated as the answer. It usually is; when it is
+ * not, the model weighing the answer says so and nothing is kept.
+ */
+let answeringQuestion = null;
+let answerWindowTimer = null;
+const ANSWER_WINDOW_MS = 8 * 60 * 1000;
+
+async function onCurious({ question }) {
+  // Never over a conversation in progress. There is no queue for this: a
+  // question that has waited is a question about something you have already
+  // moved on from, and stale curiosity reads worse than none.
+  if (!question || speaking || awaitingReply || setup) return;
+
+  mood.note('idea');
+  setFace('curious');
+  face.pulse('nod');
+
+  answeringQuestion = question;
+  clearTimeout(answerWindowTimer);
+  // Anything said long enough afterwards is a new conversation, not an answer.
+  answerWindowTimer = setTimeout(() => { answeringQuestion = null; }, ANSWER_WINDOW_MS);
+
+  await speak(question);
+}
+
+/** Take what the answer taught, quietly and in the background. */
+function learnFrom(answer) {
+  if (!answeringQuestion) return;
+  const asked = answeringQuestion;
+  answeringQuestion = null;
+  clearTimeout(answerWindowTimer);
+  // Deliberately not awaited: the reply must not wait on fren's bookkeeping.
+  window.fren.learn(asked, answer).catch(() => {});
+}
+
 async function onSuggestion({ message }) {
   // Show it on the tab regardless of whether it is spoken: noticing is
   // visible, interrupting is opt-in.
@@ -1331,6 +1390,21 @@ scheduleWander();
   }
 
   window.fren.onSuggestion(onSuggestion);
+  window.fren.onCurious(onCurious);
+  if (els.volunteer) {
+    els.volunteer.addEventListener('change', async () => {
+      const want = els.volunteer.checked;
+      try {
+        const res = await window.fren.setVolunteer(want);
+        // Trust what main reports rather than what was clicked: if the write
+        // did not take, the box should say so instead of lying about it.
+        if (profile) profile.volunteer = !!(res && res.volunteer);
+        els.volunteer.checked = !!(res && res.volunteer);
+      } catch {
+        els.volunteer.checked = !want;
+      }
+    });
+  }
   // A routine came round: say it the same way any other reply is said.
   window.fren.onRoutineRan(async ({ name, text }) => {
     if (!text || speaking || awaitingReply) return;

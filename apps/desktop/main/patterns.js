@@ -47,7 +47,10 @@ function fingerprint(text) {
     .split(/\s+/)
     .filter((w) => w.length > 3 && !STOPWORDS.has(w))
     // Crude stemming, so "copying"/"copied" and "field"/"fields" agree.
-    .map((w) => w.replace(/(ing|ed|es|s)$/, ''))
+    // Plural first, then tense: one combined alternation gets this wrong,
+    // because `es$` eats the e in "pages" while "page" keeps it, and the two
+    // stop matching — which is how the same subject gets asked about twice.
+    .map((w) => w.replace(/s$/, '').replace(/(ing|ed)$/, ''))
     .filter((w) => w.length > 2)
     .sort()
     .slice(0, 12)

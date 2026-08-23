@@ -48,4 +48,6 @@ module.exports = {
   vision: (payload) => request('/v1/vision', { method: 'POST', body: payload, timeoutMs: 90_000 }),
   automate: (payload) => request('/v1/automate', { method: 'POST', body: payload, timeoutMs: 90_000 }),
   routine: (payload) => request('/v1/routine', { method: 'POST', body: payload, timeoutMs: 30_000 }),
+  curious: (payload) => request('/v1/curious', { method: 'POST', body: payload, timeoutMs: 45_000 }),
+  learn: (payload) => request('/v1/learn', { method: 'POST', body: payload, timeoutMs: 20_000 }),
 };

@@ -154,6 +154,53 @@ function appendDailyLog(dir, text, now = Date.now()) {
   return file;
 }
 
+const MAX_FACTS = 80;
+
+/**
+ * Write one durable fact into MEMORY.md.
+ *
+ * This is what makes fren's curiosity worth anything. Asking a question and
+ * forgetting the answer is worse than not asking: it is the same conversation
+ * every week, which is how you learn that something is a script and not a
+ * companion. So an answer that turns out to be durable lands here, in the file
+ * the user can open, edit and delete.
+ *
+ * Plain lines under `## Facts`, above the day index. Oldest fall off the end,
+ * because an unbounded list stops being a set of facts and becomes a log.
+ */
+function rememberFact(dir, fact, now = Date.now()) {
+  const line = clean(fact, 200).replace(/\n+/g, ' ').trim();
+  if (!line) return false;
+  const p = paths(dir);
+  fs.mkdirSync(dir, { recursive: true });
+  let text;
+  try { text = fs.readFileSync(p.memory, 'utf8'); }
+  catch { text = renderMemoryIndex(now); }
+
+  // Split at the day index so facts stay in their own section.
+  const at = text.indexOf('## Days');
+  const head = at === -1 ? text : text.slice(0, at);
+  const tail = at === -1 ? '\n## Days\n\n_See `memory/` — one file per day._\n' : text.slice(at);
+
+  const facts = head.split('\n')
+    .filter((l) => l.startsWith('- '))
+    .filter((l) => l.length > 2);
+
+  // Same thing said twice is not two facts. Compare on words, so a rephrasing
+  // does not sneak a duplicate in beside the original.
+  const key = (s) => s.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+  const entry = `- ${line} _(${stamp(now)})_`;
+  if (facts.some((f) => key(f).includes(key(line)) || key(line).includes(key(f).replace(/ \d{4} \d{2} \d{2}$/, '')))) {
+    return false;
+  }
+
+  const kept = [...facts, entry].slice(-MAX_FACTS);
+  const before = head.slice(0, head.indexOf('## Facts'));
+  const rebuilt = `${before}## Facts\n\n${kept.join('\n')}\n\n${tail}`;
+  fs.writeFileSync(p.memory, rebuilt, 'utf8');
+  return true;
+}
+
 /**
  * Everything fren holds about someone, for showing it to them.
  *
@@ -202,6 +249,6 @@ function hasSoul(dir) {
 }
 
 module.exports = {
-  paths, writeSoul, readContext, appendDailyLog, hasSoul, readAll, readLog,
+  paths, writeSoul, readContext, appendDailyLog, hasSoul, readAll, readLog, rememberFact,
   renderSoul, renderUser, renderMemoryIndex, FILES,
 };

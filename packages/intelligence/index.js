@@ -319,6 +319,126 @@ function buildAutomationRequest({ pattern, message, memories = [], platform = 'm
   return { system, messages: [{ role: 'user', content }], schema: AUTOMATION_SCHEMA };
 }
 
+const CURIOSITY_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['ask', 'question', 'about', 'why'],
+  properties: {
+    ask: { type: 'boolean', description: 'True only when there is something genuinely worth asking.' },
+    question: {
+      type: 'string',
+      description: 'One short question, in fren\'s voice. Empty when ask is false.',
+    },
+    about: {
+      type: 'string',
+      description: 'Three or four words naming what it is about, so the same thing is not asked twice.',
+    },
+    why: { type: 'string', description: 'One line: what in the activity prompted it.' },
+  },
+};
+
+/**
+ * Something worth being curious about.
+ *
+ * This is NOT pattern detection. A pattern is a repeated sequence worth
+ * automating; this is a person doing something a companion would naturally ask
+ * about — a stretch on one thing, a return to something set aside weeks ago, an
+ * unusual hour, a tool that has not appeared before.
+ *
+ * The whole risk is being boring or nosy. "I see you used Chrome for 40
+ * minutes" is both. What earns an interruption is a question the person would
+ * actually like to answer, about the work rather than about their habits — and
+ * the answer is the point, because it is how fren comes to know them.
+ */
+function buildCuriosityRequest({ memories = [], profile = null, soul = '', asked = [], now = Date.now() } = {}) {
+  const who = formatProfile(profile);
+  const character = String(soul || '').trim();
+  const system = [
+    'You are fren, a small companion that lives on someone\'s desktop and sees which',
+    'applications and windows they use. Occasionally — rarely — you get curious and ask',
+    'them something.',
+    '',
+    'This is NOT about productivity. Do not ask about efficiency, focus, time management,',
+    'or whether they meant to spend that long on something. You are not their manager.',
+    '',
+    'Ask like someone who is interested in the work itself. Good shapes:',
+    '- they have been deep in one thing for a long stretch: ask what it is',
+    '- something has come back after a long absence: ask if it is the same project',
+    '- a tool or file you have never seen before: ask what they are building with it',
+    '- they moved between two things repeatedly: ask how those relate',
+    '',
+    'Rules that matter more than being interesting:',
+    '- ONE question, short, and answerable in a sentence.',
+    '- Never comment on how long they spent, how often they switched, or the time of day',
+    '  in a way that sounds like it is being counted.',
+    '- Never mention anything you can see in a window title that looks private.',
+    '- If nothing genuinely stands out, set ask to false. Silence is the correct default',
+    '  and a boring question costs far more than a missed one — this lives on their',
+    '  desktop and will be turned off if it nags.',
+    '',
+    character ? `Your character, as its owner wrote it:\n${character}` : '',
+    who ? `About them: ${who}` : '',
+    asked.length ? `You have already asked about these — do not ask again:\n- ${asked.join('\n- ')}` : '',
+    '',
+    'Return JSON only.',
+  ].filter(Boolean).join('\n');
+
+  return {
+    system,
+    messages: [{
+      role: 'user',
+      content: `Current local time: ${clock(now)}\n\nWhat they have been doing:\n${formatMemories(memories)}`,
+    }],
+    schema: CURIOSITY_SCHEMA,
+  };
+}
+
+const LEARN_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['worthKeeping', 'fact'],
+  properties: {
+    worthKeeping: {
+      type: 'boolean',
+      description: 'True only if this is durable — still true and still useful in a month.',
+    },
+    fact: {
+      type: 'string',
+      description: 'One line, in the third person, e.g. "Ships the billing rewrite with Ana." Empty if not worth keeping.',
+    },
+  },
+};
+
+/**
+ * Turn an answer into something worth remembering.
+ *
+ * The point of asking is that the answer accumulates. But most answers are not
+ * durable — "just fixing a bug" is true for an hour. Only what would still be
+ * worth knowing in a month goes into MEMORY.md, or the file fills with noise
+ * and stops being worth reading.
+ */
+function buildLearnRequest({ question, answer } = {}) {
+  return {
+    system: [
+      'fren asked someone a question and they answered. Decide whether the answer contains',
+      'something worth remembering about them in the long run.',
+      '',
+      'Worth keeping: a project and what it is, a person they work with, a tool or system',
+      'they own, a preference they state, a goal or deadline.',
+      'NOT worth keeping: what they happened to be doing at that moment, a passing mood,',
+      'anything already obvious from watching their screen, or a non-answer.',
+      '',
+      'Write it in the third person as one plain line, as a fact rather than a quote.',
+      'If nothing durable is there, set worthKeeping to false. An honest no keeps the file',
+      'worth reading.',
+      '',
+      'Return JSON only.',
+    ].join('\n'),
+    messages: [{ role: 'user', content: `fren asked: ${question}\nThey said: ${answer}` }],
+    schema: LEARN_SCHEMA,
+  };
+}
+
 const ROUTINE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -529,6 +649,8 @@ module.exports = {
   buildVisionRequest,
   buildAutomationRequest,
   buildRoutineRequest,
+  buildCuriosityRequest,
+  buildLearnRequest,
   ROUTINE_SCHEMA,
   AUTOMATION_SCHEMA,
   EXTRACT_SCHEMA,

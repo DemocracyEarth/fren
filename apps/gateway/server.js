@@ -245,6 +245,60 @@ async function handleRoutine(provider, body, res) {
   }
 }
 
+/**
+ * Is there anything here worth being curious about?
+ *
+ * Answering "no" is the common case and the correct default, so every failure
+ * mode below resolves to silence rather than to a question. A companion that
+ * asks something dull has spent credibility it does not get back.
+ */
+async function handleCuriosity(provider, body, res) {
+  const quiet = { ask: false, question: '', about: '', why: '' };
+  const request = intelligence.buildCuriosityRequest({
+    memories: Array.isArray(body.memories) ? body.memories : [],
+    profile: body.profile && typeof body.profile === 'object' ? body.profile : null,
+    soul: typeof body.soul === 'string' ? body.soul : '',
+    asked: Array.isArray(body.asked) ? body.asked.map(String).slice(0, 40) : [],
+  });
+  const raw = await callProvider(provider, request, res);
+  if (raw === null) return;
+  try {
+    const p = JSON.parse(String(raw).replace(/^```(?:json)?|```$/gm, '').trim());
+    const question = String(p.question || '').trim();
+    send(res, 200, {
+      ask: !!p.ask && question.length > 0,
+      question: question.slice(0, 240),
+      about: String(p.about || '').slice(0, 80),
+      why: String(p.why || '').slice(0, 200),
+    });
+  } catch {
+    send(res, 200, quiet);
+  }
+}
+
+/** Did the answer contain anything worth keeping? Usually not. */
+async function handleLearn(provider, body, res) {
+  const { question, answer } = body || {};
+  if (typeof answer !== 'string' || !answer.trim()) {
+    return send(res, 400, { error: 'answer must be a non-empty string' });
+  }
+  const request = intelligence.buildLearnRequest({
+    question: String(question || '').slice(0, 300),
+    answer: answer.slice(0, 1000),
+  });
+  const raw = await callProvider(provider, request, res);
+  if (raw === null) return;
+  try {
+    const p = JSON.parse(String(raw).replace(/^```(?:json)?|```$/gm, '').trim());
+    const fact = String(p.fact || '').trim();
+    send(res, 200, { worthKeeping: !!p.worthKeeping && fact.length > 0, fact: fact.slice(0, 200) });
+  } catch {
+    // Remembering nothing is recoverable; remembering nonsense is not, because
+    // it goes in a file the user reads and then colours every later reply.
+    send(res, 200, { worthKeeping: false, fact: '' });
+  }
+}
+
 async function handleChat(provider, body, res) {
   const question = body && body.question;
   if (typeof question !== 'string' || question.trim() === '') {
@@ -296,7 +350,8 @@ async function handle(provider, voice, vision, req, res, pathname) {
   if (req.method === 'POST' && (pathname === '/v1/summarize' || pathname === '/v1/chat' ||
                                 pathname === '/v1/speak' || pathname === '/v1/extract' ||
                                 pathname === '/v1/pattern' || pathname === '/v1/vision' ||
-                                pathname === '/v1/automate' || pathname === '/v1/routine')) {
+                                pathname === '/v1/automate' || pathname === '/v1/routine' ||
+                                pathname === '/v1/curious' || pathname === '/v1/learn')) {
     if (req.headers.authorization !== `Bearer ${config.GATEWAY_TOKEN}`) {
       return send(res, 401, { error: 'unauthorized' });
     }
@@ -312,6 +367,8 @@ async function handle(provider, voice, vision, req, res, pathname) {
     if (pathname === '/v1/vision') return handleVision(vision, body, res);
     if (pathname === '/v1/automate') return handleAutomate(provider, body, res);
     if (pathname === '/v1/routine') return handleRoutine(provider, body, res);
+    if (pathname === '/v1/curious') return handleCuriosity(provider, body, res);
+    if (pathname === '/v1/learn') return handleLearn(provider, body, res);
     if (pathname === '/v1/speak') return handleSpeak(voice, body, res);
     return handleChat(provider, body, res);
   }

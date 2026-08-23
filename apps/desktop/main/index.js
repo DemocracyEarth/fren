@@ -10,6 +10,7 @@ const gateway = require('./gatewayClient');
 const { createObserver } = require('./observer');
 const { createSummarizer } = require('./summarizer');
 const { createPatternWatcher } = require('./patterns');
+const { createCuriosityWatcher } = require('./curiosity');
 const { createRoutineRunner, nextRunAt, isDue } = require('./routines');
 const executor = require('./executor');
 const whisper = require('./whisper');
@@ -82,6 +83,10 @@ let observer = null;
 let summarizer = null;
 let patterns = null;
 let routines = null;
+let curiosity = null;
+// When the user last said something. Curiosity checks this so a question never
+// lands in the middle of a conversation that is already going.
+let lastChatAt = 0;
 let automationTimer = null;
 let automationTickBusy = false;
 
@@ -203,6 +208,28 @@ app.whenReady().then(() => {
     },
   });
   patterns.start();
+
+  // Curiosity. Patterns exist to be useful; this exists to know you. It asks a
+  // question rather than making a suggestion, and what comes back is written
+  // into MEMORY.md — the first-run interview, continued slowly over months.
+  //
+  // Every gate below fails toward silence, and `canAsk` is the one that keeps
+  // it from talking over a conversation already in progress.
+  curiosity = createCuriosityWatcher({
+    memory,
+    gateway,
+    state,
+    log,
+    soulFor: () => soul.readContext(app.getPath('userData')).soul,
+    profileFor: () => memory.getSetting('profile'),
+    canAsk: () => Date.now() - lastChatAt > 4 * 60 * 1000,
+    onQuestion: ({ question, about }) => {
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('fren:curious', { question, about });
+      }
+    },
+  });
+  curiosity.start();
 
   // Routines: the same questions, at times the user chose. The runner refuses
   // to fire while paused, and a missed one expires rather than arriving hours
@@ -381,10 +408,60 @@ app.whenReady().then(() => {
     }
   });
 
+  /**
+   * Keep what an answer taught, if it taught anything.
+   *
+   * Called after the user replies to a question fren asked. Most answers are
+   * true for an hour and worth nothing next month; the model decides which is
+   * which, and only the durable ones reach MEMORY.md. Failing here is silent
+   * on purpose — this runs behind an ordinary reply, and nothing about it is
+   * worth interrupting that reply for.
+   *
+   * The question comes from the caller rather than from a copy kept here. Main
+   * knows a question was SENT; only the renderer knows it was actually asked,
+   * since it drops one that would land mid-conversation. Keeping a second copy
+   * here means the next thing the user says gets weighed as an answer to a
+   * question they never heard.
+   */
+  ipcMain.handle('fren:learn', async (_e, asked, answer) => {
+    const said = String(answer ?? '').trim().slice(0, 1000);
+    const question = String(asked ?? '').trim().slice(0, 300);
+    if (!said || !question) return { kept: false };
+    try {
+      const { worthKeeping, fact } = await gateway.learn({ question, answer: said });
+      if (!worthKeeping || !fact) return { kept: false };
+      const kept = soul.rememberFact(app.getPath('userData'), fact);
+      // PRIVACY: that something was learned, never what.
+      if (kept) log('[curiosity] kept one thing from that answer');
+      return { kept };
+    } catch (err) {
+      log(`[curiosity] could not weigh that answer: ${err.message}`);
+      return { kept: false };
+    }
+  });
+
   // What the user told fren about themselves during first-run setup. Stored
   // locally in the same SQLite file as everything else; it is sent to the model
   // as chat context and nowhere else.
   ipcMain.handle('fren:getProfile', () => memory.getSetting('profile'));
+
+  /**
+   * The one switch that decides whether fren may interrupt you.
+   *
+   * Set from the setup interview, and changeable afterwards from the Memory
+   * pane — because an answer given once to a question you barely remember is
+   * not consent you can withdraw, and this is the setting people will want to
+   * withdraw. Merged rather than replaced, so flipping it cannot lose the rest
+   * of the profile.
+   */
+  ipcMain.handle('fren:setVolunteer', (_e, on) => {
+    const current = memory.getSetting('profile');
+    if (!current || typeof current !== 'object') return { volunteer: false };
+    const next = { ...current, volunteer: !!on };
+    memory.setSetting('profile', next);
+    log(`[setup] interruptions ${next.volunteer ? 'allowed' : 'turned off'}`);
+    return { volunteer: next.volunteer };
+  });
   ipcMain.handle('fren:setProfile', (_e, profile) => {
     const clean = profile && typeof profile === 'object' ? profile : null;
     memory.setSetting('profile', clean);
@@ -761,6 +838,7 @@ app.whenReady().then(() => {
   ipcMain.handle('fren:chat', async (_e, text) => {
     const question = String(text ?? '').trim().slice(0, 2000);
     if (!question) return { reply: '…' };
+    lastChatAt = Date.now();
     state.beginWork();
     try {
       const eightHoursAgo = Date.now() - 8 * 60 * 60 * 1000;
@@ -797,6 +875,7 @@ app.on('before-quit', () => {
   if (observer) observer.stop();
   if (summarizer) summarizer.stop();
   if (patterns) patterns.stop();
+  if (curiosity) curiosity.stop();
   if (routines) routines.stop();
   if (automationTimer) clearInterval(automationTimer);
   if (memory) memory.close();

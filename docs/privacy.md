@@ -111,6 +111,8 @@ network requests with your data.
 | Your typed chat questions | When you send a chat message |
 | Derived activity summaries **and the recent raw timeline** (up to the last 50 observed app/title entries) as context | When you send a chat message |
 | Derived activity summaries from the last 8 hours | Every 12 minutes while observing, to look for a repeated workflow |
+| Derived activity summaries from the last 5 hours, plus `SOUL.md` | At most a few times a day while observing, when fren considers asking you something (see "When fren asks you things") |
+| A question fren asked and your answer to it | Right after you answer one, to decide whether anything in it is worth keeping |
 | The same context a chat message sends | When a routine you set up comes round. Routines never fire while fren is paused. |
 | **One screenshot** | Only when you press the eye button. Never automatically. |
 | Transcribed text of what you said (never the audio) | When you use push-to-talk |
@@ -146,6 +148,38 @@ process that captures your screen.
 
 Which provider you use changes who sees that data. DeepSeek and Anthropic have
 different data-handling policies — read the one you pick.
+
+## When fren asks you things
+
+Separately from noticing workflows, fren occasionally interrupts to ask you
+something about what you have been doing — and writes down the durable part of
+your answer. This is how it comes to know you rather than just watch you, and
+it is the same thing the first-run interview does, continued slowly.
+
+It is off unless you turned it on. The setup question *"when I notice
+something, should I speak up or wait until you ask?"* decides it: fren only
+interrupts if you said it could. If you never completed setup, it does not.
+
+**When it will not ask:**
+
+- while fren is paused (a paused fren saw nothing to be curious about)
+- within four minutes of anything you said to it
+- in the first 25 minutes of a session
+- more than three times a day, or twice within about 100 minutes
+- about something it has asked about before — including reworded, and including
+  across restarts
+
+Beyond those, most opportunities are skipped at random, so it does not arrive
+like a scheduled reminder.
+
+**What it keeps.** Your answer goes to the model once, to judge whether it holds
+anything still true in a month. If it does, one line lands in `MEMORY.md` under
+`## Facts` — plain Markdown you can read, edit, or delete, and the file is
+capped at 80 facts. Most answers keep nothing. Nothing else about the exchange
+is stored, and the question itself is never written to the log.
+
+**To turn it off**, open the Memory pane and untick *"Let fren interrupt you"*.
+Pausing fren also stops it, along with everything else.
 
 ## Storage locations
 
