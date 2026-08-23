@@ -251,6 +251,12 @@ The last two answers are not about you — they define fren. They are written to
 `SOUL.md` in fren's data folder as instructions it is told to follow, and you
 can open that file, rewrite it, and have it take effect on your next message.
 
+**There is a second window.** Press **Open ↗** in the panel for a full-size
+dashboard: a day at a time down the left, with what you were doing, any stills
+fren stored, the patterns it drew across days, and the automations it drafted.
+The panel is for glancing; this is for reading back properly. It adds no
+capability — everything in it was already on disk.
+
 **To see everything fren holds about you**, open the panel and press ☰. It shows
 `SOUL.md`, `USER.md`, `MEMORY.md` and the daily logs verbatim, exactly as they
 are on disk, with a button to open the folder in your file manager. Nothing is

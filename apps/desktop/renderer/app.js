@@ -975,9 +975,13 @@ async function showView(name) {
   if (name === 'know') await showWhatIKnow();
 }
 
-for (const t of document.querySelectorAll('.tab')) {
+for (const t of document.querySelectorAll('.tab[data-view]')) {
   t.addEventListener('click', () => showView(t.dataset.view));
 }
+
+// The panel is for glancing; the dashboard is for reading back properly.
+const dashBtn = document.getElementById('open-dash');
+if (dashBtn) dashBtn.addEventListener('click', () => window.fren.openDashboard());
 
 /**
  * What fren has noticed, as cards.

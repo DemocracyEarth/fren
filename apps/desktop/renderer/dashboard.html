@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self' fren:; style-src 'self' 'unsafe-inline'; script-src 'self' fren:; img-src 'self' fren: data:">
+<title>fren</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+  <!-- macOS hides the title bar but keeps the traffic lights, so the sidebar
+       needs headroom for them. -->
+  <div id="titlebar"></div>
+
+  <div id="shell">
+    <nav id="side" aria-label="Sections">
+      <div class="brand">
+        <svg class="wordmark" viewBox="0 0 300 118" width="66" aria-label="fren" role="img">
+          <g fill="none" stroke="var(--ink)" stroke-linecap="round" stroke-width="17">
+            <path d="M30 100V36Q30 15 51 15"/><path d="M13 49H51"/>
+            <path d="M88 100V41"/><path d="M88 59Q88 41 112 41"/>
+            <path d="M184.7 101.5A34 34 0 1 1 204.8 78.8"/>
+            <path d="M139 70H200" stroke-width="13"/>
+            <path d="M240 100V41"/><path d="M240 59Q240 41 262 41Q284 41 284 63V100"/>
+          </g>
+          <path d="M146.3 76.5Q172 116 197.7 76.5Z" fill="var(--orange)"/>
+        </svg>
+      </div>
+
+      <div class="side-group">
+        <div class="side-label">Days</div>
+        <div id="day-list"></div>
+      </div>
+
+      <div class="side-group">
+        <div class="side-label">Across time</div>
+        <button class="side-item" data-section="patterns">
+          <span>Patterns</span><span id="side-pattern-count" class="side-count" hidden></span>
+        </button>
+        <button class="side-item" data-section="automations">
+          <span>Automations</span><span id="side-auto-count" class="side-count" hidden></span>
+        </button>
+      </div>
+
+      <div class="side-foot">
+        <span id="side-status"><i></i><span>paused</span></span>
+      </div>
+    </nav>
+
+    <main id="main">
+      <header id="main-head">
+        <h1 id="title">Today</h1>
+        <p id="subtitle"></p>
+      </header>
+      <div id="content"></div>
+    </main>
+  </div>
+
+  <script src="dashboard.js"></script>
+</body>
+</html>

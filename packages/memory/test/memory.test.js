@@ -213,3 +213,51 @@ test('close() closes the database; further use throws', () => {
   assert.strictEqual(reopened.getRecentObservations().length, 1);
   reopened.close();
 });
+
+// --- day-shaped reads, for the dashboard ------------------------------------
+
+test('getMemoriesBetween returns a day in order, and excludes its neighbours', () => {
+  const mem = openMemory(':memory:');
+  const day = (h) => new Date(2026, 7, 20, h).getTime();
+  mem.addMemory({ tsStart: day(23) - 86400000, tsEnd: day(23) - 86400000, activity: 'the day before', apps: [], confidence: 1, rawCount: 1 });
+  mem.addMemory({ tsStart: day(9), tsEnd: day(10), activity: 'morning', apps: ['A'], confidence: 1, rawCount: 1 });
+  mem.addMemory({ tsStart: day(14), tsEnd: day(15), activity: 'afternoon', apps: ['B'], confidence: 1, rawCount: 1 });
+  mem.addMemory({ tsStart: day(9) + 86400000, tsEnd: day(9) + 86400000, activity: 'the day after', apps: [], confidence: 1, rawCount: 1 });
+
+  const got = mem.getMemoriesBetween({
+    fromMs: new Date(2026, 7, 20).getTime(),
+    toMs: new Date(2026, 7, 21).getTime(),
+  });
+  assert.deepEqual(got.map((m) => m.activity), ['morning', 'afternoon'],
+    'a day must not bleed into the ones on either side of it');
+  mem.close();
+});
+
+test('getActiveDays reports which days hold anything, newest first', () => {
+  const mem = openMemory(':memory:');
+  const at = (d, h) => new Date(2026, 7, d, h).getTime();
+  mem.addMemory({ tsStart: at(18, 9), tsEnd: at(18, 10), activity: 'a', apps: [], confidence: 1, rawCount: 1 });
+  mem.addMemory({ tsStart: at(20, 9), tsEnd: at(20, 10), activity: 'b', apps: [], confidence: 1, rawCount: 1 });
+  mem.addMemory({ tsStart: at(20, 14), tsEnd: at(20, 15), activity: 'c', apps: [], confidence: 1, rawCount: 1 });
+
+  const days = mem.getActiveDays();
+  assert.equal(days[0].day, '2026-08-20');
+  assert.equal(days[0].memories, 2);
+  assert.equal(days[1].day, '2026-08-18');
+  assert.equal(days[1].memories, 1);
+  mem.close();
+});
+
+test('getScreenshotsBetween returns only observations that actually have one', () => {
+  const mem = openMemory(':memory:');
+  const t = new Date(2026, 7, 20, 10).getTime();
+  mem.addObservation({ ts: t, activeApp: 'Safari', windowTitle: 'a', screenshotPath: '/tmp/a.jpg' });
+  mem.addObservation({ ts: t + 1000, activeApp: 'Safari', windowTitle: 'b' });   // no shot
+  const got = mem.getScreenshotsBetween({
+    fromMs: new Date(2026, 7, 20).getTime(),
+    toMs: new Date(2026, 7, 21).getTime(),
+  });
+  assert.equal(got.length, 1);
+  assert.equal(got[0].screenshotPath, '/tmp/a.jpg');
+  mem.close();
+});

@@ -753,3 +753,11 @@ button { font-family: inherit; -webkit-app-region: no-drag; cursor: pointer; }
 }
 #send:hover:not(:disabled) { filter: brightness(1.06); transform: translateY(-1px); }
 #send:disabled { opacity: 0.45; cursor: default; box-shadow: none; }
+
+.tabs-spacer { flex: 1 1 auto; }
+.tab-open {
+  color: var(--ink-soft);
+  font-weight: 500;
+  padding: 7px 9px;
+}
+.tab-open:hover { background: rgba(26, 23, 18, 0.06); color: var(--ink); }

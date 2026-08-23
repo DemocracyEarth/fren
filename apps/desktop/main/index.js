@@ -38,8 +38,25 @@ protocol.registerSchemesAsPrivileged([{
 
 function serveRenderer() {
   protocol.handle(SCHEME, async (request) => {
-    const { pathname } = new URL(request.url);
-    const file = path.resolve(RENDERER_DIR, '.' + decodeURIComponent(pathname));
+    const url = new URL(request.url);
+    const pathname = decodeURIComponent(url.pathname);
+
+    // fren://shot/<path> serves a stored screenshot to the dashboard.
+    //
+    // This reads a file from a path that arrives in a URL, so it is confined
+    // twice: only under the screenshots directory, and only files whose exact
+    // path the database recorded. A traversal or a guessed path gets nothing,
+    // and no other part of the disk is reachable through this scheme.
+    if (url.hostname === 'shot') {
+      const shotDir = path.join(app.getPath('userData'), 'screenshots');
+      const file = path.resolve(pathname.replace(/^\//, ''));
+      if (path.relative(shotDir, file).startsWith('..') || !path.isAbsolute(file)) {
+        return new Response('forbidden', { status: 403 });
+      }
+      return net.fetch(pathToFileURL(file).toString());
+    }
+
+    const file = path.resolve(RENDERER_DIR, '.' + pathname);
     // Never serve anything outside the renderer directory.
     if (path.relative(RENDERER_DIR, file).startsWith('..')) {
       return new Response('forbidden', { status: 403 });
@@ -58,6 +75,7 @@ let win = null;
 let memory = null;
 let gazeTimer = null;
 let drag = null;
+let dash = null;
 let observer = null;
 let summarizer = null;
 let patterns = null;
@@ -432,6 +450,59 @@ app.whenReady().then(() => {
   ipcMain.handle('fren:dismissSuggestion', (_e, id) => {
     memory.setSuggestionStatus(Number(id), 'dismissed');
     return true;
+  });
+
+  /**
+   * The dashboard: a normal, resizable window for reading back days and
+   * patterns properly.
+   *
+   * Separate from the companion panel on purpose. The panel is glanceable and
+   * lives beside the orb; this is something you open occasionally and browse.
+   * Trying to fold a sidebar and a day timeline into 384px would have made both
+   * worse.
+   */
+  ipcMain.handle('fren:openDashboard', () => {
+    if (dash && !dash.isDestroyed()) { dash.show(); dash.focus(); return true; }
+    dash = new BrowserWindow({
+      width: 1040,
+      height: 720,
+      minWidth: 720,
+      minHeight: 520,
+      title: 'fren',
+      backgroundColor: '#F2EDE4',
+      titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+      webPreferences: {
+        preload: path.join(__dirname, '..', 'preload.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    });
+    dash.loadURL(`${SCHEME}://app/dashboard.html`);
+    dash.on('closed', () => { dash = null; });
+    return true;
+  });
+
+  ipcMain.handle('fren:days', () => {
+    try { return memory.getActiveDays(60); } catch { return []; }
+  });
+
+  /** One day, as the dashboard needs it: what was done, and any stills of it. */
+  ipcMain.handle('fren:day', (_e, day) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day || ''))) return { memories: [], shots: [] };
+    const [y, m, d] = String(day).split('-').map(Number);
+    const from = new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
+    const to = new Date(y, m - 1, d + 1, 0, 0, 0, 0).getTime();
+    try {
+      const memories = memory.getMemoriesBetween({ fromMs: from, toMs: to });
+      // Screenshots are already on disk and have never been transmitted.
+      // Showing them in a local window changes nothing about that; it only
+      // lets the person see what was stored about them.
+      const shots = memory.getScreenshotsBetween({ fromMs: from, toMs: to, limit: 60 })
+        .map((s) => ({ ...s, url: `${SCHEME}://shot/${encodeURIComponent(s.screenshotPath)}` }));
+      return { memories, shots };
+    } catch {
+      return { memories: [], shots: [] };
+    }
   });
 
   ipcMain.handle('fren:quit', () => app.quit());

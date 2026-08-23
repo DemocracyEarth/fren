@@ -70,8 +70,10 @@ database or the screen.
 
 ### `apps/desktop` — Electron app
 
-Plain CommonJS, no build step, single window (the orb; the chat panel is part of
-the same window). The main process owns all state and all capture; the renderer
+Plain CommonJS, no build step. Two windows: the companion (the orb, with the
+chat panel attached to it) and an optional dashboard opened on demand for
+reading back days and patterns at a readable size. The dashboard is a reader —
+it queries the same database and adds no capability of its own. The main process owns all state and all capture; the renderer
 only draws and forwards clicks over IPC. The renderer is served over a custom
 `fren://` scheme rather than loaded from disk, because the face is drawn with
 ES modules and those do not load over `file://`.

@@ -1,0 +1,295 @@
+/* fren — the dashboard.
+ *
+ * A different surface from the companion panel, and deliberately so. The panel
+ * is glanceable and lives beside the orb; this is a room you walk into. It gets
+ * a sidebar, a real type scale, and space to put a day's worth of activity next
+ * to the patterns drawn out of it.
+ *
+ * Same palette, same character. Only the size of the gesture changes.
+ */
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--cream);
+  color: var(--ink);
+  font-family: var(--font);
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Room for the traffic lights, and a grab handle for the whole window. */
+#titlebar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 38px;
+  -webkit-app-region: drag;
+  z-index: 5;
+}
+
+#shell { display: flex; height: 100%; }
+
+/* ------------------------------------------------------------------ side -- */
+#side {
+  width: 232px;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  padding: 42px 12px 12px;
+  background: linear-gradient(180deg, #EFE8DB 0%, #E9E1D2 100%);
+  border-right: 1px solid rgba(26, 23, 18, 0.07);
+  overflow-y: auto;
+}
+.brand { padding: 0 8px 18px; -webkit-app-region: drag; }
+.wordmark { display: block; }
+
+.side-group { margin-bottom: 20px; }
+.side-label {
+  padding: 0 10px 7px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #A2967F;
+}
+
+.side-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 10px;
+  margin-bottom: 2px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition: background .15s var(--ease-soft);
+}
+.side-item:hover { background: rgba(26, 23, 18, 0.055); }
+.side-item.on { background: rgba(237, 138, 47, 0.15); color: var(--orange-ink); font-weight: 600; }
+.side-item .sub {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: #A2967F;
+  font-weight: 500;
+}
+.side-item.on .sub { color: var(--orange-ink); opacity: .8; }
+.side-count {
+  margin-left: auto;
+  min-width: 19px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--orange);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.side-foot { margin-top: auto; padding: 10px; }
+#side-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+#side-status i {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #C2B7A2;
+}
+body[data-watching="1"] #side-status i {
+  background: var(--orange);
+  box-shadow: 0 0 0 3px rgba(237, 138, 47, 0.18);
+}
+body[data-watching="1"] #side-status { color: var(--orange-ink); }
+
+/* ------------------------------------------------------------------ main -- */
+#main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--cream);
+  overflow: hidden;
+}
+#main-head {
+  padding: 44px 34px 16px;
+  flex: 0 0 auto;
+  -webkit-app-region: drag;
+}
+#title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+#subtitle {
+  margin: 5px 0 0;
+  font-size: 13.5px;
+  color: var(--ink-soft);
+}
+#content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 34px 34px;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* ---- section headings ---------------------------------------------------- */
+.sec {
+  margin: 22px 0 11px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #A2967F;
+}
+.sec:first-child { margin-top: 4px; }
+
+/* ---- stills -------------------------------------------------------------- */
+.shots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(178px, 1fr));
+  gap: 12px;
+}
+.shot {
+  border-radius: 13px;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid rgba(26, 23, 18, 0.07);
+  box-shadow: 0 1px 2px rgba(24, 16, 6, 0.04), 0 4px 12px rgba(24, 16, 6, 0.05);
+}
+.shot img { display: block; width: 100%; aspect-ratio: 16 / 11; object-fit: cover; }
+.shot figcaption {
+  display: flex;
+  gap: 7px;
+  padding: 7px 9px 8px;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+.shot figcaption b { color: var(--ink); font-weight: 600; }
+.shot figcaption time { margin-left: auto; }
+
+/* ---- the day's timeline -------------------------------------------------- */
+.tl { position: relative; padding-left: 22px; }
+.tl::before {
+  content: '';
+  position: absolute;
+  left: 5px; top: 6px; bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: rgba(26, 23, 18, 0.09);
+}
+.tl-row { position: relative; margin-bottom: 15px; }
+.tl-row::before {
+  content: '';
+  position: absolute;
+  left: -21px; top: 6px;
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--orange);
+  box-shadow: 0 0 0 3px var(--cream);
+}
+.tl-time {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--ink-soft);
+  margin-bottom: 2px;
+}
+.tl-text { font-size: 14px; line-height: 1.55; margin: 0 0 4px; }
+.tl-apps { display: flex; flex-wrap: wrap; gap: 5px; }
+.app-tag {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(26, 23, 18, 0.055);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+/* ---- pattern and automation cards ---------------------------------------- */
+.card {
+  background: #fff;
+  border: 1px solid rgba(26, 23, 18, 0.07);
+  border-radius: 16px;
+  padding: 15px 17px;
+  margin-bottom: 11px;
+  box-shadow: 0 1px 2px rgba(24, 16, 6, 0.04), 0 4px 14px rgba(24, 16, 6, 0.05);
+}
+.card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+.card-head b { font-size: 12.5px; font-weight: 700; color: var(--orange-ink); }
+.card-head time { margin-left: auto; font-size: 11.5px; color: var(--ink-soft); }
+.card p { margin: 0; font-size: 14px; line-height: 1.55; }
+.card .named {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 11px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(26, 23, 18, 0.06);
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+.card pre {
+  margin: 10px 0 0;
+  padding: 12px 13px;
+  border-radius: 12px;
+  background: #1B1913;
+  color: #E9E0CE;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.card .caveat { margin-top: 9px; font-size: 12px; color: var(--ink-soft); line-height: 1.5; }
+.card .warn { margin-top: 9px; font-size: 12px; color: var(--orange-ink); line-height: 1.5; }
+.card ol { margin: 9px 0 0; padding-left: 19px; font-size: 13px; line-height: 1.6; color: var(--ink-soft); }
+
+/* ---- nothing here yet ---------------------------------------------------- */
+.blank {
+  max-width: 420px;
+  padding: 34px 0;
+  color: var(--ink-soft);
+}
+.blank strong {
+  display: block;
+  font-size: 16px;
+  color: var(--ink);
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+.blank span { font-size: 13.5px; line-height: 1.6; }
+
+/* How many identical summaries were merged into this one row. Shown rather
+ * than hidden: the collapse is a reading aid, not a deletion. */
+.tl-repeat {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(26, 23, 18, 0.06);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: #A2967F;
+}

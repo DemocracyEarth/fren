@@ -134,6 +134,61 @@ function openMemory(dbPath) {
       return rows.map(rowToMemory);
     },
 
+    /**
+     * Memories inside a window, oldest first. The dashboard reads a day at a
+     * time rather than "the most recent N", because a day is the unit a person
+     * actually thinks in.
+     */
+    getMemoriesBetween({ fromMs, toMs, limit = 500 }) {
+      const rows = db
+        .prepare(
+          'SELECT * FROM memories WHERE ts_start >= ? AND ts_start < ? ' +
+          'ORDER BY ts_start ASC LIMIT ?'
+        )
+        .all(Number(fromMs), Number(toMs), Number(limit));
+      return rows.map(rowToMemory);
+    },
+
+    /**
+     * Observations in a window that have a screenshot on disk.
+     *
+     * These never leave the machine — they are not sent to the gateway or the
+     * model, and showing them in a local window does not change that. It only
+     * lets someone see what was already stored about them.
+     */
+    getScreenshotsBetween({ fromMs, toMs, limit = 200 }) {
+      const rows = db
+        .prepare(
+          'SELECT ts, active_app, window_title, screenshot_path FROM observations ' +
+          'WHERE screenshot_path IS NOT NULL AND ts >= ? AND ts < ? ' +
+          'ORDER BY ts ASC LIMIT ?'
+        )
+        .all(Number(fromMs), Number(toMs), Number(limit));
+      return rows.map((r) => ({
+        ts: r.ts,
+        activeApp: r.active_app,
+        windowTitle: r.window_title,
+        screenshotPath: r.screenshot_path,
+      }));
+    },
+
+    /** Which days have anything in them at all, newest first. */
+    getActiveDays(limit = 60) {
+      const rows = db
+        .prepare(
+          "SELECT date(ts_start / 1000, 'unixepoch', 'localtime') AS day, " +
+          'COUNT(*) AS memories, MIN(ts_start) AS first_ts, MAX(ts_end) AS last_ts ' +
+          'FROM memories GROUP BY day ORDER BY day DESC LIMIT ?'
+        )
+        .all(Number(limit));
+      return rows.map((r) => ({
+        day: r.day,
+        memories: r.memories,
+        firstTs: r.first_ts,
+        lastTs: r.last_ts,
+      }));
+    },
+
     addSuggestion({ ts, message, pattern }) {
       const { lastInsertRowid } = db
         .prepare('INSERT INTO suggestions (ts, message, pattern) VALUES (?, ?, ?)')
