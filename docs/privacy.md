@@ -150,6 +150,40 @@ process that captures your screen.
 Which provider you use changes who sees that data. DeepSeek and Anthropic have
 different data-handling policies — read the one you pick.
 
+## Choosing a model, a voice, an ear
+
+The Settings pane in the dashboard lets you pick which model answers, which
+ElevenLabs voice speaks, and which whisper model and language transcribe you.
+All of it is optional — every field empty means "whatever fren was started
+with", which is what a fresh install already has. Each field shows the live
+default as its placeholder, so leaving one alone is a visible choice.
+
+**Three things are deliberately not configurable there**, and the reasons are
+the same reasons the rest of this document holds:
+
+- **API keys.** That window belongs to the process that watches your screen, and
+  that process deletes every provider key from its own environment at startup
+  (`apps/desktop/main/index.js`). A field that accepted one would put a secret
+  back into it, and into the SQLite file sitting next to your screenshots. Keys
+  live in `.env`, which only the gateway reads.
+- **Provider addresses.** A base URL is *where the key gets sent*. Somewhere to
+  send a credential is not a preference; it is the single most useful field for
+  anything that got into the app to set. It stays an environment variable.
+- **The whisper binary.** The model is a data file whisper.cpp loads. The binary
+  is the program that runs. Choosing which executable gets launched is not a
+  checkbox — it stays `FREN_WHISPER_BIN`, where setting it is a deliberate act
+  at a shell.
+
+What you do set is checked before it is stored and again before it is used: ids
+must look like ids, a whisper model must be a `.bin` file that actually exists,
+a language must be two letters. Anything else is discarded and fren falls back
+to its default, which is always a working state. A model id that is well-formed
+but wrong (a model your provider does not have) comes back as the provider's own
+error, so you can see what happened.
+
+Model and voice ids travel to the local gateway with each request. No new
+category of data leaves the machine.
+
 ## Saying hello
 
 fren greets you when you launch it, in a sentence written for that moment. It

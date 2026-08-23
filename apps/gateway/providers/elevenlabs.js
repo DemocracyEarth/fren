@@ -30,10 +30,16 @@ function createElevenLabsProvider() {
     model,
     voice,
     /** @returns {Promise<{audio: Buffer, contentType: string}>} */
-    async speak(text, { timeoutMs = 30_000 } = {}) {
+    // `voice` and `model` override the configured defaults for this one call.
+    // The base URL deliberately is NOT overridable: it is where the API key is
+    // sent, and a settable destination for a credential is an exfiltration
+    // primitive rather than a preference.
+    async speak(text, { timeoutMs = 30_000, voice: voiceOverride, model: modelOverride } = {}) {
+      const useVoice = voiceOverride || voice;
+      const useModel = modelOverride || model;
       const baseUrl = process.env.ELEVENLABS_BASE_URL || DEFAULTS.baseUrl;
       const res = await fetch(
-        `${baseUrl}/v1/text-to-speech/${encodeURIComponent(voice)}/stream?optimize_streaming_latency=3`,
+        `${baseUrl}/v1/text-to-speech/${encodeURIComponent(useVoice)}/stream?optimize_streaming_latency=3`,
         {
           method: 'POST',
           headers: {
@@ -43,7 +49,7 @@ function createElevenLabsProvider() {
           },
           body: JSON.stringify({
             text,
-            model_id: model,
+            model_id: useModel,
             voice_settings: {
               // Lower stability = more expressive but wobblier; higher = calmer
               // and more consistent. A companion that speaks rarely benefits

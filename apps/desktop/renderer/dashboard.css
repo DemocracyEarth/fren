@@ -276,7 +276,17 @@ body[data-watching="1"] #side-status { color: var(--orange-ink); }
   max-height: 260px;
   overflow-y: auto;
 }
-.card .caveat { margin-top: 9px; font-size: 12px; color: var(--ink-soft); line-height: 1.5; }
+/* A note in the margin, wherever it appears. This used to be scoped to .card
+   only, so the same class outside one fell back to body type and shouted the
+   quiet parts. */
+.caveat {
+  margin: 0 0 14px;
+  max-width: 620px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+.card .caveat { margin: 9px 0 0; font-size: 12px; line-height: 1.5; }
 .card .warn { margin-top: 9px; font-size: 12px; color: var(--orange-ink); line-height: 1.5; }
 .card ol { margin: 9px 0 0; padding-left: 19px; font-size: 13px; line-height: 1.6; color: var(--ink-soft); }
 
@@ -443,3 +453,67 @@ body[data-watching="1"] #side-status { color: var(--orange-ink); }
   color: var(--ink);
   margin-bottom: 3px;
 }
+
+/* --- an overridable setting ---------------------------------------------- */
+
+/* Every one of these is optional, so the design has to make "left alone" look
+   deliberate rather than unfilled. The placeholder carries the live default and
+   the tag on the right says whether what you are looking at is yours or fren's. */
+.field-row { max-width: 620px; margin-bottom: 16px; }
+.field-head { display: block; cursor: pointer; }
+.field-head strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 2px;
+}
+.field-head span {
+  display: block;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  margin-bottom: 7px;
+}
+.field-line { display: flex; align-items: center; gap: 8px; }
+.field-line input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid rgba(26, 23, 18, 0.14);
+  border-radius: 9px;
+  background: #fff;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  outline: none;
+}
+.field-line input::placeholder { color: #A79C89; }
+.field-line input:focus {
+  border-color: var(--orange);
+  box-shadow: 0 0 0 3px rgba(237, 138, 47, 0.13);
+}
+.field-state {
+  flex: none;
+  min-width: 52px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  opacity: .7;
+}
+.field-state.on { color: var(--orange-ink); opacity: 1; }
+.field-clear {
+  flex: none;
+  padding: 8px 11px;
+  border: 1px solid rgba(26, 23, 18, 0.12);
+  border-radius: 9px;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.field-clear:hover { border-color: var(--orange); color: var(--ink); }

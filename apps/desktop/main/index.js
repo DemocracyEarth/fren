@@ -12,6 +12,7 @@ const { createSummarizer } = require('./summarizer');
 const { createPatternWatcher } = require('./patterns');
 const { createCuriosityWatcher } = require('./curiosity');
 const { wakeOnLaunchFrom } = require('./wake');
+const providerSettings = require('./settings');
 const { createRoutineRunner, nextRunAt, isDue } = require('./routines');
 const executor = require('./executor');
 const whisper = require('./whisper');
@@ -346,6 +347,17 @@ app.whenReady().then(() => {
   orbScale = clampScale(memory.getSetting('orbScale'));
   if (orbScale !== 1) log(`[orb] restored at ${orbScale.toFixed(2)}x (${orbSize().width}px)`);
 
+  // Apply the user's model/voice/hearing choices before anything can use them.
+  // Empty fields mean "whatever the gateway was started with", so a fresh
+  // install goes straight to the defaults with nothing configured.
+  const applyProviderSettings = () => {
+    const s = providerSettings.read(memory);
+    gateway.setOverrides(s);
+    whisper.setPreferences(s);
+    return s;
+  };
+  applyProviderSettings();
+
   lastSeenAt = Number(memory.getSetting('lastSeenAt')) || null;
   const beat = () => { try { memory.setSetting('lastSeenAt', Date.now()); } catch { /* not worth failing over */ } };
   beat();
@@ -619,6 +631,40 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle('fren:getOrbScale', () => ({ scale: orbScale, min: SCALE_MIN, max: SCALE_MAX }));
+
+  /**
+   * The model, the voice and the ear.
+   *
+   * Returns what is chosen alongside what is actually in effect, because "empty
+   * means default" is only useful if you can see what the default IS. The
+   * defaults come from the gateway's own /health, which is the only thing that
+   * knows — the desktop deliberately holds no provider configuration.
+   */
+  ipcMain.handle('fren:getProviders', async () => {
+    let live = null;
+    try { live = await gateway.health(); } catch { /* gateway down; show chosen only */ }
+    return {
+      chosen: providerSettings.read(memory),
+      // PRIVACY: names and ids only. There is no key anywhere in this payload,
+      // and there is no code path that could put one here — this process
+      // deleted them from its own environment at startup.
+      inEffect: live ? {
+        provider: live.provider, model: live.model, voice: live.voice,
+        voiceId: live.voiceId, voiceModel: live.voiceModel,
+      } : null,
+      whisper: whisper.detect(),
+    };
+  });
+
+  ipcMain.handle('fren:setProviders', (_e, patch) => {
+    const saved = providerSettings.write(memory, patch);
+    gateway.setOverrides(saved);
+    whisper.setPreferences(saved);
+    // PRIVACY: which fields changed, never their values.
+    log(`[settings] providers updated (${Object.keys(patch || {}).join(', ') || 'nothing'})`);
+    // Echo what was actually kept, so a rejected value shows as rejected.
+    return saved;
+  });
 
   ipcMain.handle('fren:getWakeOnLaunch', () => wakeOnLaunchFrom(memory.getSetting('wakeOnLaunch')));
   ipcMain.handle('fren:setWakeOnLaunch', (_e, on) => {

@@ -13,9 +13,11 @@ function createAnthropicProvider() {
   return {
     name: 'anthropic',
     model,
-    async complete({ system, messages, schema, maxTokens }) {
+    // Per-call override; falls back to the configured default.
+    async complete({ system, messages, schema, maxTokens, model: override }) {
+      const useModel = override || model;
       const response = await client.messages.create({
-        model,
+        model: useModel,
         max_tokens: maxTokens || 1024,
         system,
         messages,

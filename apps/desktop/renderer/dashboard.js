@@ -611,6 +611,87 @@ function switchRow(id, title, detail, checked, onChange) {
 }
 
 /**
+ * Ids people are actually likely to want, offered as suggestions.
+ *
+ * A suggestion list, never a closed set — the field takes anything that looks
+ * like an id, because these change and a hard-coded dropdown would rot into a
+ * list of models you can no longer pick. Each of these was checked against the
+ * live API rather than remembered.
+ */
+const KNOWN_MODELS = {
+  deepseek: [
+    'deepseek-v4-pro',
+    'deepseek-v4-flash',
+    'deepseek-v4-flash-vision-exp',
+    // Still accepted, and what older setups will have.
+    'deepseek-chat',
+    'deepseek-reasoner',
+  ],
+  anthropic: ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5-20251001'],
+};
+const KNOWN_VOICE_MODELS = ['eleven_flash_v2_5', 'eleven_turbo_v2_5', 'eleven_multilingual_v2'];
+
+/**
+ * One overridable setting: what is in effect, and a field to change it.
+ *
+ * The placeholder is the LIVE default rather than invented text, so an empty
+ * field reads as "whatever fren is already using" instead of "nothing". That is
+ * the whole trick to making optional settings feel safe — you can always see
+ * what you get by leaving it alone.
+ */
+function fieldRow(id, title, detail, value, placeholder, options, onSave) {
+  const row = el('div', 'field-row');
+  const head = el('label', 'field-head');
+  head.setAttribute('for', id);
+  head.append(el('strong', null, title), el('span', null, detail));
+
+  const line = el('div', 'field-line');
+  const input = el('input');
+  input.type = 'text';
+  input.id = id;
+  input.value = value || '';
+  input.placeholder = placeholder ? `${placeholder}  (in use now)` : 'using the default';
+  input.spellcheck = false;
+  input.autocomplete = 'off';
+  if (options && options.length) {
+    const list = el('datalist');
+    list.id = `${id}-list`;
+    for (const o of options) list.appendChild(el('option', null, o));
+    input.setAttribute('list', list.id);
+    line.appendChild(list);
+  }
+
+  const state = el('span', 'field-state');
+  const paint = (saved) => {
+    // Show what was KEPT, not what was typed: a value fren rejected has to look
+    // rejected, or you spend an evening wondering why nothing changed.
+    input.value = saved || '';
+    state.textContent = saved ? 'yours' : 'default';
+    state.className = 'field-state' + (saved ? ' on' : '');
+  };
+
+  let timer = null;
+  const save = async () => {
+    clearTimeout(timer);
+    state.textContent = '…';
+    try { paint(await onSave(input.value.trim())); }
+    catch { state.textContent = 'could not save'; }
+  };
+  input.addEventListener('change', save);
+  input.addEventListener('blur', save);
+
+  const clear = el('button', 'field-clear', 'reset');
+  clear.type = 'button';
+  clear.title = 'Go back to the default';
+  clear.addEventListener('click', async () => { input.value = ''; await save(); });
+
+  line.append(input, state, clear);
+  row.append(head, line);
+  paint(value);
+  return row;
+}
+
+/**
  * The two decisions fren makes on its own, in one place.
  *
  * Both govern behaviour rather than notes, which is why they are not in
@@ -655,6 +736,88 @@ async function showSettings() {
       'You have not been through the introduction yet, so fren will not interrupt ' +
       'you whatever this says — it has not been invited.'));
   }
+
+  await showProviderSettings();
+}
+
+/**
+ * Which model thinks, which voice speaks, which ear listens.
+ *
+ * All of it optional. fren ships working, and every field here is empty until
+ * someone wants something different — the placeholder shows what is running
+ * right now, so leaving a field alone is a visible choice rather than a blank.
+ */
+async function showProviderSettings() {
+  let cfg = null;
+  try { cfg = await window.fren.getProviders(); } catch { /* below */ }
+  if (!cfg) {
+    els.content.appendChild(el('p', 'caveat', 'I could not read my own settings.'));
+    return;
+  }
+  const live = cfg.inEffect || {};
+  const set = async (patch) => window.fren.setProviders(patch);
+
+  els.content.appendChild(el('div', 'sec', 'The model that thinks'));
+  if (!cfg.inEffect) {
+    els.content.appendChild(el('p', 'caveat',
+      'My thinking half is not answering right now, so I cannot show you what is ' +
+      'in effect — but anything you set here will still be waiting when it is.'));
+  }
+  els.content.appendChild(fieldRow(
+    'set-chat-model', 'Model',
+    live.provider
+      ? ` Whichever model ${live.provider} should answer with. Leave it empty and I use the one fren was started with.`
+      : ' Whichever model your provider should answer with. Leave it empty for the default.',
+    cfg.chosen.chatModel, live.model,
+    KNOWN_MODELS[live.provider] || [],
+    async (v) => (await set({ chatModel: v })).chatModel,
+  ));
+
+  els.content.appendChild(el('div', 'sec', 'The voice that speaks'));
+  if (!live.voice) {
+    els.content.appendChild(el('p', 'caveat',
+      'No voice is configured, so I answer in writing. These do nothing until one is.'));
+  }
+  els.content.appendChild(fieldRow(
+    'set-voice-id', 'Voice',
+    ' An ElevenLabs voice id. Copy it from the voice\u2019s page in their app \u2014 it is the long string in the URL, not the name.',
+    cfg.chosen.voiceId, live.voiceId, [],
+    async (v) => (await set({ voiceId: v })).voiceId,
+  ));
+  els.content.appendChild(fieldRow(
+    'set-voice-model', 'Voice model',
+    ' Flash is the quickest and the cheapest. Multilingual is worth it if you want me speaking something other than English.',
+    cfg.chosen.voiceModel, live.voiceModel, KNOWN_VOICE_MODELS,
+    async (v) => (await set({ voiceModel: v })).voiceModel,
+  ));
+
+  els.content.appendChild(el('div', 'sec', 'The ear that listens'));
+  const w = cfg.whisper || {};
+  els.content.appendChild(el('p', 'caveat', w.ready
+    ? 'Your microphone is transcribed here on this machine, by whisper.cpp. The audio never leaves it.'
+    : `Speech to text is unavailable — ${w.reason || 'whisper.cpp was not found'}.`));
+  els.content.appendChild(fieldRow(
+    'set-whisper-lang', 'Language',
+    ' Two letters, like es or fr. Empty means detect it, which is where short clips get names wrong.',
+    cfg.chosen.whisperLang, 'auto', ['en', 'es', 'fr', 'de', 'it', 'pt'],
+    async (v) => (await set({ whisperLang: v })).whisperLang,
+  ));
+  els.content.appendChild(fieldRow(
+    'set-whisper-model', 'Model file',
+    ' The full path to a ggml .bin model. A larger one hears better and thinks slower. Rejected unless the file is really there.',
+    cfg.chosen.whisperModel, w.model || '', [],
+    async (v) => (await set({ whisperModel: v })).whisperModel,
+  ));
+
+  const note = el('div', 'card');
+  note.appendChild(el('div', 'card-head')).append(el('b', null, 'About keys'));
+  note.appendChild(el('p', null,
+    'API keys are not here on purpose. This window belongs to the part of fren ' +
+    'that watches your screen, and that part deletes every provider key from its ' +
+    'own environment when it starts \u2014 so there is nowhere here to put one, ' +
+    'which is the point. Keys live in the .env file, which only the gateway reads. ' +
+    'The same goes for provider addresses: where a key gets sent is not a setting.'));
+  els.content.appendChild(note);
 }
 
 const SECTIONS = {

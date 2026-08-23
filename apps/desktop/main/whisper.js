@@ -54,13 +54,30 @@ function which(bin) {
   return null;
 }
 
+/**
+ * What the user chose, if anything. Set from the settings pane.
+ *
+ * The MODEL is settable: it is a data file whisper.cpp loads, passed to
+ * execFile as an argument and never through a shell. The BINARY is not, and
+ * stays an environment variable — choosing which executable gets launched is
+ * not a checkbox, and it is the field a compromised renderer would want most.
+ */
+let chosen = { model: '', lang: '' };
+function setPreferences(next) {
+  chosen = {
+    model: (next && next.whisperModel) || '',
+    lang: (next && next.whisperLang) || '',
+  };
+}
+
 /** Locate the binary and a model, or explain what is missing. */
 function detect() {
   const bin = process.env.FREN_WHISPER_BIN
     ? expand(process.env.FREN_WHISPER_BIN)
     : BIN_CANDIDATES.map(which).find(Boolean);
 
-  let model = process.env.FREN_WHISPER_MODEL ? expand(process.env.FREN_WHISPER_MODEL) : null;
+  let model = chosen.model
+    || (process.env.FREN_WHISPER_MODEL ? expand(process.env.FREN_WHISPER_MODEL) : null);
   if (!model) {
     model = MODEL_CANDIDATES.map(expand).find((p) => {
       try { return fs.statSync(p).isFile(); } catch { return false; }
@@ -92,7 +109,9 @@ function transcribe(wavBytes, { timeoutMs = 30_000 } = {}) {
         '-f', file,
         '--no-timestamps',
         '--no-prints',
-        '--language', process.env.FREN_WHISPER_LANG || 'auto',
+        // Naming the language beats 'auto' when you know it: auto-detect on a
+        // short clip is where names come back wrong.
+        '--language', chosen.lang || process.env.FREN_WHISPER_LANG || 'auto',
         '--threads', String(Math.max(2, Math.min(8, os.cpus().length - 2))),
       ],
       { timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 },
@@ -116,4 +135,4 @@ function transcribe(wavBytes, { timeoutMs = 30_000 } = {}) {
   });
 }
 
-module.exports = { detect, transcribe };
+module.exports = { detect, transcribe, setPreferences };

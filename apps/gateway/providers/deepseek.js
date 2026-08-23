@@ -19,7 +19,10 @@ function createDeepSeekProvider() {
   return {
     name: 'deepseek',
     model,
-    async complete({ system, messages, schema, maxTokens }) {
+    // `model` overrides the configured default for this one call, so choosing
+    // a model in the UI does not mean restarting the gateway.
+    async complete({ system, messages, schema, maxTokens, model: override }) {
+      const useModel = override || model;
       // DeepSeek offers JSON *mode*, not JSON Schema, so the shape has to go in
       // the prompt — and the word "json" must appear there or the API rejects
       // response_format. parseSummary still validates whatever comes back.
@@ -35,7 +38,7 @@ function createDeepSeekProvider() {
           authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model,
+          model: useModel,
           max_tokens: maxTokens || 1024,
           messages: [{ role: 'system', content: sys }, ...messages],
           ...(schema ? { response_format: { type: 'json_object' } } : {}),

@@ -2,6 +2,26 @@
 // a model provider directly and never holds provider credentials.
 const { config } = require('../../../packages/shared');
 
+/**
+ * What the user chose, merged into every request that goes out.
+ *
+ * Held here rather than threaded through a dozen call sites, and applied only
+ * to POST bodies. The gateway validates each field again and falls back to its
+ * own default for anything it does not like, so this is a preference rather
+ * than an instruction.
+ */
+let overrides = {};
+function setOverrides(next) {
+  overrides = next && typeof next === 'object' ? next : {};
+}
+
+function withOverrides(body) {
+  if (!body || typeof body !== 'object') return body;
+  const out = { ...body };
+  if (overrides.chatModel) out.model = overrides.chatModel;
+  return out;
+}
+
 async function request(pathname, { method = 'GET', body, timeoutMs = 60_000 } = {}) {
   const res = await fetch(`${config.GATEWAY_URL}${pathname}`, {
     method,
@@ -9,7 +29,7 @@ async function request(pathname, { method = 'GET', body, timeoutMs = 60_000 } = 
       'content-type': 'application/json',
       authorization: `Bearer ${config.GATEWAY_TOKEN}`,
     },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined ? undefined : JSON.stringify(withOverrides(body)),
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) {
@@ -27,7 +47,12 @@ async function speak(text) {
       'content-type': 'application/json',
       authorization: `Bearer ${config.GATEWAY_TOKEN}`,
     },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({
+      text,
+      // Voice is its own choice, not the chat model.
+      ...(overrides.voiceId ? { voice: overrides.voiceId } : {}),
+      ...(overrides.voiceModel ? { voiceModel: overrides.voiceModel } : {}),
+    }),
     signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) {
@@ -39,6 +64,7 @@ async function speak(text) {
 
 module.exports = {
   speak,
+  setOverrides,
   health: () => request('/health', { timeoutMs: 3_000 }),
   summarize: (observations) =>
     request('/v1/summarize', { method: 'POST', body: { observations } }),

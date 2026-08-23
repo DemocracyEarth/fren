@@ -186,3 +186,100 @@ test('POST /v1/learn passes a real verdict through', async () => {
     await new Promise((r) => server2.close(r));
   }
 });
+
+// --- choosing a model ---------------------------------------------------------
+// The point of the settings pane is that a choice actually reaches the provider
+// call. These assert that end, and that a bad choice cannot.
+
+test('a chosen model reaches the provider for that request only', async () => {
+  const seen = [];
+  const server2 = createServer({
+    name: 'stub',
+    model: 'default-model',
+    async complete(req) { seen.push(req.model); return 'ok'; },
+  });
+  server2.listen(0, '127.0.0.1');
+  await once(server2, 'listening');
+  const base2 = `http://127.0.0.1:${server2.address().port}`;
+  try {
+    await fetch(`${base2}/v1/chat`, {
+      method: 'POST', headers: JSON_HEADERS,
+      body: JSON.stringify({ question: 'hi', model: 'deepseek-reasoner' }),
+    });
+    assert.equal(seen[0], 'deepseek-reasoner');
+
+    // The next request without one falls straight back to the default: the
+    // override is per-call, so nothing is left stuck for the next caller.
+    await fetch(`${base2}/v1/chat`, {
+      method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ question: 'hi' }),
+    });
+    assert.equal(seen[1], undefined, 'no override means the provider uses its own default');
+  } finally {
+    await new Promise((r) => server2.close(r));
+  }
+});
+
+test('a model id that is not an id is ignored, not passed on', async () => {
+  const seen = [];
+  const server2 = createServer({
+    name: 'stub', model: 'default-model',
+    async complete(req) { seen.push(req.model); return 'ok'; },
+  });
+  server2.listen(0, '127.0.0.1');
+  await once(server2, 'listening');
+  const base2 = `http://127.0.0.1:${server2.address().port}`;
+  try {
+    for (const bad of ['../../etc/passwd', 'https://evil.example.com', 'a b c', 'x'.repeat(100)]) {
+      await fetch(`${base2}/v1/chat`, {
+        method: 'POST', headers: JSON_HEADERS,
+        body: JSON.stringify({ question: 'hi', model: bad }),
+      });
+    }
+    assert.deepEqual(seen, [undefined, undefined, undefined, undefined],
+      'every malformed id falls through to the configured default');
+  } finally {
+    await new Promise((r) => server2.close(r));
+  }
+});
+
+test('a chosen voice reaches the speech call', async () => {
+  const calls = [];
+  const server2 = createServer(createMockProvider(), {
+    name: 'stub-voice', voice: 'default-voice', model: 'default-voice-model',
+    async speak(text, opts) {
+      calls.push(opts);
+      return { audio: Buffer.from('x'), contentType: 'audio/mpeg' };
+    },
+  });
+  server2.listen(0, '127.0.0.1');
+  await once(server2, 'listening');
+  try {
+    await fetch(`http://127.0.0.1:${server2.address().port}/v1/speak`, {
+      method: 'POST', headers: JSON_HEADERS,
+      body: JSON.stringify({ text: 'hello', voice: 'abc123', voiceModel: 'eleven_turbo_v2_5' }),
+    });
+    assert.equal(calls[0].voice, 'abc123');
+    assert.equal(calls[0].model, 'eleven_turbo_v2_5');
+  } finally {
+    await new Promise((r) => server2.close(r));
+  }
+});
+
+test('/health reports the voice defaults so the settings pane can show them', async () => {
+  const server2 = createServer(createMockProvider(), {
+    name: 'stub-voice', voice: 'the-default-voice', model: 'the-default-voice-model',
+    async speak() { return { audio: Buffer.alloc(0), contentType: 'audio/mpeg' }; },
+  });
+  server2.listen(0, '127.0.0.1');
+  await once(server2, 'listening');
+  try {
+    const body = await (await fetch(`http://127.0.0.1:${server2.address().port}/health`)).json();
+    assert.equal(body.voiceId, 'the-default-voice');
+    assert.equal(body.voiceModel, 'the-default-voice-model');
+    // Whatever else /health grows, it must never grow a credential.
+    const flat = JSON.stringify(body);
+    assert.ok(!/key|token|secret|authorization/i.test(flat), `/health leaked something: ${flat}`);
+  } finally {
+    await new Promise((r) => server2.close(r));
+  }
+});

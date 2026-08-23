@@ -53,6 +53,25 @@ function readJson(req) {
   });
 }
 
+/**
+ * A model or voice id the caller chose, or nothing.
+ *
+ * These reach a URL path (ElevenLabs) and a JSON body (everyone else), so the
+ * shape is checked rather than trusted. Anything that does not look like an id
+ * is dropped and the configured default is used — a bad preference should
+ * degrade to the default, never to an error and never to a request somewhere
+ * unintended.
+ *
+ * Note what is deliberately NOT accepted here: base URLs and API keys. The
+ * base URL is where the key is sent, so a caller-supplied destination for a
+ * credential is an exfiltration primitive, not a setting. Keys live in .env and
+ * nowhere else.
+ */
+const ID = /^[A-Za-z0-9._:-]{1,64}$/;
+function safeId(v) {
+  return typeof v === 'string' && ID.test(v) ? v : undefined;
+}
+
 async function callProvider(provider, request, res) {
   try {
     return await provider.complete(request);
@@ -355,7 +374,10 @@ async function handleSpeak(voice, body, res) {
   }
   if (!voice) return send(res, 503, { error: 'no voice provider configured' });
   try {
-    const { audio, contentType } = await voice.speak(text.slice(0, 2000));
+    const { audio, contentType } = await voice.speak(text.slice(0, 2000), {
+      voice: safeId(body.voice),
+      model: safeId(body.voiceModel),
+    });
     res.writeHead(200, { 'content-type': contentType, 'content-length': audio.length });
     res.end(audio);
   } catch (err) {
@@ -370,6 +392,10 @@ async function handle(provider, voice, vision, req, res, pathname) {
       provider: provider.name,
       model: provider.model,
       voice: voice ? voice.name : null,
+      // What is actually in effect right now, so the settings UI can show the
+      // defaults it is overriding instead of guessing at them.
+      voiceId: voice ? voice.voice : null,
+      voiceModel: voice ? voice.model : null,
       // The desktop app needs this to know whether the screen-looking toggle
       // can be offered at all.
       vision: vision ? vision.name : null,
@@ -391,6 +417,20 @@ async function handle(provider, voice, vision, req, res, pathname) {
     } catch (err) {
       return send(res, err.status || 400, { error: err.message });
     }
+    // One place decides what model this request runs on. Every handler builds
+    // its request through intelligence.build*Request, so the override is merged
+    // in here rather than threaded through nine call sites.
+    const chosen = safeId(body && body.model);
+    if (chosen) {
+      const inner = provider;
+      provider = {
+        name: inner.name,
+        model: chosen,
+        // `r`, not `req` — the HTTP request is already named that in this scope.
+        complete: (r) => inner.complete({ ...r, model: chosen }),
+      };
+    }
+
     if (pathname === '/v1/summarize') return handleSummarize(provider, body, res);
     if (pathname === '/v1/extract') return handleExtract(provider, body, res);
     if (pathname === '/v1/pattern') return handlePattern(provider, body, res);
