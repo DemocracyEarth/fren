@@ -612,7 +612,8 @@ async function togglePanel() {
  * turned out to be a drag.
  */
 const HOLD_TO_TALK_MS = 320;
-const DRAG_SLOP_PX = 6;      // hand tremor, not an intention to move it
+const DRAG_SLOP_PX = 11;     // above trackpad tremor: below this, holding still
+                             // must not be mistaken for an intention to move
 
 let pressing = false;
 let holdTimer = null;
@@ -763,12 +764,19 @@ async function startTalking() {
 let stopping = false;
 
 async function stopTalkingAndSend() {
+  // Read it before clearing it, or the check below can never be true.
+  const expected = wantRecording;
   wantRecording = false;
   // Two separate window-level mouseup handlers can both land here for one
   // gesture; a second entry must not stop a recorder the first is already
   // draining.
   if (stopping) return;
-  if (!mic || !mic.isRecording()) { vlog('stop:nothing-recording'); return; }
+  if (!mic || !mic.isRecording()) {
+    // Only worth reporting when a recording was expected. Otherwise this is an
+    // ordinary release and the log fills up with it.
+    if (expected) vlog('stop:nothing-recording');
+    return;
+  }
   stopping = true;
   els.mic.classList.remove('recording');
   setFace('thinking');
@@ -800,8 +808,20 @@ async function stopTalkingAndSend() {
 }
 
 if (els.mic) {
-  els.mic.addEventListener('mousedown', (e) => { e.preventDefault(); startTalking(); });
-  window.addEventListener('mouseup', () => stopTalkingAndSend());
+  let holdingMic = false;
+  els.mic.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    holdingMic = true;
+    startTalking();
+  });
+  // Global, because the button can be released anywhere — but only while the
+  // button was actually being held. Unguarded, this ran on EVERY mouse release
+  // in the window, including every tap of the orb.
+  window.addEventListener('mouseup', () => {
+    if (!holdingMic) return;
+    holdingMic = false;
+    stopTalkingAndSend();
+  });
   // Keyboard: hold Space on the focused mic button.
   els.mic.addEventListener('keydown', (e) => {
     if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); startTalking(); }
