@@ -13,7 +13,10 @@
   --orange-deep: #D4661A;
   --orange-shadow: #9E4410;
   /* Orange that can carry white text: #ED8A2F is only 2.5:1, this is 5.0:1 */
-  --orange-ink: #B4520F;
+  /* The text weight of the orange. Was #B4520F, which measured 4.33:1 on the
+     cream and 3.52:1 on the tinted active row — under AA in both places it is
+     actually used. #8F410B is 6.15 and 4.99. */
+  --orange-ink: #8F410B;
 
   /* Character — the cream shell, also our surface color */
   --cream: #F0E7D6;

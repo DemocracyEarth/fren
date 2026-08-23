@@ -141,7 +141,7 @@ async function showDay(key) {
   }
 
   if (shots.length) {
-    els.content.appendChild(el('div', 'sec', 'Stills'));
+    els.content.appendChild(el('h2', 'sec', 'Stills'));
     const grid = el('div', 'shots');
     for (const s of shots) {
       const fig = el('figure', 'shot');
@@ -160,7 +160,7 @@ async function showDay(key) {
   }
 
   if (memories.length) {
-    els.content.appendChild(el('div', 'sec', 'What you were doing'));
+    els.content.appendChild(el('h2', 'sec', 'What you were doing'));
     const tl = el('div', 'tl');
     for (const m of collapse(memories)) {
       const row = el('div', 'tl-row');
@@ -521,11 +521,26 @@ async function showRoutines() {
   }
 }
 
+/**
+ * The numbers beside each destination.
+ *
+ * Each one must be what you will find when you click it. The Automations badge
+ * counted every suggestion carrying a draft, while the page lists automations
+ * you have kept plus drafts that still have a script and have not been kept —
+ * so the badge read 5 over a page showing three things, and the difference was
+ * drafts already promoted to automations, counted twice.
+ */
 async function refreshCounts() {
   cachedSuggestions = null;
   const all = await suggestions();
   const live = all.filter((s) => s.status !== 'dismissed').length;
-  const drafted = all.filter((s) => s.draft).length;
+
+  let kept = [];
+  try { kept = await window.fren.automations(); } catch { kept = []; }
+  const unkept = all.filter((x) => x.draft && x.draft.script &&
+    !kept.some((a) => a.suggestionId === x.id));
+  const automations = kept.length + unkept.length;
+
   let routineCount = 0;
   try { routineCount = (await window.fren.routines()).filter((r) => r.enabled).length; } catch { /* none */ }
 
@@ -535,7 +550,7 @@ async function refreshCounts() {
     elm.hidden = !n;
   };
   set(els.patternCount, live);
-  set(els.autoCount, drafted);
+  set(els.autoCount, automations);
   set(els.routineCount, routineCount);
 }
 
@@ -900,7 +915,7 @@ async function showProviderSettings() {
   const live = cfg.inEffect || {};
   const set = async (patch) => window.fren.setProviders(patch);
 
-  els.content.appendChild(el('div', 'sec', 'The model that thinks'));
+  els.content.appendChild(el('h2', 'sec', 'The model that thinks'));
   if (!cfg.inEffect) {
     els.content.appendChild(el('p', 'caveat',
       'My thinking half is not answering right now, so I cannot show you what is ' +
@@ -916,7 +931,7 @@ async function showProviderSettings() {
     async (v) => (await set({ chatModel: v })).chatModel,
   ));
 
-  els.content.appendChild(el('div', 'sec', 'The voice that speaks'));
+  els.content.appendChild(el('h2', 'sec', 'The voice that speaks'));
   if (!live.voice) {
     els.content.appendChild(el('p', 'caveat',
       'No voice is configured, so I answer in writing. These do nothing until one is.'));
@@ -934,7 +949,7 @@ async function showProviderSettings() {
     async (v) => (await set({ voiceModel: v })).voiceModel,
   ));
 
-  els.content.appendChild(el('div', 'sec', 'The ear that listens'));
+  els.content.appendChild(el('h2', 'sec', 'The ear that listens'));
   const w = cfg.whisper || {};
   els.content.appendChild(el('p', 'caveat', w.ready
     ? 'Your microphone is transcribed here on this machine, by whisper.cpp. The audio never leaves it.'

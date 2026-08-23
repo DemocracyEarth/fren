@@ -86,13 +86,19 @@ html, body {
   border-radius: 3px;
 }
 #day-list::-webkit-scrollbar-thumb:hover { background: rgba(26, 23, 18, .24); }
-.side-label {
-  padding: 0 10px 7px;
-  font-size: 10.5px;
+/* One label, two placements. These were two rules 0.5px apart with every other
+   declaration identical, which is how a type scale stops being a scale. */
+/* #A2967F measured 2.24:1 against the sidebar — not a soft label, an unreadable
+   one, at 10.5px in caps. #6E6249 is 4.61 and still recedes. */
+.side-label, .sec {
   font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: #A2967F;
+  color: #6E6249;
+}
+.side-label {
+  padding: 0 10px 7px;
+  font-size: 10.5px;
 }
 
 .side-item {
@@ -133,7 +139,14 @@ html, body {
   text-align: center;
 }
 
-.side-foot { margin-top: auto; padding: 10px; }
+/* The gradient's own top stop, used flat. The footer sits at the dark end of
+   the sidebar where --ink-soft measured 4.42:1; on this it is 4.71. */
+.side-foot {
+  flex: 0 0 auto;
+  padding: 10px 8px;
+  background: #EFE8DB;
+  border-top: 1px solid rgba(26, 23, 18, 0.07);
+}
 #side-status {
   display: inline-flex;
   align-items: center;
@@ -200,12 +213,10 @@ body[data-watching="1"] #side-status { color: var(--orange-ink); }
 
 /* ---- section headings ---------------------------------------------------- */
 .sec {
+  /* A real <h2> now, so the main column has a document outline instead of a
+     row of styled divs. The margin is stated because a heading brings its own. */
   margin: 22px 0 11px;
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: #A2967F;
 }
 .sec:first-child { margin-top: 4px; }
 
