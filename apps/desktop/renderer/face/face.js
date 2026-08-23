@@ -430,6 +430,23 @@
      */
     setListening() { /* no visual equivalent in the SVG renderer */ }
 
+    /**
+     * The closest a drawn face gets to being shaken: kick the velocity springs
+     * it already has, hard and in random directions. There is no jelly surface
+     * here — the 3D renderer does that with a vertex shader — so this leans,
+     * squashes and bobs instead, which is the honest equivalent.
+     */
+    shake(power = 1) {
+      if (this.reduced) return;
+      const p = Math.max(0, Math.min(1, power));
+      const r = () => (Math.random() * 2 - 1);
+      this.v.lean += r() * 7 * p;
+      this.v.tilt += r() * 150 * p;
+      this.v.squash += r() * 6 * p;
+      this.v.bob -= (120 + Math.random() * 120) * p;
+      this._wake();
+    }
+
     /** The viewBox is fixed, so a new size is two attributes and nothing else. */
     resize(px) {
       const n = Math.max(1, Math.round(px));

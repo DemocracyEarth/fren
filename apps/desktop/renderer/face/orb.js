@@ -483,10 +483,8 @@ class Orb {
     // as the microphone having closed.
     if (this.listenLevel !== null) {
       this.material.emissiveIntensity = 1.45 + 0.30 + this.listenLevel * 1.5;
-      this.orb.scale.setScalar(1 + this.listenLevel * 0.016);
     } else if (this.material.emissiveIntensity !== 1.45) {
       this.material.emissiveIntensity = 1.45;
-      this.orb.scale.setScalar(1);
     }
 
     // Impulses ring out like something soft.
@@ -494,13 +492,44 @@ class Orb {
     this.squashAmt *= Math.pow(0.02, dt);
     this.nodAmt *= Math.pow(0.02, dt);
     this.shakeAmt *= Math.pow(0.02, dt);
-    this.uWobble.value = this.wobbleAmt;
-    this.uSquash.value = this.squashAmt;
+    // Slower than the poke on purpose. A poke is an acknowledgement and should
+    // be over before you have finished clicking; a shake carries on after you
+    // stop, because the settling IS the joke.
+    this.jiggleAmt *= Math.pow(0.10, dt);
+    if (this.jiggleAmt < 0.002) { this.jiggleAmt = 0; this.jiggleWave = null; }
+
+    const j = this.jiggleAmt;
+    const w = this.jiggleWave;
+    let jTilt = 0, jYaw = 0, jPitch = 0, jSquash = 0, jx = 0, jy = 0;
+    if (j > 0 && w) {
+      const t = this.t;
+      // Two frequencies per axis, one fast and one slow. A single sine per axis
+      // is a pendulum; two that never line up is something floppy.
+      //
+      // The amplitudes were measured, not guessed: a first pass peaked at 20
+      // degrees of yaw and 4% squash — LESS squash than a single click gets.
+      // An aggressive shake has to be obviously wilder than a poke.
+      jYaw   = (Math.sin(t * w.fa + w.pa) + 0.55 * Math.sin(t * w.fb + w.pb)) * j * 0.62 * w.yaw;
+      jTilt  = (Math.sin(t * w.fc + w.pc) + 0.50 * Math.sin(t * w.fd + w.pd)) * j * 0.52 * w.tilt;
+      jPitch = Math.sin(t * w.fe + w.pe) * j * 0.36 * w.pitch;
+      jSquash = Math.sin(t * w.ff + w.pf) * j * 0.15;
+      // A little travel too, so it is not pivoting about a fixed point — a
+      // shaken object moves as well as turns.
+      jx = Math.sin(t * w.fb + w.pc) * j * 0.05;
+      jy = Math.sin(t * w.fd + w.pe) * j * 0.04;
+      this.uSeed.value = w.seed;
+    }
+
+    this.uWobble.value = this.wobbleAmt + j * 0.15;
+    this.uSquash.value = this.squashAmt + jSquash;
 
     // The body TURNS toward the pointer, and takes the highlight with it.
     this.gaze.x += (this.gazeTarget.x - this.gaze.x) * Math.min(1, dt * 5);
     this.gaze.y += (this.gazeTarget.y - this.gaze.y) * Math.min(1, dt * 5);
-    this.orb.rotation.y = this.gaze.x * 0.42 + Math.sin(this.t * 26) * this.shakeAmt * 0.5;
+    this.orb.rotation.y = this.gaze.x * 0.42 + Math.sin(this.t * 26) * this.shakeAmt * 0.5 + jYaw;
+    // Roll about the view axis. Nothing else uses it, and a side-to-side lean
+    // is most of what makes something look shaken rather than merely turned.
+    this.orb.rotation.z = jTilt;
     // Roll. The spin runs down on its own, and the angle is pulled toward the
     // NEAREST WHOLE TURN rather than toward zero — which is the whole trick.
     // Pulling toward zero caps the tumble at whatever the pull allows (it
@@ -520,11 +549,25 @@ class Orb {
     // Snap the last hair, so a settled ball is exactly front-on and the loop
     // can go back to sleep under reduced motion.
     if (this.rollVel === 0 && Math.abs(this.rollAngle - home) < 0.002) this.rollAngle = 0;
-    this.orb.rotation.x = this.gaze.y * 0.26 + Math.sin(this.t * 22) * this.nodAmt * 0.4
+    this.orb.rotation.x = jPitch + this.gaze.y * 0.26 + Math.sin(this.t * 22) * this.nodAmt * 0.4
       + this.rollAngle;
-    this.orb.position.x = this.gaze.x * 0.10;
-    this.orb.position.y = -this.gaze.y * 0.07 +
+    this.orb.position.x = this.gaze.x * 0.10 + jx;
+    this.orb.position.y = -this.gaze.y * 0.07 + jy +
       (this.reduced ? 0 : Math.sin(this.t * 1.4) * 0.022);
+
+    // Scale has TWO owners — the listening breathe and the shake — so they are
+    // composed here in one place. Written separately, whichever ran last simply
+    // won, and since the shake resolves to exactly 1 when idle it would have
+    // silently flattened the breathe for good.
+    //
+    // Drawing in while wobbling is not decoration: the sphere is framed to fill
+    // the canvas with 41% of its radius spare, and only 0.287 of that above
+    // centre, while the bulge and the squash MULTIPLY. At full amplitude the
+    // silhouette would push past the top edge and the wobble would clip instead
+    // of wobble. Pulling it in buys the room back, and a ball drawing into
+    // itself as it is rattled looks deliberate.
+    const breathe = this.listenLevel !== null ? 1 + this.listenLevel * 0.016 : 1;
+    this.orb.scale.setScalar(breathe * (1 - j * 0.10));
 
     this.renderer.render(this.scene, this.camera);
 

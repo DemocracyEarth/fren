@@ -33,6 +33,18 @@
       neutral: [['happy', 4], ['content', 3], ['proud', 2], ['hopeful', 1]],
       low: [['content', 3], ['calm', 3], ['happy', 1]],
     },
+    // Being picked up and shaken. Without a pool of its own this fell through
+    // to `idle` — calm, tired, resting — which is the funniest possible wrong
+    // answer and the least appropriate one.
+    //
+    // `annoyed` earns its place here and nowhere else in these pools: it is the
+    // one expression that gets lowered lids, and being rattled about is the one
+    // moment where fren having had enough is the joke rather than a misread.
+    shake: {
+      bright: [['laughing', 3], ['overjoyed', 3], ['silly', 3], ['excited', 2], ['surprised', 2], ['annoyed', 1]],
+      neutral: [['surprised', 4], ['silly', 3], ['laughing', 2], ['confused', 2], ['annoyed', 2]],
+      low: [['surprised', 3], ['confused', 3], ['annoyed', 2], ['silly', 1]],
+    },
     // Unprompted flickers while nobody is doing anything.
     idle: {
       bright: [['hopeful', 2], ['playful', 2], ['content', 2], ['curious', 1]],
@@ -45,6 +57,10 @@
     hover: [900, 2200],
     click: [700, 1500],
     reply: [800, 1800],
+    // Longer than a click: the wobble outlasts the gesture, and the face
+    // snapping back to neutral while the body is still swinging looks like two
+    // unrelated animations.
+    shake: [1400, 2600],
     idle: [1200, 2600],
   };
 
