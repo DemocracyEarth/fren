@@ -36,9 +36,6 @@ html, body {
 }
 
 #orb {
-  /* The ring lives on this element now, so it inherits the --sphere-* variables
-     the renderer publishes here and moves with the character. */
-  position: relative;
   width: calc(123px * var(--orb-scale, 1));
   height: calc(123px * var(--orb-scale, 1));  /* leaves a drag ring around it */
   padding: 0;
@@ -50,115 +47,30 @@ html, body {
 }
 #orb:active { transform: scale(.94); }
 
-/*
- * The recording light.
- *
- * A ring around the sphere rather than a glow inside it, and that is the whole
- * point. Probing the face renderer showed the internal glow sweeping from 1.45
- * to 4.4 emissive is plainly visible while fren is WATCHING and does almost
- * nothing while it is PAUSED — the face is drained and its eyes are shut, so
- * there is nearly nothing there to light up. An indicator that fades out
- * exactly when the screen light is off is the wrong way round: that is the
- * moment you most need to know the microphone is open.
- *
- * So the ring is independent of the face. It reads on a bright face and a dark
- * one, it works for both renderers, and it cannot be mistaken for the watching
- * light because the eyes stay shut underneath it.
- */
-#orb::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  /*
-   * Follows the sphere, rather than guessing where it is.
-   *
-   * The sphere is not the canvas and it does not hold still inside it: it
-   * tracks the pointer by up to a tenth of a scene unit — 3.6% of the canvas,
-   * about 9px at full size — and idles with a slow bob on top. A ring measured
-   * once and hard-coded is correct only for the instant it was measured, which
-   * is why it kept looking very slightly off.
-   *
-   * The renderer publishes --sphere-dx/dy/r every frame from the actual scene
-   * position, and both renderers publish them, so this does not need to know
-   * which one it is sitting on.
-   */
-  width: calc(var(--sphere-r, 43.7px) * 2);
-  height: calc(var(--sphere-r, 43.7px) * 2);
-  margin-left: calc(var(--sphere-dx, 0px) - var(--sphere-r, 43.7px));
-  /*
-   * Plus an OPTICAL correction, which is a different thing from the geometry
-   * above and has to be written down as such.
-   *
-   * Measured against the rendered silhouette, the ring is concentric with the
-   * sphere to within a quarter of a pixel. It still read as sitting low, and
-   * that is not a measurement error: the eyes and mouth are in the sphere's
-   * upper half, so the face — which is what the eye actually centres on — has
-   * its own centre above the sphere's. A ring true to the geometry is low to
-   * the viewer.
-   *
-   * 3.5% of the radius, so it holds at every size rather than being a pixel
-   * count that is right at one scale and wrong at every other. Swept against
-   * the rendered orb at 0, 1.5, 2.5, 3.5 and 5%: at 5% the band is visibly
-   * thin at the top and thick at the bottom, which is the same mistake in the
-   * other direction.
-   */
-  margin-top: calc(var(--sphere-dy, 0px) - var(--sphere-r, 43.7px)
-                   - var(--sphere-r, 43.7px) * 0.035);
-  border-radius: 50%;
-  pointer-events: none;
-  opacity: 0;
-}
-body[data-recording="1"] #orb::after {
-  animation: rec-pulse 1.5s infinite var(--ease-soft);
-}
-@keyframes rec-pulse {
-  0%   { opacity: .62; box-shadow: 0 0 0 1px rgba(var(--accent-rgb), .62); }
-  72%  { opacity: 0;   box-shadow: 0 0 0 17px rgba(var(--accent-rgb), 0); }
-  100% { opacity: 0;   box-shadow: 0 0 0 17px rgba(var(--accent-rgb), 0); }
-}
-
-/*
- * Reduced motion gets a STEADY ring instead of none. The pulse is decoration;
- * "your microphone is open" is not, and silently dropping the only indication
- * of it would be the one place this preference must not be obeyed literally.
- */
-@media (prefers-reduced-motion: reduce) {
-  body[data-recording="1"] #orb::after {
-    animation: none;
-    opacity: 1;
-    box-shadow: 0 0 0 3px rgba(var(--accent-rgb), .70);
-  }
-}
-
 .fren-face { display: block; overflow: visible; }
 
 /*
- * The orb's shadow. drop-shadow works from the canvas's ALPHA, so it traces the
- * rendered silhouette exactly and keeps tracing it while the surface bulges
- * from a poke — which is what makes the orb read as lifted off the screen
- * rather than printed on it. Two layers: a tight one for contact, a wider one
- * for lift.
+ * Recording, on the fallback renderer.
+ *
+ * The 3D orb pulses its own material and needs nothing here. The SVG face has
+ * no material to pulse, and it is the renderer you get when WebGL fails — so
+ * without this there would be no sign at all that the microphone was open, on
+ * exactly the machines least able to show one. `.fren-face` is the SVG's own
+ * class; the 3D renderer draws to a bare canvas and is untouched.
  */
-#orb canvas {
-  /*
-   * Three layers, none of them tight enough to read as an edge.
-   *
-   * The first used to be a 1px ring at 38% — meant to cushion the silhouette
-   * against a light desktop, but a hard shadow at zero blur IS an outline, and
-   * on a pale background that is exactly what it looked like: the orb drawn
-   * with a thin grey pen. Compared side by side at 260px on white, it is the
-   * most obvious difference between the two.
-   *
-   * So: nothing at zero blur. The contact layer is soft and offset downward
-   * instead of surrounding the shape, and everything is warm and browner —
-   * neutral black at these opacities greys the orange it sits against. The
-   * silhouette is left to the renderer, which supersamples it at up to 3x
-   * anyway and does not need help.
-   */
-  filter: drop-shadow(0 1px 2px rgba(90, 48, 12, 0.16))
-          drop-shadow(0 3px 8px rgba(60, 32, 8, 0.18))
-          drop-shadow(0 10px 22px rgba(40, 22, 6, 0.16));
+body[data-recording="1"] #orb .fren-face {
+  animation: rec-breathe 1.61s infinite var(--ease-soft);
+}
+@keyframes rec-breathe {
+  0%, 100% { filter: saturate(0.75); }
+  50%      { filter: saturate(1.75) brightness(1.06); }
+}
+/* Steady, not absent: the pulse is decoration, "the microphone is open" is not. */
+@media (prefers-reduced-motion: reduce) {
+  body[data-recording="1"] #orb .fren-face {
+    animation: none;
+    filter: saturate(1.6);
+  }
 }
 
 /* -------------------------------------------------------------- the panel */

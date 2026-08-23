@@ -28,20 +28,6 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 const TAU = Math.PI * 2;
 
-/**
- * How the sphere sits inside its canvas.
- *
- * The camera is a 30-degree perspective at z = 5.25 looking at y = -0.12, so
- * the frame is 2*tan(15deg)*5.25 units across at the sphere's plane, and the
- * view axis passes BELOW the sphere's centre — deliberately, to keep the
- * contact shadow in frame.
- *
- * Anything drawn outside the canvas that has to line up with the sphere needs
- * these: the sphere is not the canvas, and it does not sit in the middle of it.
- */
-const VIEW_SPAN = 2 * Math.tan((30 * Math.PI / 180) / 2) * 5.25;   // 2.8138
-const VIEW_DROP = -0.12;                                            // camera lookAt y
-const SPHERE_FRACTION = 2 / VIEW_SPAN;                              // 0.7108 of the canvas
 
 /** Parameters that cross-fade when the expression changes. */
 const EASED = ['lit', 'lidTop', 'eyeScale', 'eyeAsym', 'mouthW', 'mouthOpen', 'mouthCurve', 'mouthWave'];
@@ -328,28 +314,6 @@ class Orb {
     this._wake();
   }
 
-  /**
-   * Write the sphere's centre and radius onto the mount as CSS variables.
-   *
-   * Cheap enough to do every frame — three custom properties on one element —
-   * and the only way a ring outside the canvas stays concentric with a sphere
-   * that moves inside it.
-   */
-  _publishPlacement() {
-    const host = this.mount;
-    if (!host) return;
-    const css = parseFloat(this.canvas.style.width) || 0;
-    if (!css) return;
-    const perUnit = css / VIEW_SPAN;
-    const dx = this.orb.position.x * perUnit;
-    // Screen y grows downward, and the view axis sits at VIEW_DROP.
-    const dy = -(this.orb.position.y - VIEW_DROP) * perUnit;
-    const r = css * SPHERE_FRACTION * 0.5 * this.orb.scale.x;
-    host.style.setProperty('--sphere-dx', `${dx.toFixed(2)}px`);
-    host.style.setProperty('--sphere-dy', `${dy.toFixed(2)}px`);
-    host.style.setProperty('--sphere-r', `${r.toFixed(2)}px`);
-  }
-
   /** Re-render at a new pixel size. The camera is square, so nothing else moves. */
   resize(px) {
     const n = Math.max(1, Math.round(px));
@@ -491,6 +455,45 @@ class Orb {
     // Lit means watching. Drained means it is not, and that has to be true of
     // the whole object, not just the two eyes.
     this.material.color.copy(DRAINED).lerp(this.toneNow, Math.min(1, this.p.lit * 1.05));
+
+    // Recording: the whole orb breathes, deepening in colour and back.
+    //
+    // Applied AFTER the drained lerp above and deliberately not gated by `lit`.
+    // That gate is what made the previous indicator useless while fren was
+    // paused — a paused face is drained, so anything scaled by its own colour
+    // fades out exactly when you most need to know the microphone is open.
+    // Recording is not the same fact as watching and does not take its cue
+    // from it.
+    //
+    // The eyes stay shut while paused regardless, so a pulsing dark orb still
+    // cannot be mistaken for a watching one.
+    if (this.listenLevel !== null && !this.reduced) {
+      const beat = 0.5 - 0.5 * Math.cos(this.t * TAU * REC_HZ);
+
+      // IN sRGB, explicitly. THREE.Color stores linear-sRGB, so getHSL and
+      // setHSL without a colour space hand you linear values — a drained grey
+      // reads as lightness 0.08 rather than the 0.32 it looks like, and a
+      // modest-sounding "+0.055 lightness" is then a huge visible jump. The
+      // first version of this pulse was written in linear by accident and lit
+      // a paused orb up like a lamp.
+      this.material.color.getHSL(_hsl, THREE.SRGBColorSpace);
+
+      // The hue is TAKEN, not blended: a drained orb is a blue-grey and
+      // saturating that gives a purple orb. Saturation is the pulse — which is
+      // the point, since saturation is not brightness, and brightness is what
+      // would make a paused fren look awake.
+      //
+      // The floor is below the orb's own saturation so there is somewhere to
+      // swing FROM. A lit orange is already fully saturated: without pulling it
+      // down first there is no room above it and the pulse would be invisible
+      // exactly where the orb is most colourful.
+      this.material.color.setHSL(
+        REC_HUE,
+        Math.min(1, _hsl.s * 0.55 + beat * 0.45),
+        Math.min(0.62, _hsl.l + beat * 0.05),
+        THREE.SRGBColorSpace,
+      );
+    }
     this.material.roughness = this.matNow.rough;
     this.material.sheen = this.matNow.sheen * this.p.lit;
 
@@ -498,8 +501,11 @@ class Orb {
     // visibly lit through the pauses between words, so silence does not read
     // as the microphone having closed.
     if (this.listenLevel !== null) {
-      this.material.emissiveIntensity = 1.45 + 0.30 + this.listenLevel * 1.5;
-      this.orb.scale.setScalar(1 + this.listenLevel * 0.016);
+      // The voice still rides on top: the pulse says the microphone is OPEN,
+      // the level says it can hear you. Two different facts, both worth having.
+      const beat = this.reduced ? 0.5 : 0.5 - 0.5 * Math.cos(this.t * TAU * REC_HZ);
+      this.material.emissiveIntensity = 1.45 + 0.30 + beat * 0.55 + this.listenLevel * 1.2;
+      this.orb.scale.setScalar(1 + beat * 0.028 + this.listenLevel * 0.014);
     } else if (this.material.emissiveIntensity !== 1.45) {
       this.material.emissiveIntensity = 1.45;
       this.orb.scale.setScalar(1);
@@ -542,14 +548,6 @@ class Orb {
     this.orb.position.y = -this.gaze.y * 0.07 +
       (this.reduced ? 0 : Math.sin(this.t * 1.4) * 0.022);
 
-    // Publish where the sphere actually is, in CSS pixels from the canvas
-    // centre, so anything drawn outside the canvas can follow it.
-    //
-    // A static ring cannot stay centred on this: the sphere tracks the pointer
-    // by up to a tenth of a unit — 3.6% of the canvas, and about 9px at full
-    // size — and idles with a slow bob on top. Measuring it once and hard-coding
-    // the answer is right only for the instant it was measured.
-    this._publishPlacement();
 
     this.renderer.render(this.scene, this.camera);
 
@@ -561,6 +559,27 @@ class Orb {
 }
 
 const DRAINED = new THREE.Color(0x46464a);
+
+/**
+ * Recording, said by the whole character.
+ *
+ * This replaced a ring drawn around the orb. The ring was the wrong idea for a
+ * reason worth keeping written down: anything drawn OUTSIDE the sphere has to
+ * be aimed at it, and the sphere moves — it tracks the pointer and idles with a
+ * bob — so the ring was either chasing it every frame or sitting slightly off,
+ * and even when it was concentric to a quarter of a pixel it still read as low,
+ * because a face's optical centre is not its geometric one.
+ *
+ * The orb pulsing is immune to all of that. There is nothing to align: the
+ * indicator IS the character.
+ *
+ * Slow — slower than a heartbeat — because this runs for as long as the
+ * microphone is open and anything faster becomes an alarm.
+ */
+const REC_HZ = 0.62;
+const _hsl = { h: 0, s: 0, l: 0 };
+// The hearing tone's hue, in sRGB — the colour a recording orb travels to.
+const REC_HUE = new THREE.Color(TONE.hearing.color).getHSL(_hsl, THREE.SRGBColorSpace).h;
 
 // Replace the SVG renderer only once we know WebGL actually works here. If it
 // does not, face.js stays in place and nothing downstream notices.
