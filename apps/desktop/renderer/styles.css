@@ -86,7 +86,25 @@ html, body {
   width: calc(var(--sphere-r, 43.7px) * 2);
   height: calc(var(--sphere-r, 43.7px) * 2);
   margin-left: calc(var(--sphere-dx, 0px) - var(--sphere-r, 43.7px));
-  margin-top: calc(var(--sphere-dy, 0px) - var(--sphere-r, 43.7px));
+  /*
+   * Plus an OPTICAL correction, which is a different thing from the geometry
+   * above and has to be written down as such.
+   *
+   * Measured against the rendered silhouette, the ring is concentric with the
+   * sphere to within a quarter of a pixel. It still read as sitting low, and
+   * that is not a measurement error: the eyes and mouth are in the sphere's
+   * upper half, so the face — which is what the eye actually centres on — has
+   * its own centre above the sphere's. A ring true to the geometry is low to
+   * the viewer.
+   *
+   * 3.5% of the radius, so it holds at every size rather than being a pixel
+   * count that is right at one scale and wrong at every other. Swept against
+   * the rendered orb at 0, 1.5, 2.5, 3.5 and 5%: at 5% the band is visibly
+   * thin at the top and thick at the bottom, which is the same mistake in the
+   * other direction.
+   */
+  margin-top: calc(var(--sphere-dy, 0px) - var(--sphere-r, 43.7px)
+                   - var(--sphere-r, 43.7px) * 0.035);
   border-radius: 50%;
   pointer-events: none;
   opacity: 0;
