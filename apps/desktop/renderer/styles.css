@@ -25,8 +25,10 @@ html, body {
 
 /* ---------------------------------------------------------------- the orb */
 #orb-zone {
-  width: 144px;
-  height: 144px;
+  /* Scrolling on fren sets --orb-scale; the halo and the character both come
+     off it, so the drag ring is always the same proportion of the whole. */
+  width: calc(144px * var(--orb-scale, 1));
+  height: calc(144px * var(--orb-scale, 1));
   flex: 0 0 auto;
   display: grid;
   place-items: center;
@@ -34,8 +36,8 @@ html, body {
 }
 
 #orb {
-  width: 123px;
-  height: 123px;             /* smaller than the zone, leaving a drag ring */
+  width: calc(123px * var(--orb-scale, 1));
+  height: calc(123px * var(--orb-scale, 1));  /* leaves a drag ring around it */
   padding: 0;
   border: 0;
   background: none;

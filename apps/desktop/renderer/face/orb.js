@@ -26,6 +26,8 @@ import { TONE, EXPRESSIONS } from './expressions.js';
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
+const TAU = Math.PI * 2;
+
 /** Parameters that cross-fade when the expression changes. */
 const EASED = ['lit', 'lidTop', 'eyeScale', 'eyeAsym', 'mouthW', 'mouthOpen', 'mouthCurve', 'mouthWave'];
 
@@ -62,6 +64,12 @@ class Orb {
     this.squashAmt = 0;
     this.nodAmt = 0;
     this.shakeAmt = 0;
+    // Scroll-to-resize spins the sphere. Two numbers, not one: the velocity is
+    // what a scroll adds to, and the angle is what it turns into. Both bleed
+    // off, so the face always comes back to front — a ball that stopped
+    // wherever the wheel left it would spend most of its life facing away.
+    this.rollVel = 0;
+    this.rollAngle = 0;
     this.t = 0;
     this.raf = null;
 
@@ -255,6 +263,33 @@ class Orb {
    * anything, but a face that brightens when you speak is obviously listening
    * to YOU.
    */
+  /**
+   * Give the sphere a shove, in radians per second.
+   *
+   * Positive rolls the top away from you, which is the direction a ball turns
+   * when it rolls TOWARD you across a desk — so growing and rolling forward
+   * are the same gesture rather than two things happening at once.
+   */
+  roll(v) {
+    // Spinning is decoration; resizing is the function. Someone who asked the
+    // system for less motion still gets the size change, without the tumble.
+    if (this.reduced) return;
+    this.rollVel += v;
+    // Capped, or a hard trackpad flick spins it into a blur that reads as a
+    // glitch rather than as a ball.
+    this.rollVel = Math.max(-26, Math.min(26, this.rollVel));
+    this._wake();
+  }
+
+  /** Re-render at a new pixel size. The camera is square, so nothing else moves. */
+  resize(px) {
+    const n = Math.max(1, Math.round(px));
+    this.canvas.style.width = `${n}px`;
+    this.canvas.style.height = `${n}px`;
+    this.renderer.setSize(n, n, false);
+    this._wake();
+  }
+
   setListening(level) {
     const on = level !== null && level !== undefined;
     if (on !== (this.listenLevel !== null && this.listenLevel !== undefined)) {
@@ -413,7 +448,27 @@ class Orb {
     this.gaze.x += (this.gazeTarget.x - this.gaze.x) * Math.min(1, dt * 5);
     this.gaze.y += (this.gazeTarget.y - this.gaze.y) * Math.min(1, dt * 5);
     this.orb.rotation.y = this.gaze.x * 0.42 + Math.sin(this.t * 26) * this.shakeAmt * 0.5;
-    this.orb.rotation.x = this.gaze.y * 0.26 + Math.sin(this.t * 22) * this.nodAmt * 0.4;
+    // Roll. The spin runs down on its own, and the angle is pulled toward the
+    // NEAREST WHOLE TURN rather than toward zero — which is the whole trick.
+    // Pulling toward zero caps the tumble at whatever the pull allows (it
+    // topped out around 45 degrees, a tilt rather than a roll) and fights the
+    // spin the entire time. Pulling toward the nearest turn lets it rotate as
+    // far as the shove carries it, complete however many turns that is, and
+    // still finish exactly face-front.
+    //
+    // The pull fades in as the spin dies, so it never drags on a ball that is
+    // still moving.
+    this.rollVel *= Math.pow(0.02, dt);
+    this.rollAngle += this.rollVel * dt;
+    const home = Math.round(this.rollAngle / TAU) * TAU;
+    const settle = Math.min(1, dt * 8 * (1 - Math.min(1, Math.abs(this.rollVel) / 2)));
+    this.rollAngle += (home - this.rollAngle) * settle;
+    if (Math.abs(this.rollVel) < 0.01) this.rollVel = 0;
+    // Snap the last hair, so a settled ball is exactly front-on and the loop
+    // can go back to sleep under reduced motion.
+    if (this.rollVel === 0 && Math.abs(this.rollAngle - home) < 0.002) this.rollAngle = 0;
+    this.orb.rotation.x = this.gaze.y * 0.26 + Math.sin(this.t * 22) * this.nodAmt * 0.4
+      + this.rollAngle;
     this.orb.position.x = this.gaze.x * 0.10;
     this.orb.position.y = -this.gaze.y * 0.07 +
       (this.reduced ? 0 : Math.sin(this.t * 1.4) * 0.022);

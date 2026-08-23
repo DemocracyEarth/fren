@@ -430,6 +430,19 @@
      */
     setListening() { /* no visual equivalent in the SVG renderer */ }
 
+    /** The viewBox is fixed, so a new size is two attributes and nothing else. */
+    resize(px) {
+      const n = Math.max(1, Math.round(px));
+      this.svg.setAttribute('width', n);
+      this.svg.setAttribute('height', n);
+      this._wake();
+    }
+
+    // A drawn face cannot roll like a ball — spinning a flat one reads as a
+    // sticker turning, not as a sphere. The size still changes; only the
+    // tumble is missing, and only on the fallback renderer.
+    roll() { /* no visual equivalent in the SVG renderer */ }
+
     setSpeechLevel(v) {
       this.speechLevel = v === null || v === undefined ? null : clamp(v, 0, 1);
       this._wake();

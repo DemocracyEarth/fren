@@ -1,0 +1,67 @@
+<!doctype html>
+<!--
+  Roll lab — a bench for the scroll-to-resize gesture, next to lab.html.
+
+  Tuning a physical animation needs eyes on it. The first version of the roll
+  pulled the angle back toward zero, which fought the spin the whole way and
+  capped it around 45 degrees — a tilt, not a roll. That was only obvious when
+  watching it. Pulling toward the nearest WHOLE TURN instead lets the ball
+  tumble as far as the shove carries it and still finish face-front.
+
+  This deliberately mirrors the gesture maths in app.js rather than importing
+  it: app.js talks to the main process, which does not exist here. If the feel
+  changes in one, change it in the other.
+-->
+<html><head><meta charset="utf-8"><title>roll lab</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  body { margin:0; min-height:100vh; background:#EDE7DC; display:grid; place-items:center;
+         font-family:var(--font); }
+  #wrap { display:grid; place-items:center; gap:18px; }
+  #zone { display:grid; place-items:center; width:calc(144px * var(--orb-scale,1));
+          height:calc(144px * var(--orb-scale,1)); }
+  #orb { width:calc(123px * var(--orb-scale,1)); height:calc(123px * var(--orb-scale,1));
+         border:0; background:none; padding:0; cursor:pointer; }
+  #orb canvas { filter: drop-shadow(0 0 1px rgba(74,38,4,.38))
+                        drop-shadow(0 2px 4px rgba(0,0,0,.26))
+                        drop-shadow(0 6px 14px rgba(0,0,0,.24)); }
+  #hud { font:600 12px var(--font); color:#6E6555; text-align:center; }
+</style></head>
+<body>
+<div id="wrap">
+  <div id="zone"><button id="orb"></button></div>
+  <div id="hud">scroll on the orb</div>
+</div>
+<script src="face.js"></script>
+<script type="module" src="orb.js"></script>
+<script type="module">
+  await new Promise((r) => setTimeout(r, 120));
+  const orbEl = document.getElementById('orb');
+  const hud = document.getElementById('hud');
+  const face = new window.FrenFace.Face(orbEl, { size: 123 });
+  face.set('watching');
+  window.__face = face;
+
+  const BASE = 123, MIN = 0.65, MAX = 2;
+  let scale = 1, want = null;
+  const apply = (s) => {
+    document.documentElement.style.setProperty('--orb-scale', String(s));
+    if (face.resize) face.resize(BASE * s);
+    hud.textContent = `scale ${s.toFixed(2)}  ·  ${Math.round(BASE * s)}px` +
+      (face.rollAngle !== undefined ? `  ·  roll ${face.rollAngle.toFixed(2)}rad` : '');
+  };
+  const pump = () => {
+    if (want === null) return;
+    scale = want; want = null; apply(scale);
+  };
+  orbEl.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const next = Math.min(MAX, Math.max(MIN, scale * Math.exp(-e.deltaY * 0.0016)));
+    if (Math.abs(next - scale) > 0.0005 && face.roll) face.roll(-e.deltaY * 0.06);
+    want = next;
+    requestAnimationFrame(pump);
+  }, { passive: false });
+  apply(1);
+  setInterval(() => apply(scale), 100);   // keep the roll readout live
+</script>
+</body></html>

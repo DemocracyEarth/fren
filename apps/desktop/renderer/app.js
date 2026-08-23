@@ -807,6 +807,84 @@ window.addEventListener('mouseup', async () => {
 els.orb.addEventListener('click', (e) => { if (e.detail === 0) activateOrb(); });
 
 // The character notices the cursor.
+/**
+ * Scroll on fren to make it bigger or smaller.
+ *
+ * Scroll up and it grows and rolls toward you; scroll down and it shrinks and
+ * rolls back. The size is remembered, so whatever you leave it at is what you
+ * get next launch.
+ *
+ * Three things have to happen together or it does not read as one object:
+ * the WINDOW resizes (the canvas cannot draw outside it), the CANVAS resizes,
+ * and the sphere ROLLS. The roll is what turns a resize into a movement — the
+ * same reason a ball getting closer also turns.
+ *
+ * Wheel events arrive far faster than a window can be resized, so the gesture
+ * accumulates into a target and is drained one resize at a time. The draining
+ * is clocked by the resize itself finishing, not by a frame callback: that
+ * self-limits to exactly what the main process can absorb, and it keeps
+ * working when the window is occluded — requestAnimationFrame does not run at
+ * all on a hidden window, which would leave the size stuck wherever the last
+ * visible frame left it.
+ */
+const ORB_BASE_PX = 123;        // #orb at scale 1, from styles.css
+const ZOOM_PER_NOTCH = 0.0016;  // deltaY is in pixels, and varies wildly by device
+
+let orbScale = 1;
+let scaleMin = 0.65;
+let scaleMax = 2;
+let wantScale = null;           // set by the wheel, drained by pumpScale
+let scaleBusy = false;          // a resize is in flight
+
+function applyOrbScale(s) {
+  document.documentElement.style.setProperty('--orb-scale', String(s));
+  if (face && face.resize) face.resize(ORB_BASE_PX * s);
+}
+
+async function pumpScale() {
+  if (scaleBusy || wantScale === null) return;
+  scaleBusy = true;
+  try {
+    // Keep draining: more notches almost always arrive while a resize is in
+    // flight, and stopping after one would make a long scroll feel like it
+    // dropped most of the gesture.
+    while (wantScale !== null) {
+      const next = wantScale;
+      wantScale = null;
+      if (Math.abs(next - orbScale) < 0.001) continue;
+      orbScale = next;
+      applyOrbScale(orbScale);
+      // Main owns the window and the saved value, and it clamps — so believe
+      // what it reports back rather than what was asked for.
+      try {
+        const r = await window.fren.setOrbScale(orbScale);
+        if (r) {
+          scaleMin = r.min;
+          scaleMax = r.max;
+          if (Math.abs(r.scale - orbScale) > 0.001) { orbScale = r.scale; applyOrbScale(orbScale); }
+        }
+      } catch { /* the canvas already moved; the window will catch up */ }
+    }
+  } finally {
+    scaleBusy = false;
+  }
+}
+
+els.orb.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  // Exponential, so one notch feels the same at every size — a linear step
+  // would crawl when small and leap when large.
+  const next = Math.min(scaleMax, Math.max(scaleMin,
+    orbScale * Math.exp(-e.deltaY * ZOOM_PER_NOTCH)));
+  // At the stops the size cannot move, and a ball that keeps spinning against
+  // a wall it is not passing looks broken rather than playful.
+  if (Math.abs(next - orbScale) > 0.0005 && face && face.roll) {
+    face.roll(-e.deltaY * 0.09);
+  }
+  wantScale = next;
+  pumpScale();
+}, { passive: false });
+
 els.orb.addEventListener('mouseenter', () => react('hover'));
 els.orb.addEventListener('mouseleave', () => {
   // Let the reaction finish on its own — snapping back mid-expression is what
@@ -1246,6 +1324,18 @@ scheduleWander();
 
   window.fren.onSuggestion(onSuggestion);
   window.fren.onCurious(onCurious);
+  // Restore the size fren was left at. Before the greeting, so it is already
+  // the right size the first time it moves.
+  try {
+    const s = await window.fren.getOrbScale();
+    if (s) {
+      scaleMin = s.min;
+      scaleMax = s.max;
+      orbScale = s.scale;
+      applyOrbScale(orbScale);
+    }
+  } catch { /* the default size is fine */ }
+
   window.fren.greeting()
     .then((g) => (g && g.text ? greetQuietly(g.text) : null))
     .catch(() => {});
