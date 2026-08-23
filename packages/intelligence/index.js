@@ -168,6 +168,15 @@ function buildChatRequest({ question, memories = [], observations = [], profile 
     'You are fren, a small quiet companion that lives on the desktop and watches only while its eyes are open.',
     'Answer ONLY from the observed context provided in the message; never invent activity that is not there.',
     'Be concise: 2-4 sentences is typical.',
+    // The two habits that made replies read like a report rather than an
+    // answer. The timeline below is full of clock ranges and durations, and
+    // left to itself the model hands them back as if the arithmetic were the
+    // point.
+    'Cut straight to the answer. Do not restate the question, do not preface, do',
+    'not sum up at the end. First sentence, first thing they wanted to know.',
+    'Say WHAT they were doing, not how long they did it for. No durations, no',
+    'clock times, no counts, unless they actually asked for one — "you were in',
+    'Figma, then back in the editor", never "you spent 47 minutes in Figma".',
     'If the context is insufficient or observation was off, say so plainly instead of guessing.',
     'No generic productivity advice.',
     // What the user told fren about themselves. It is context for TONE and for
@@ -334,18 +343,35 @@ function buildAutomationRequest({ pattern, message, memories = [], platform = 'm
   return { system, messages: [{ role: 'user', content }], schema: AUTOMATION_SCHEMA };
 }
 
-/** "14 hours", "9 days", "a moment" — how long fren was gone, in words. */
-function gapInWords(ms) {
+/**
+ * How long fren was away, coarsely — and deliberately not as a number.
+ *
+ * This used to return "14 hours" and the greeting recited it back: "it's been
+ * fourteen hours since I saw you". Nobody talks like that. Being told how long
+ * you were away from your own computer is a meter reading, not a hello, and it
+ * is the first thing that made the greeting feel like software.
+ *
+ * So the gap now shapes the TONE and never reaches the sentence. There is no
+ * number here to quote.
+ */
+function gapTone(ms) {
   if (!Number.isFinite(ms) || ms < 0) return 'unknown';
-  const mins = Math.round(ms / 60000);
-  if (mins < 2) return 'a moment';
-  if (mins < 60) return `${mins} minutes`;
-  const hours = Math.round(mins / 60);
-  if (hours < 36) return `${hours} hours`;
-  const days = Math.round(hours / 24);
-  if (days < 14) return `${days} days`;
-  const weeks = Math.round(days / 7);
-  return weeks < 9 ? `${weeks} weeks` : `${Math.round(days / 30)} months`;
+  const hours = ms / 3600000;
+  if (hours < 1) return 'barely away';
+  if (hours < 10) return 'the same day';
+  if (hours < 36) return 'a night in between';
+  if (hours < 24 * 14) return 'several days';
+  return 'a long absence';
+}
+
+/** "morning", "afternoon" — enough for a natural hello, no clock reading. */
+function partOfDay(d) {
+  const h = d.getHours();
+  if (h < 5) return 'the middle of the night';
+  if (h < 12) return 'morning';
+  if (h < 18) return 'afternoon';
+  if (h < 22) return 'evening';
+  return 'late evening';
 }
 
 /**
@@ -382,9 +408,17 @@ function buildGreetingRequest({
     "You are fren, a small companion that lives in the corner of someone's desktop.",
     'You have just been launched. Say hello.',
     '',
-    'ONE sentence. A second only if it is very short. This is spoken out loud, so',
-    'no formatting, no emoji, no lists, no stage directions, and never narrate',
-    'yourself in the third person.',
+    'ONE short sentence. Spoken out loud, so no formatting, no emoji, no lists,',
+    'no stage directions, and never narrate yourself in the third person.',
+    '',
+    'Cut straight to it. No throat-clearing, no scene-setting, no summing up what',
+    'has happened. Open with the thing you actually want to say.',
+    '',
+    'NEVER MENTION HOW LONG THEY WERE AWAY. Not in hours, not in days, not as',
+    '"a while", not at all. You are told below roughly how long it was; that is',
+    'to shape how warm you sound, and it is not information to hand back. Nobody',
+    'wants their own computer reporting how long they were off it. For the same',
+    'reason: no clock times, no counting anything, no "that is the third time".',
     '',
     'THE RULE YOU MUST NOT BREAK: you were CLOSED. Not running, not watching, not',
     'waiting, not keeping an eye on anything. You have no idea what happened while',
@@ -412,8 +446,13 @@ function buildGreetingRequest({
     'the hour or the gap instead. Reading someone their own private activity back',
     'to them is not a welcome, it is a receipt.',
     '',
-    'Be glad they turned up, and be specific where you honestly can: the size of',
-    'the gap, the hour, what they were mid-way through. Dry and warm beats zany.',
+    'Be glad they turned up. If the note below gives you something they were in',
+    'the middle of, that is the most natural thing to say something about — what',
+    'they were doing, never how long they did it for. Dry and warm beats zany.',
+    '',
+    'You saw a window title, nothing more. Do not judge the work: it was not',
+    '"coming together nicely", it was not "a tricky one", you have no idea',
+    'whether it was going well. Name it, or ask about it, and leave it there.',
     '',
     'Never say "How can I help you today?", "Ready to assist", or anything else a',
     'support bot would say. Offer no help at all. You are not reporting for duty —',
@@ -433,10 +472,12 @@ function buildGreetingRequest({
 
   const notes = lines([
     name ? `Name: ${name}` : 'Name: not known yet',
-    `Local time: ${day} ${clock(now)}`,
+    // Part of day, not a clock reading: enough to say "morning" naturally,
+    // nothing to recite.
+    `Roughly: ${day} ${partOfDay(d)}`,
     lastSeenMs
-      ? `Gap since you last ran: ${gapInWords(now - lastSeenMs)}`
-      : 'Gap since you last ran: never — this is a new install with no notes',
+      ? `How long you were off, FOR YOUR TONE ONLY, never to be said: ${gapTone(now - lastSeenMs)}`
+      : 'You have never run before — this is a new install and you know nothing yet.',
     lastActivity ? `Last thing you noted before closing: ${String(lastActivity).slice(0, 300)}` : null,
     facts ? `Notes you keep about them:\n${String(facts).slice(0, 800)}` : null,
   ]);
@@ -794,7 +835,8 @@ module.exports = {
   buildRoutineRequest,
   buildCuriosityRequest,
   buildGreetingRequest,
-  gapInWords,
+  gapTone,
+  partOfDay,
   buildLearnRequest,
   ROUTINE_SCHEMA,
   AUTOMATION_SCHEMA,

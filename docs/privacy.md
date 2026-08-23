@@ -113,7 +113,7 @@ network requests with your data.
 | Derived activity summaries from the last 8 hours | Every 12 minutes while observing, to look for a repeated workflow |
 | Derived activity summaries from the last 5 hours, plus `SOUL.md` | At most a few times a day while observing, when fren considers asking you something (see "When fren asks you things") |
 | A question fren asked and your answer to it | Right after you answer one, to decide whether anything in it is worth keeping |
-| Your name, how long fren was closed, the last activity noted **before** it closed, and up to six lines of `MEMORY.md` | Once per arrival, to write the greeting (see "Saying hello") |
+| Your name, roughly how long fren was closed, the last activity noted **before** it closed, and up to six lines of `MEMORY.md` | Once per arrival, to write the greeting (see "Saying hello") |
 | The same context a chat message sends | When a routine you set up comes round. Routines never fire while fren is paused. |
 | **One screenshot** | Only when you press the eye button. Never automatically. |
 | Transcribed text of what you said (never the audio) | When you use push-to-talk |
@@ -201,11 +201,16 @@ The greeting is spoken only if your machine can actually be heard; on a muted
 machine it is written to the panel instead and no speech is generated. Unlike a
 reply you asked for, it will never open the panel by itself.
 
-Two rules are enforced in the prompt because a greeting is the easiest place to
-imply something untrue: fren must not suggest it saw anything while it was
-closed, and it must not read a **personal** last activity back to you —
-messaging, shopping, private browsing. A greeting that recites your private
-activity is a receipt, not a welcome.
+Rules enforced in the prompt, because a greeting is the easiest place to imply
+something untrue or to sound like a machine: fren must not suggest it saw
+anything while it was closed; it must not read a **personal** last activity back
+to you (messaging, shopping, private browsing), because that is a receipt rather
+than a welcome; it must not pass judgement on work it only saw the title of; and
+**it must never tell you how long you were away**. The gap reaches the prompt
+only as a coarse tone — "a night in between" — with no figure in it to quote.
+Being told by your own computer how long you were off it is a meter reading, not
+a hello. The same applies to ordinary replies: fren says what you were doing,
+not how many minutes you did it for, unless you ask.
 
 ## When fren asks you things
 

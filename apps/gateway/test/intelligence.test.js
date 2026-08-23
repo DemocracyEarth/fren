@@ -9,19 +9,35 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const {
-  buildGreetingRequest, gapInWords, buildCuriosityRequest, buildLearnRequest,
+  buildGreetingRequest, gapTone, buildCuriosityRequest, buildLearnRequest,
 } = require('../../../packages/intelligence');
 
-test('a gap is described the way a person would say it', () => {
-  assert.equal(gapInWords(30 * 1000), 'a moment');
-  assert.equal(gapInWords(9 * 60 * 1000), '9 minutes');
-  assert.equal(gapInWords(14 * 3600 * 1000), '14 hours');
-  assert.equal(gapInWords(9 * 86400 * 1000), '9 days');
-  assert.match(gapInWords(40 * 86400 * 1000), /weeks/);
-  assert.match(gapInWords(200 * 86400 * 1000), /months/);
-  // A clock that jumped backwards must not produce "-3 hours".
-  assert.equal(gapInWords(-5000), 'unknown');
-  assert.equal(gapInWords(NaN), 'unknown');
+test('the gap is a tone, with no number in it to recite', () => {
+  // This used to return "14 hours" and the greeting handed it straight back:
+  // "it's been fourteen hours since I saw you". Being told how long you were
+  // away from your own computer is a meter reading, not a hello.
+  const H = 3600 * 1000;
+  assert.equal(gapTone(0.3 * H), 'barely away');
+  assert.equal(gapTone(5 * H), 'the same day');
+  assert.equal(gapTone(20 * H), 'a night in between');
+  assert.equal(gapTone(72 * H), 'several days');
+  assert.equal(gapTone(400 * H), 'a long absence');
+  // A clock that jumped backwards must not produce anything quotable either.
+  assert.equal(gapTone(-5000), 'unknown');
+  assert.equal(gapTone(NaN), 'unknown');
+  // The point of the whole exercise: no digits anywhere in any answer.
+  for (const ms of [0.1 * H, 3 * H, 30 * H, 200 * H, 5000 * H]) {
+    assert.ok(!/\d/.test(gapTone(ms)), `gapTone(${ms}) handed back a number`);
+  }
+});
+
+test('the greeting is forbidden from measuring anything', () => {
+  const flat = buildGreetingRequest({}).system.replace(/\s+/g, ' ');
+  assert.match(flat, /NEVER MENTION HOW LONG THEY WERE AWAY/);
+  assert.match(flat, /no clock times/i);
+  assert.match(flat, /Cut straight to it/i);
+  // And it must not pass judgement on work it only saw the title of.
+  assert.match(flat, /Do not judge the work/i);
 });
 
 test('the greeting is told, in terms it cannot miss, that fren was closed', () => {
@@ -97,7 +113,7 @@ test('the greeting refuses the assistant voice', () => {
 
 test('a first launch says so rather than inventing a history', () => {
   const notes = buildGreetingRequest({ lastSeenMs: null }).messages[0].content;
-  assert.match(notes, /never — this is a new install/);
+  assert.match(notes, /never run before/);
   assert.ok(!/Last thing you noted/.test(notes), 'nothing observed means nothing quoted');
 });
 
@@ -111,10 +127,12 @@ test('what fren actually knows reaches the greeting', () => {
     now,
   }).messages[0].content;
   assert.match(notes, /Name: Sam/);
-  assert.match(notes, /Monday 08:12/);
-  assert.match(notes, /14 hours/);
+  assert.match(notes, /Monday morning/, 'a part of the day, not a clock reading');
   assert.match(notes, /curiosity\.js/);
   assert.match(notes, /billing rewrite/);
+  // The gap is present as a tone and labelled as unusable, with no figure in it.
+  assert.match(notes, /FOR YOUR TONE ONLY, never to be said: a night in between/);
+  assert.ok(!/08:12|14 hours|\b14\b/.test(notes), 'nothing quotable about the clock or the gap');
 });
 
 test('an enormous activity string cannot run away with the prompt', () => {
@@ -147,4 +165,16 @@ test('learning is told to keep only what outlives the day', () => {
   // The durability bar itself lives in the schema, where the model reads it
   // while filling the field — that is the half that must not be lost.
   assert.match(req.schema.properties.worthKeeping.description, /still true and still useful in a month/i);
+});
+
+test('chat is told to answer, not to report', () => {
+  // The timeline handed to the model is full of clock ranges and durations, and
+  // left to itself it hands them straight back — "you spent 47 minutes in
+  // Figma" — which reads as a meter reading rather than an answer.
+  const { buildChatRequest } = require('../../../packages/intelligence');
+  const flat = buildChatRequest({ question: 'what have I been doing?' }).system.replace(/\s+/g, ' ');
+  assert.match(flat, /Cut straight to the answer/i);
+  assert.match(flat, /Do not restate the question/i);
+  assert.match(flat, /No durations, no clock times, no counts/i);
+  assert.match(flat, /unless they actually asked/i);
 });
