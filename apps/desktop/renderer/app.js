@@ -26,6 +26,7 @@ const els = {
   gatewayDot: document.getElementById('gateway-dot'),
   watch: document.getElementById('watch'),
   watchLabel: document.getElementById('watch-label'),
+  watchSay: document.getElementById('watch-say'),
   dashDot: document.getElementById('dash-dot'),
   quit: document.getElementById('quit'),
   messages: document.getElementById('messages'),
@@ -1090,23 +1091,32 @@ async function markUnread() {
   } catch { /* leave it as it was */ }
 }
 
-let watchHover = false;
-
 function paintWatch() {
   if (!els.watch) return;
   const on = !!state.observing;
-  els.watchLabel.textContent = watchHover
-    ? (on ? 'pause' : 'wake up')
-    : (on ? 'watching' : 'paused');
+  // ALWAYS the state, never the action. An earlier version swapped this to the
+  // verb on hover, which was wrong for a specific reason: Dashboard and quit
+  // both sit to the right of this control, so every trip to either drags the
+  // pointer across it — and a watching machine reading "pause" under a resting
+  // cursor is exactly the misreading that merging the label and the button was
+  // meant to end. It also broke Label in Name: the accessible name said
+  // "Watching" while the visible word said "pause", so voice control matched
+  // nothing. Hover now says the control is actionable; the tooltip says what
+  // the action is.
+  els.watchLabel.textContent = on ? 'watching' : 'paused';
   els.watch.setAttribute('aria-checked', on ? 'true' : 'false');
-  // The accessible name never becomes the hover word: a screen reader gets the
-  // state from aria-checked and should not hear the label flip under a pointer
-  // it is not using.
   els.watch.setAttribute('aria-label',
-    on ? 'Watching. Turn off to stop watching.' : 'Not watching. Turn on to start watching.');
+    on ? 'Watching your screen. Turn off to stop.' : 'Not watching. Turn on to start.');
   els.watch.title = on
     ? 'fren is watching — click to pause'
     : 'fren is paused — click to start watching';
+  // Capture can start or stop without this button being pressed — from the orb,
+  // or by main at launch. Unannounced, the one fact that matters most in this
+  // window is the one a screen reader never hears.
+  if (els.watchSay) {
+    const said = on ? 'fren is now watching your screen' : 'fren has stopped watching';
+    if (els.watchSay.textContent !== said) els.watchSay.textContent = said;
+  }
 }
 
 // The panel is for talking; the dashboard is for reading back properly. With
@@ -1122,10 +1132,6 @@ if (dashBtn) {
 }
 
 els.watch.addEventListener('click', () => window.fren.toggleObservation());
-els.watch.addEventListener('mouseenter', () => { watchHover = true; paintWatch(); });
-els.watch.addEventListener('mouseleave', () => { watchHover = false; paintWatch(); });
-els.watch.addEventListener('focus', () => { watchHover = true; paintWatch(); });
-els.watch.addEventListener('blur', () => { watchHover = false; paintWatch(); });
 els.quit.addEventListener('click', () => window.fren.quit());
 
 els.form.addEventListener('submit', (e) => {

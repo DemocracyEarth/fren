@@ -13,28 +13,18 @@
          when the window grows. -->
     <section id="panel" hidden>
       <header id="panel-head">
-        <svg class="wordmark" viewBox="0 0 300 118" width="76" aria-label="fren" role="img">
-          <g fill="none" stroke="var(--ink)" stroke-linecap="round" stroke-width="17">
-            <path d="M30 100V36Q30 15 51 15"/>
-            <path d="M13 49H51"/>
-            <path d="M88 100V41"/>
-            <path d="M88 59Q88 41 112 41"/>
-            <!-- the "e" keeps a real aperture at 4 o'clock so it doesn't read as a theta -->
-            <path d="M184.7 101.5A34 34 0 1 1 204.8 78.8"/>
-            <path d="M139 70H200" stroke-width="13"/>
-            <path d="M240 100V41"/>
-            <path d="M240 59Q240 41 262 41Q284 41 284 63V100"/>
-          </g>
-          <!-- and its lower counter holds fren's own smile -->
-          <path d="M146.3 76.5Q172 116 197.7 76.5Z" fill="var(--orange)"/>
-        </svg>
+        <span class="wordmark" role="img" aria-label="fren"></span>
         <!-- One control, not two. Whether fren is watching is the most
              important fact in this window, and the thing you most often want
              to change about it — so saying it and changing it are the same
              button. -->
         <button id="watch" type="button" role="switch" aria-checked="false">
-          <span id="watch-dot"></span><span id="watch-label">paused</span>
+          <span id="watch-dot" aria-hidden="true"></span><span id="watch-label">paused</span>
         </button>
+        <!-- The light can change without this button being pressed: from the orb,
+             or by main at launch. Announce it, or the fact that matters most in
+             this window is the one a screen reader never hears. -->
+        <span id="watch-say" class="sr-only" role="status" aria-live="polite"></span>
 
         <span class="spacer"></span>
         <span id="gateway-dot" title="fren cannot reach its thinking half"></span>

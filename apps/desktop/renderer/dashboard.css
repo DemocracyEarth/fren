@@ -44,7 +44,21 @@ html, body {
   overflow-y: auto;
 }
 .brand { padding: 0 8px 18px; -webkit-app-region: drag; }
-.wordmark { display: block; }
+/* The wordmark, as a mask rather than inline paths.
+ *
+ * One copy of the artwork lives in wordmark.svg and both windows point at it,
+ * so the logo cannot drift between them. Masking rather than <img> means it
+ * takes its colour from --ink like everything else, instead of hardcoding a
+ * hex inside the asset and quietly ignoring the palette. */
+.wordmark {
+  display: block;
+  flex: 0 0 auto;
+  width: 64px;
+  aspect-ratio: 1000 / 403.3;
+  background: var(--ink);
+  -webkit-mask: url(wordmark.svg) no-repeat center / contain;
+  mask: url(wordmark.svg) no-repeat center / contain;
+}
 
 .side-group { margin-bottom: 20px; }
 .side-label {

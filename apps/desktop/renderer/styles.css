@@ -118,9 +118,9 @@ html, body {
 #watch {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 26px;
-  padding: 5px 11px 5px 9px;
+  gap: 7px;
+  min-height: 32px;                /* was 26px, under the click-target floor */
+  padding: 0 12px 0 10px;
   border: 1px solid rgba(26, 23, 18, .14);
   border-radius: 999px;
   background: transparent;
@@ -133,15 +133,35 @@ html, body {
               color .18s var(--ease-soft);
 }
 #watch:hover { background: rgba(26, 23, 18, .06); color: var(--ink); }
+/* The label has a fixed box so the pill does not resize when the state flips
+ * and shove the buttons beside it sideways. "watching" is the wider word. */
+#watch-label { min-width: 52px; text-align: center; }
+
+/* Announced, not shown. */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
 #watch:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
 
+/* Shape first, colour second: a hollow ring is off, a filled disc is on. That
+ * distinction survives greyscale, a colour-blind eye, and a 7px dot seen out of
+ * the corner of one — none of which is true of orange-vs-grey alone. */
 #watch-dot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: #C2B7A2;
+  border: 2px solid #B5AA95;
+  background: transparent;
   flex: none;
-  transition: background .3s var(--ease-soft), box-shadow .3s var(--ease-soft);
+  transition: background .3s var(--ease-soft), border-color .3s var(--ease-soft),
+              box-shadow .3s var(--ease-soft);
 }
 body[data-watching="1"] #watch {
   border-color: rgba(237, 138, 47, .38);
@@ -150,6 +170,7 @@ body[data-watching="1"] #watch {
 }
 body[data-watching="1"] #watch:hover { background: rgba(237, 138, 47, .18); }
 body[data-watching="1"] #watch-dot {
+  border-color: var(--orange);
   background: var(--orange);
   box-shadow: 0 0 0 3px rgba(237, 138, 47, 0.18);
 }
@@ -184,10 +205,26 @@ body[data-watching="1"] #watch-dot {
   height: 6px;
   border-radius: 50%;
   background: var(--orange);
-  box-shadow: 0 0 0 2px var(--paper, #F2EDE4);
+  /* The header's own ground. --paper does not exist in tokens.css, so the
+   * previous var(--paper, …) here was always falling through to its default. */
+  box-shadow: 0 0 0 2px var(--bone);
 }
 
-.wordmark { display: block; flex: 0 0 auto; }
+/* The wordmark, as a mask rather than inline paths.
+ *
+ * One copy of the artwork lives in wordmark.svg and both windows point at it,
+ * so the logo cannot drift between them. Masking rather than <img> means it
+ * takes its colour from --ink like everything else, instead of hardcoding a
+ * hex inside the asset and quietly ignoring the palette. */
+.wordmark {
+  display: block;
+  flex: 0 0 auto;
+  width: 72px;
+  aspect-ratio: 1000 / 403.3;
+  background: var(--ink);
+  -webkit-mask: url(wordmark.svg) no-repeat center / contain;
+  mask: url(wordmark.svg) no-repeat center / contain;
+}
 
 /* Only shown when the thinking half cannot be reached. A second permanently
  * lit dot next to the status one just competes with it. */
