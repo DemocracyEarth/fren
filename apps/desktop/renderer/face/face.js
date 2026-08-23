@@ -325,9 +325,11 @@
         </g>
         <g class="fx"></g>`;
       mount.appendChild(svg);
+      this.mount = mount;
 
       const q = (s) => svg.querySelector(s);
       this.svg = svg;
+      this._publishPlacement(opts.size || 200);
       this.g = {
         amb: q('.amb'), ao: q('.ao'), body: q('.body'), sphere: q('.sphere'), rim: q('.rim'),
         spec: q('.spec'), bloom: q('.bloom'), core: q('.core'), fx: q('.fx'),
@@ -435,7 +437,26 @@
       const n = Math.max(1, Math.round(px));
       this.svg.setAttribute('width', n);
       this.svg.setAttribute('height', n);
+      this._publishPlacement(n);
       this._wake();
+    }
+
+    /**
+     * Where the sphere sits, for anything drawn outside the face.
+     *
+     * Simpler than the 3D renderer's: this sphere is a circle at the centre of
+     * a 200 viewBox with radius 74, and it does not move. Same variables all
+     * the same, so the recording ring does not have to know which renderer it
+     * is sitting on top of.
+     */
+    _publishPlacement(px) {
+      const host = this.mount;
+      if (!host) return;
+      const n = px || parseFloat(this.svg.getAttribute('width')) || 0;
+      if (!n) return;
+      host.style.setProperty('--sphere-dx', '0px');
+      host.style.setProperty('--sphere-dy', '0px');
+      host.style.setProperty('--sphere-r', `${(n * (R / 100) * 0.5).toFixed(2)}px`);
     }
 
     // A drawn face cannot roll like a ball — spinning a flat one reads as a

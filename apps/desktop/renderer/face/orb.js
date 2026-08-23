@@ -28,6 +28,21 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 const TAU = Math.PI * 2;
 
+/**
+ * How the sphere sits inside its canvas.
+ *
+ * The camera is a 30-degree perspective at z = 5.25 looking at y = -0.12, so
+ * the frame is 2*tan(15deg)*5.25 units across at the sphere's plane, and the
+ * view axis passes BELOW the sphere's centre — deliberately, to keep the
+ * contact shadow in frame.
+ *
+ * Anything drawn outside the canvas that has to line up with the sphere needs
+ * these: the sphere is not the canvas, and it does not sit in the middle of it.
+ */
+const VIEW_SPAN = 2 * Math.tan((30 * Math.PI / 180) / 2) * 5.25;   // 2.8138
+const VIEW_DROP = -0.12;                                            // camera lookAt y
+const SPHERE_FRACTION = 2 / VIEW_SPAN;                              // 0.7108 of the canvas
+
 /** Parameters that cross-fade when the expression changes. */
 const EASED = ['lit', 'lidTop', 'eyeScale', 'eyeAsym', 'mouthW', 'mouthOpen', 'mouthCurve', 'mouthWave'];
 
@@ -313,6 +328,28 @@ class Orb {
     this._wake();
   }
 
+  /**
+   * Write the sphere's centre and radius onto the mount as CSS variables.
+   *
+   * Cheap enough to do every frame — three custom properties on one element —
+   * and the only way a ring outside the canvas stays concentric with a sphere
+   * that moves inside it.
+   */
+  _publishPlacement() {
+    const host = this.mount;
+    if (!host) return;
+    const css = parseFloat(this.canvas.style.width) || 0;
+    if (!css) return;
+    const perUnit = css / VIEW_SPAN;
+    const dx = this.orb.position.x * perUnit;
+    // Screen y grows downward, and the view axis sits at VIEW_DROP.
+    const dy = -(this.orb.position.y - VIEW_DROP) * perUnit;
+    const r = css * SPHERE_FRACTION * 0.5 * this.orb.scale.x;
+    host.style.setProperty('--sphere-dx', `${dx.toFixed(2)}px`);
+    host.style.setProperty('--sphere-dy', `${dy.toFixed(2)}px`);
+    host.style.setProperty('--sphere-r', `${r.toFixed(2)}px`);
+  }
+
   /** Re-render at a new pixel size. The camera is square, so nothing else moves. */
   resize(px) {
     const n = Math.max(1, Math.round(px));
@@ -504,6 +541,15 @@ class Orb {
     this.orb.position.x = this.gaze.x * 0.10;
     this.orb.position.y = -this.gaze.y * 0.07 +
       (this.reduced ? 0 : Math.sin(this.t * 1.4) * 0.022);
+
+    // Publish where the sphere actually is, in CSS pixels from the canvas
+    // centre, so anything drawn outside the canvas can follow it.
+    //
+    // A static ring cannot stay centred on this: the sphere tracks the pointer
+    // by up to a tenth of a unit — 3.6% of the canvas, and about 9px at full
+    // size — and idles with a slow bob on top. Measuring it once and hard-coding
+    // the answer is right only for the instant it was measured.
+    this._publishPlacement();
 
     this.renderer.render(this.scene, this.camera);
 
