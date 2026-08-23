@@ -86,12 +86,46 @@ html, body {
   box-shadow: var(--lift);
   overflow: hidden;
   -webkit-app-region: no-drag;
-  animation: rise .3s var(--ease-out);
+
+  /* It unfolds out of the orb and folds back into it.
+   *
+   * The orb sits at the bottom-right of this window and the panel stacks above
+   * it, so bottom-right is where the panel is physically hinged — scaling from
+   * anywhere else would read as a dialog appearing rather than as fren opening
+   * up. The window itself resizes instantly and invisibly (it is transparent);
+   * everything you actually see happens here. */
+  transform-origin: 100% 100%;
+  will-change: transform, opacity;
 }
 #panel[hidden] { display: none; }
 
-@keyframes rise {
-  from { opacity: 0; transform: translateY(10px) scale(.97); }
+#panel.opening { animation: panel-in .34s var(--ease-out) both; }
+#panel.closing { animation: panel-out .19s var(--ease-soft) both; }
+
+@keyframes panel-in {
+  /* Overshoot slightly at 72% so it settles rather than stops — the same
+     softness the character itself has. */
+  from { opacity: 0; transform: translate(10px, 26px) scale(.82); }
+  72%  { opacity: 1; transform: translate(0, -3px) scale(1.012); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes panel-out {
+  /* Quicker than it arrived. Waiting to leave feels like lag; arriving slowly
+     feels considered. */
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translate(8px, 18px) scale(.88); }
+}
+
+/* The pieces arrive just after the box does, so it reads as unfolding rather
+ * than as one flat card sliding in. Small offsets — this is a 340ms event and
+ * anything longer would be a thing you wait for. */
+#panel.opening > * { animation: piece-in .3s var(--ease-out) both; }
+#panel.opening > #panel-head { animation-delay: .05s; }
+#panel.opening > #messages   { animation-delay: .10s; }
+#panel.opening > #input-row  { animation-delay: .15s; }
+
+@keyframes piece-in {
+  from { opacity: 0; transform: translateY(7px); }
   to   { opacity: 1; transform: none; }
 }
 
