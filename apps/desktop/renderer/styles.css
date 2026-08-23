@@ -70,8 +70,24 @@ html, body {
 #orb-zone::after {
   content: '';
   grid-area: 1 / 1;
-  width: calc(123px * var(--orb-scale, 1));
-  height: calc(123px * var(--orb-scale, 1));
+  /*
+   * Sized and placed to the SPHERE, not to the canvas it is drawn in.
+   *
+   * The two are not the same thing and the difference is visible. Reading the
+   * silhouette back out of the rendered alpha: the sphere is 72.5% of the
+   * canvas across, and its centre sits 3.67% of the canvas ABOVE the canvas
+   * centre, because the camera is framed low on purpose to keep the contact
+   * shadow in frame (orb.js: camera.position.set(0, -0.12, 5.25)).
+   *
+   * A ring sized to the canvas and centred on it is therefore both too large
+   * and too low — which is exactly how it looked.
+   *
+   *   123 x 0.725  = 89.2px across at scale 1
+   *   123 x 0.0367 =  4.5px up
+   */
+  width: calc(89.2px * var(--orb-scale, 1));
+  height: calc(89.2px * var(--orb-scale, 1));
+  transform: translateY(calc(-4.5px * var(--orb-scale, 1)));
   border-radius: 50%;
   pointer-events: none;
   opacity: 0;

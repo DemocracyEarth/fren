@@ -1124,6 +1124,17 @@ function vlog(step, extra) {
  */
 function listening(level) {
   const on = level !== null && level !== undefined;
+  // A late level reading must not relight the ring.
+  //
+  // The meter runs on requestAnimationFrame inside mic.js. Stopping clears the
+  // ring and THEN awaits mic.stop(), and the await is a gap a queued frame can
+  // fire in — setting the ring back on a moment before the meter is torn down,
+  // with nothing left to come and clear it. The ring then pulsed forever over a
+  // microphone that had been shut for minutes, which is the most alarming thing
+  // this app could get wrong.
+  //
+  // wantRecording is already false by then, so it is the honest gate.
+  if (on && !wantRecording) return;
   face.setListening(level);
   document.body.dataset.recording = on ? '1' : '0';
   if (!on) disarmRecordingCap();
@@ -1189,6 +1200,11 @@ async function stopTalkingAndSend() {
   // Read it before clearing it, or the check below can never be true.
   const expected = wantRecording;
   wantRecording = false;
+  // Unconditional, and before the early returns below. The ring says the
+  // microphone is open; the one unforgivable state is leaving it lit over a
+  // shut one, so no path out of this function may skip putting it out.
+  document.body.dataset.recording = '0';
+  disarmRecordingCap();
   // Two separate window-level mouseup handlers can both land here for one
   // gesture; a second entry must not stop a recorder the first is already
   // draining.
