@@ -489,8 +489,8 @@ class Orb {
       // exactly where the orb is most colourful.
       this.material.color.setHSL(
         REC_HUE,
-        Math.min(1, _hsl.s * 0.55 + beat * 0.45),
-        Math.min(0.62, _hsl.l + beat * 0.05),
+        Math.min(1, _hsl.s * 0.45 + beat * 0.58),
+        Math.min(0.64, _hsl.l + beat * 0.075),
         THREE.SRGBColorSpace,
       );
     }
