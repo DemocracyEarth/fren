@@ -47,6 +47,52 @@ html, body {
 }
 #orb:active { transform: scale(.94); }
 
+/*
+ * The recording light.
+ *
+ * A ring around the sphere rather than a glow inside it, and that is the whole
+ * point. Probing the face renderer showed the internal glow sweeping from 1.45
+ * to 4.4 emissive is plainly visible while fren is WATCHING and does almost
+ * nothing while it is PAUSED — the face is drained and its eyes are shut, so
+ * there is nearly nothing there to light up. An indicator that fades out
+ * exactly when the screen light is off is the wrong way round: that is the
+ * moment you most need to know the microphone is open.
+ *
+ * So the ring is independent of the face. It reads on a bright face and a dark
+ * one, it works for both renderers, and it cannot be mistaken for the watching
+ * light because the eyes stay shut underneath it.
+ */
+#orb-zone::after {
+  content: '';
+  grid-area: 1 / 1;
+  width: calc(123px * var(--orb-scale, 1));
+  height: calc(123px * var(--orb-scale, 1));
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+}
+body[data-recording="1"] #orb-zone::after {
+  animation: rec-pulse 1.5s infinite var(--ease-soft);
+}
+@keyframes rec-pulse {
+  0%   { opacity: .62; box-shadow: 0 0 0 1px rgba(var(--accent-rgb), .62); }
+  72%  { opacity: 0;   box-shadow: 0 0 0 17px rgba(var(--accent-rgb), 0); }
+  100% { opacity: 0;   box-shadow: 0 0 0 17px rgba(var(--accent-rgb), 0); }
+}
+
+/*
+ * Reduced motion gets a STEADY ring instead of none. The pulse is decoration;
+ * "your microphone is open" is not, and silently dropping the only indication
+ * of it would be the one place this preference must not be obeyed literally.
+ */
+@media (prefers-reduced-motion: reduce) {
+  body[data-recording="1"] #orb-zone::after {
+    animation: none;
+    opacity: 1;
+    box-shadow: 0 0 0 3px rgba(var(--accent-rgb), .70);
+  }
+}
+
 .fren-face { display: block; overflow: visible; }
 
 /*

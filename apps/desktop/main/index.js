@@ -1,7 +1,7 @@
 // Electron main process: creates the mascot window and wires the loop
 // observe -> remember -> summarize -> chat. Owns the observation on/off state.
 const path = require('path');
-const { app, BrowserWindow, ipcMain, screen, protocol, net, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, protocol, net, shell, dialog } = require('electron');
 const { pathToFileURL } = require('node:url');
 const { config, loadEnv } = require('../../../packages/shared');
 const { openMemory } = require('../../../packages/memory');
@@ -118,6 +118,9 @@ let patterns = null;
 let routines = null;
 let curiosity = null;
 let heartbeat = null;
+// Set once the user has actually chosen to quit, so the dashboard's close
+// handler does not ask again while app.quit() is closing that same window.
+let quitting = false;
 const bootAt = Date.now();
 // When fren was last alive. Written on a heartbeat rather than on quit, because
 // a crash, a force-quit or a logout all skip the tidy exit — and the greeting
@@ -883,6 +886,36 @@ app.whenReady().then(() => {
       },
     });
     dash.loadURL(`${SCHEME}://app/dashboard.html`);
+
+    /**
+     * Closing the dashboard asks whether that means closing fren.
+     *
+     * The orb has no title bar, no close button and no menu — so once the
+     * chat's × stops quitting, this window is the only place the question can
+     * be asked. Getting it wrong in the quiet direction leaves fren running
+     * with no window to reach it by; getting it wrong in the loud direction
+     * kills the app when someone tidied a window away.
+     *
+     * `quitting` guards the re-entry: app.quit() closes this window too, which
+     * would fire this handler again and ask a second time.
+     */
+    dash.on('close', (e) => {
+      if (quitting) return;
+      e.preventDefault();
+      const response = dialog.showMessageBoxSync(dash, {
+        type: 'question',
+        buttons: ['Close this window', 'Quit fren', 'Cancel'],
+        defaultId: 0,
+        cancelId: 2,
+        message: 'Close the dashboard, or quit fren?',
+        detail: 'fren keeps running in the corner of your screen unless you quit it. ' +
+                'Quitting stops it watching and closes everything.',
+      });
+      if (response === 2) return;                 // cancel: leave it open
+      if (response === 1) { quitting = true; app.quit(); return; }
+      dash.destroy();                             // just this window
+    });
+
     dash.on('closed', () => { dash = null; });
     return true;
   });
@@ -1072,7 +1105,7 @@ app.whenReady().then(() => {
     return true;
   });
 
-  ipcMain.handle('fren:quit', () => app.quit());
+  ipcMain.handle('fren:quit', () => { quitting = true; app.quit(); });
 
   /**
    * Answer a question from fren's own memory.
@@ -1128,7 +1161,13 @@ app.whenReady().then(() => {
   });
 });
 
-app.on('window-all-closed', () => app.quit());
+// NOT app.quit(). The orb window is the app: it is frameless with no close
+// button, so "all windows closed" can only mean the dashboard was closed and
+// the orb is being rebuilt — quitting there would take fren down with it.
+// Quitting is a decision made in one place, the dashboard's close dialog.
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') return;      // and even then, stay up
+});
 
 app.on('before-quit', () => {
   if (gazeTimer) clearInterval(gazeTimer);
