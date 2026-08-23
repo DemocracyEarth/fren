@@ -70,13 +70,6 @@ class Orb {
     // wherever the wheel left it would spend most of its life facing away.
     this.rollVel = 0;
     this.rollAngle = 0;
-    // Shake. One amount, plus a set of frequencies and phases re-rolled every
-    // time it is kicked. The randomness lives in the CHARACTER of the wobble
-    // rather than in a jittered amplitude: jittering the amplitude reads as
-    // dropped frames, while jittering the frequencies reads as a real object
-    // wobbling in a way you cannot predict.
-    this.jiggleAmt = 0;
-    this.jiggleWave = null;
     this.t = 0;
     this.raf = null;
 
@@ -145,27 +138,16 @@ class Orb {
     this.uWobble = { value: 0 };
     this.uSquash = { value: 0 };
     this.uTime = { value: 0 };
-    // Re-rolled on every shake. Without it the surface always deforms into the
-    // same standing wave and a hard shake is just a louder version of a poke —
-    // which is exactly the "not stochastic enough" complaint.
-    this.uSeed = { value: 0 };
     this.material.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = this.uTime;
       shader.uniforms.uAmount = this.uWobble;
       shader.uniforms.uSquash = this.uSquash;
-      shader.uniforms.uSeed = this.uSeed;
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', `#include <common>
-          uniform float uTime; uniform float uAmount; uniform float uSquash;
-          uniform float uSeed;`)
-        // Three axes rather than two, so the wobble travels around the sphere
-        // instead of rippling in one plane. The weights still sum to 1.0, so
-        // uAmount means the same displacement it always did and the existing
-        // poke is untouched.
+          uniform float uTime; uniform float uAmount; uniform float uSquash;`)
         .replace('#include <begin_vertex>', `#include <begin_vertex>
-          float w = sin(position.y * 4.2 + uTime * 9.0  + uSeed)        * 0.45
-                  + sin(position.x * 3.1 - uTime * 7.3  + uSeed * 1.7)  * 0.32
-                  + sin(position.z * 5.3 + uTime * 11.6 + uSeed * 2.3)  * 0.23;
+          float w = sin(position.y * 4.2 + uTime * 9.0) * 0.6
+                  + sin(position.x * 3.1 - uTime * 7.3) * 0.4;
           transformed += normal * w * uAmount;
           transformed.xz *= 1.0 + uSquash;
           transformed.y  *= 1.0 - uSquash;`);
@@ -331,40 +313,6 @@ class Orb {
     this._wake();
   }
 
-  /**
-   * Shaken. Wobble like something with jelly in it.
-   *
-   * `power` is 0..1 and ADDS, so a sustained shake keeps topping the energy up
-   * instead of restarting the animation on every reversal — restarting is what
-   * makes a repeated effect look like a stutter.
-   *
-   * The wave is re-rolled on every kick. Six independent frequencies, all
-   * incommensurate, so nothing lines up into a visible beat and no two shakes
-   * are the same shape. The existing poke keeps its single tidy sine; this is
-   * deliberately the messy relative of it.
-   */
-  shake(power = 1) {
-    const p = clamp(power, 0, 1);
-    // Motion is the whole effect here, so under prefers-reduced-motion it is
-    // simply not done. There is no honest quieter version of "wobbles wildly".
-    if (this.reduced) return;
-    this.jiggleAmt = Math.min(1, this.jiggleAmt + p * 0.75);
-    const r = (lo, hi) => lo + Math.random() * (hi - lo);
-    this.jiggleWave = {
-      // Spread across a range rather than picked around one value: a fast
-      // wobble on top of a slow one is what reads as floppy.
-      fa: r(11, 17), fb: r(19, 27), fc: r(24, 34),
-      fd: r(13, 21), fe: r(26, 36), ff: r(9, 15),
-      pa: r(0, TAU), pb: r(0, TAU), pc: r(0, TAU),
-      pd: r(0, TAU), pe: r(0, TAU), pf: r(0, TAU),
-      // Which way it mostly swings, so one shake favours side-to-side and the
-      // next favours a tumble.
-      tilt: r(0.5, 1.4), yaw: r(0.5, 1.4), pitch: r(0.3, 1.0),
-      seed: r(0, 40),
-    };
-    this._wake();
-  }
-
   /** Re-render at a new pixel size. The camera is square, so nothing else moves. */
   resize(px) {
     const n = Math.max(1, Math.round(px));
@@ -430,7 +378,6 @@ class Orb {
     if (this.listenLevel !== null) return false;
     if (Math.abs(this.wobbleAmt) > 0.001 || Math.abs(this.squashAmt) > 0.001) return false;
     if (Math.abs(this.nodAmt) > 0.001 || Math.abs(this.shakeAmt) > 0.001) return false;
-    if (this.jiggleAmt > 0.001) return false;   // or a wobble freezes mid-wobble
     if (Math.abs(this.gaze.x - this.gazeTarget.x) > 0.002) return false;
     if (Math.abs(this.gaze.y - this.gazeTarget.y) > 0.002) return false;
     for (const k of EASED) if (Math.abs(this.target[k] - this.p[k]) > 0.001) return false;
@@ -515,8 +462,10 @@ class Orb {
     // as the microphone having closed.
     if (this.listenLevel !== null) {
       this.material.emissiveIntensity = 1.45 + 0.30 + this.listenLevel * 1.5;
+      this.orb.scale.setScalar(1 + this.listenLevel * 0.016);
     } else if (this.material.emissiveIntensity !== 1.45) {
       this.material.emissiveIntensity = 1.45;
+      this.orb.scale.setScalar(1);
     }
 
     // Impulses ring out like something soft.
@@ -524,44 +473,13 @@ class Orb {
     this.squashAmt *= Math.pow(0.02, dt);
     this.nodAmt *= Math.pow(0.02, dt);
     this.shakeAmt *= Math.pow(0.02, dt);
-    // Slower than the poke on purpose. A poke is an acknowledgement and should
-    // be over before you have finished clicking; a shake carries on after you
-    // stop, because the settling IS the joke.
-    this.jiggleAmt *= Math.pow(0.10, dt);
-    if (this.jiggleAmt < 0.002) { this.jiggleAmt = 0; this.jiggleWave = null; }
-
-    const j = this.jiggleAmt;
-    const w = this.jiggleWave;
-    let jTilt = 0, jYaw = 0, jPitch = 0, jSquash = 0, jx = 0, jy = 0;
-    if (j > 0 && w) {
-      const t = this.t;
-      // Two frequencies per axis, one fast and one slow. A single sine per axis
-      // is a pendulum; two that never line up is something floppy.
-      //
-      // The amplitudes were measured, not guessed: a first pass peaked at 20
-      // degrees of yaw and 4% squash — LESS squash than a single click gets.
-      // An aggressive shake has to be obviously wilder than a poke.
-      jYaw   = (Math.sin(t * w.fa + w.pa) + 0.55 * Math.sin(t * w.fb + w.pb)) * j * 0.62 * w.yaw;
-      jTilt  = (Math.sin(t * w.fc + w.pc) + 0.50 * Math.sin(t * w.fd + w.pd)) * j * 0.52 * w.tilt;
-      jPitch = Math.sin(t * w.fe + w.pe) * j * 0.36 * w.pitch;
-      jSquash = Math.sin(t * w.ff + w.pf) * j * 0.15;
-      // A little travel too, so it is not pivoting about a fixed point — a
-      // shaken object moves as well as turns.
-      jx = Math.sin(t * w.fb + w.pc) * j * 0.05;
-      jy = Math.sin(t * w.fd + w.pe) * j * 0.04;
-      this.uSeed.value = w.seed;
-    }
-
-    this.uWobble.value = this.wobbleAmt + j * 0.15;
-    this.uSquash.value = this.squashAmt + jSquash;
+    this.uWobble.value = this.wobbleAmt;
+    this.uSquash.value = this.squashAmt;
 
     // The body TURNS toward the pointer, and takes the highlight with it.
     this.gaze.x += (this.gazeTarget.x - this.gaze.x) * Math.min(1, dt * 5);
     this.gaze.y += (this.gazeTarget.y - this.gaze.y) * Math.min(1, dt * 5);
-    this.orb.rotation.y = this.gaze.x * 0.42 + Math.sin(this.t * 26) * this.shakeAmt * 0.5 + jYaw;
-    // Roll about the view axis. Nothing else uses it, and a side-to-side lean
-    // is most of what makes something look shaken rather than merely turned.
-    this.orb.rotation.z = jTilt;
+    this.orb.rotation.y = this.gaze.x * 0.42 + Math.sin(this.t * 26) * this.shakeAmt * 0.5;
     // Roll. The spin runs down on its own, and the angle is pulled toward the
     // NEAREST WHOLE TURN rather than toward zero — which is the whole trick.
     // Pulling toward zero caps the tumble at whatever the pull allows (it
@@ -581,25 +499,11 @@ class Orb {
     // Snap the last hair, so a settled ball is exactly front-on and the loop
     // can go back to sleep under reduced motion.
     if (this.rollVel === 0 && Math.abs(this.rollAngle - home) < 0.002) this.rollAngle = 0;
-    this.orb.rotation.x = jPitch + this.gaze.y * 0.26 + Math.sin(this.t * 22) * this.nodAmt * 0.4
+    this.orb.rotation.x = this.gaze.y * 0.26 + Math.sin(this.t * 22) * this.nodAmt * 0.4
       + this.rollAngle;
-    this.orb.position.x = this.gaze.x * 0.10 + jx;
-    this.orb.position.y = -this.gaze.y * 0.07 + jy +
+    this.orb.position.x = this.gaze.x * 0.10;
+    this.orb.position.y = -this.gaze.y * 0.07 +
       (this.reduced ? 0 : Math.sin(this.t * 1.4) * 0.022);
-
-    // Scale has TWO owners — the listening breathe and the shake — so they are
-    // composed here in one place. Written separately, whichever ran last simply
-    // won, and since the shake resolves to exactly 1 when idle it would have
-    // silently flattened the breathe for good.
-    //
-    // Drawing in while wobbling is not decoration: the sphere is framed to fill
-    // the canvas with 41% of its radius spare, and only 0.287 of that above
-    // centre, while the bulge and the squash MULTIPLY. At full amplitude the
-    // silhouette would push past the top edge and the wobble would clip instead
-    // of wobble. Pulling it in buys the room back, and a ball drawing into
-    // itself as it is rattled looks deliberate.
-    const breathe = this.listenLevel !== null ? 1 + this.listenLevel * 0.016 : 1;
-    this.orb.scale.setScalar(breathe * (1 - j * 0.10));
 
     this.renderer.render(this.scene, this.camera);
 
