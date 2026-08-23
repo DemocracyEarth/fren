@@ -1,7 +1,7 @@
 // Electron main process: creates the mascot window and wires the loop
 // observe -> remember -> summarize -> chat. Owns the observation on/off state.
 const path = require('path');
-const { app, BrowserWindow, ipcMain, screen, protocol, net, shell, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, protocol, net, shell, dialog, Menu } = require('electron');
 const { pathToFileURL } = require('node:url');
 const { config, loadEnv } = require('../../../packages/shared');
 const { openMemory } = require('../../../packages/memory');
@@ -142,6 +142,30 @@ function positionWindow(size) {
     y: workArea.y + workArea.height - size.height - MARGIN,
     ...size,
   });
+}
+
+/**
+ * Grow or shrink the window around the panel.
+ *
+ * The orb lives at the window's bottom-right, so the window grows up and to the
+ * left: the character stays exactly where it was parked.
+ */
+function setPanelOpen(open) {
+  const cur = win.getBounds();
+  const size = open ? panelSize() : orbSize();
+  const anchorRight = cur.x + cur.width;
+  const anchorBottom = cur.y + cur.height;
+  const { workArea } = screen.getDisplayMatching(cur);
+  const x = Math.min(
+    Math.max(anchorRight - size.width, workArea.x),
+    workArea.x + workArea.width - size.width
+  );
+  const y = Math.min(
+    Math.max(anchorBottom - size.height, workArea.y),
+    workArea.y + workArea.height - size.height
+  );
+  win.setBounds({ x, y, ...size });
+  state.set({ panelOpen: !!open });
 }
 
 function createWindow() {
@@ -421,23 +445,26 @@ app.whenReady().then(() => {
 
   // The orb lives at the window's bottom-right, so the window grows up and to
   // the left: the character stays exactly where the user parked it.
-  ipcMain.handle('fren:setPanelOpen', (_e, open) => {
-    const cur = win.getBounds();
-    const size = open ? panelSize() : orbSize();
-    const anchorRight = cur.x + cur.width;
-    const anchorBottom = cur.y + cur.height;
-    const { workArea } = screen.getDisplayMatching(cur);
-    const x = Math.min(
-      Math.max(anchorRight - size.width, workArea.x),
-      workArea.x + workArea.width - size.width
-    );
-    const y = Math.min(
-      Math.max(anchorBottom - size.height, workArea.y),
-      workArea.y + workArea.height - size.height
-    );
-    win.setBounds({ x, y, ...size });
-    state.set({ panelOpen: !!open });
-  });
+  ipcMain.handle('fren:setPanelOpen', (_e, open) => setPanelOpen(open));
+
+  /**
+   * A way in that does not depend on the right mouse button.
+   *
+   * The chat panel is opened by right-clicking the orb now, which is fine until
+   * it is not: a mouse with one button, an input device that cannot send it, or
+   * a drag region quietly swallowing the event, and the panel is unreachable —
+   * on a window with no title bar, no close button and no menu of its own.
+   *
+   * macOS gives every app a dock icon unless it asks not to, so there is
+   * already a menu there. This puts the two doors into it. Windows and Linux
+   * have no equivalent, and would want a tray icon; that is not built.
+   */
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.setMenu(Menu.buildFromTemplate([
+      { label: 'Open the chat', click: () => { setPanelOpen(true); win.show(); } },
+      { label: 'Open the dashboard', click: () => openDashboard() },
+    ]));
+  }
 
   ipcMain.handle('fren:dragStart', () => {
     const cursor = screen.getCursorScreenPoint();
@@ -869,7 +896,8 @@ app.whenReady().then(() => {
    * Trying to fold a sidebar and a day timeline into 384px would have made both
    * worse.
    */
-  ipcMain.handle('fren:openDashboard', () => {
+  /** Open the dashboard, or bring the one that exists to the front. */
+  function openDashboard() {
     if (dash && !dash.isDestroyed()) { dash.show(); dash.focus(); return true; }
     dash = new BrowserWindow({
       width: 1040,
@@ -918,7 +946,9 @@ app.whenReady().then(() => {
 
     dash.on('closed', () => { dash = null; });
     return true;
-  });
+  }
+
+  ipcMain.handle('fren:openDashboard', () => openDashboard());
 
   ipcMain.handle('fren:days', () => {
     try { return memory.getActiveDays(60); } catch { return []; }
