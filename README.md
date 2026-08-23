@@ -251,6 +251,33 @@ The last two answers are not about you — they define fren. They are written to
 `SOUL.md` in fren's data folder as instructions it is told to follow, and you
 can open that file, rewrite it, and have it take effect on your next message.
 
+## Running an automation
+
+fren can run a script it drafted, on a schedule. Three gates stand between a
+draft and it running unattended, and they are enforced in that order every
+single time — not once, at setup:
+
+1. **You read it and approve it.** Approval is bound to a hash of the exact
+   script text, so editing it voids the approval rather than inheriting it.
+2. **It ran by hand, successfully, at least once.** A schedule is a promotion
+   for something already seen working, never a start.
+3. **You turned the schedule on**, separately from both of the above.
+
+Every run is re-checked against the approval hash at the moment it runs, so a
+schedule is permission to run one specific script — not standing permission to
+run whatever later sits under that name.
+
+Beyond those: a blocklist refuses the obviously catastrophic before anything
+reaches a shell (deleting data, privilege escalation, piping a download into an
+interpreter, reading credentials, installing persistence). That is the LAST
+line, not the first — a blocklist cannot be complete and is not a sandbox. There
+is also a hard timeout, no shell interpolation anywhere, a reduced environment
+so a script sees none of this process's variables, and every run is recorded
+with its output in the dashboard.
+
+Nothing runs while fren is paused, and a missed run expires rather than firing
+hours late.
+
 **Routines: tell fren when.** Say "every weekday at nine, tell me what I did
 yesterday" and it sets one up. At that time fren asks itself the question, works
 it out from what it observed, and reads the answer back.
@@ -296,10 +323,10 @@ These are designed to exist later. They are not built now, and the code does not
 pretend otherwise:
 
 - always-on listening (voice is push-to-talk only, by design)
-- autonomous mouse/keyboard control — fren will DRAFT an automation when you
-  ask ("Can you automate it?" on a noticed pattern), and show you the steps and
-  a script to read. It never runs any of it, and there is no code path that
-  could: the draft is displayed, not executed.
+- fren acting on its own initiative. It will RUN an automation it drafted, but
+  only one you have read and approved, and only after it has already run
+  successfully by hand. See "Running an automation" below — the gates are the
+  feature, not an obstacle to it.
 - a browser extension
 - WhatsApp or mobile clients
 - multi-device sync

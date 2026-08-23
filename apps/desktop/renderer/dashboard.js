@@ -234,52 +234,179 @@ async function showAutomations() {
   els.title.textContent = 'Automations';
   els.content.textContent = '';
 
+  let list = [];
+  try { list = await window.fren.automations(); } catch { list = []; }
+
+  // Drafts that have not been kept yet still live on the suggestion.
   const all = await suggestions();
-  const drafted = all.filter((s) => s.draft);
-  els.subtitle.textContent = drafted.length
-    ? `${drafted.length} drafted`
+  const unkept = all.filter((x) => x.draft && x.draft.script &&
+    !list.some((a) => a.suggestionId === x.id));
+
+  els.subtitle.textContent = list.length || unkept.length
+    ? `${list.length} kept${unkept.length ? `, ${unkept.length} drafted` : ''}`
     : 'Nothing drafted yet';
 
-  if (!drafted.length) {
+  if (!list.length && !unkept.length) {
     els.content.appendChild(blank(
       'Nothing drafted yet',
       'Ask fren to automate something it noticed and the draft appears here. ' +
-      'fren writes them; it never runs them.'
+      'Nothing runs until you have read it and approved it, and nothing is ' +
+      'scheduled until it has already run once by hand.'
     ));
     return;
   }
 
-  for (const s of drafted) {
+  for (const a of list) els.content.appendChild(automationCard(a));
+
+  for (const s of unkept) {
     const card = el('div', 'card');
     const head = el('div', 'card-head');
-    head.append(el('b', null, s.pattern || 'automation'));
+    head.append(el('b', null, s.pattern || 'draft'));
     card.append(head);
-
-    const d = s.draft;
-    if (!d.feasible) {
-      card.append(el('p', null, d.caveats || 'This one cannot be automated from what fren saw.'));
-      els.content.appendChild(card);
-      continue;
-    }
-    if (d.approach) card.append(el('p', null, d.approach));
-    if (d.steps && d.steps.length) {
-      const ol = el('ol');
-      for (const step of d.steps) ol.append(el('li', null, step));
-      card.append(ol);
-    }
-    if (d.script) {
-      card.append(el('pre', null, d.script));
-      // Said next to the script, every time, not buried in a doc.
-      card.append(el('p', 'warn', 'fren has not run this, and cannot. Read it before you do.'));
-    }
-    if (d.caveats) card.append(el('p', 'caveat', d.caveats));
+    if (s.draft.approach) card.append(el('p', null, s.draft.approach));
+    card.append(el('pre', null, s.draft.script));
+    const actions = el('div', 'row-actions');
+    const keep = el('button', 'mini primary', 'Keep this');
+    keep.addEventListener('click', async () => {
+      await window.fren.keepAutomation(s.id);
+      cachedSuggestions = null;
+      showAutomations();
+      refreshCounts();
+    });
+    actions.append(keep);
+    card.append(actions);
     els.content.appendChild(card);
   }
 }
 
+/**
+ * One kept automation, and the three gates it has to pass.
+ *
+ * The interface makes the state legible rather than just offering buttons: you
+ * can see whether it is approved, whether it has ever run, and whether it is
+ * scheduled — because "why won't this run?" should be answerable by looking.
+ */
+function automationCard(a) {
+  const card = el('div', 'card');
+
+  const head = el('div', 'card-head');
+  head.append(el('b', null, a.name));
+  head.append(el('time', null, a.language || 'script'));
+  card.append(head);
+
+  // The three gates, stated.
+  const approved = a.approvedHash && a.approvedHash === a.currentHash;
+  const gates = el('div', 'gates');
+  gates.append(gate('Approved', approved,
+    a.approvedHash && !approved ? 'script changed since approval' : ''));
+  gates.append(gate('Run by hand', a.verified));
+  gates.append(gate('Scheduled', !!(a.schedule && a.schedule.enabled)));
+  card.append(gates);
+
+  if (!a.scan.safe) {
+    const warn = el('p', 'warn',
+      'fren will refuse to run this: ' + a.scan.blocked.join('; ') + '.');
+    card.append(warn);
+  }
+
+  card.append(el('pre', null, a.script));
+
+  const actions = el('div', 'row-actions');
+
+  if (!approved) {
+    const ok = el('button', 'mini primary', 'I have read this — approve');
+    ok.disabled = !a.scan.safe;
+    ok.addEventListener('click', async () => {
+      // The hash of what was RENDERED, so approving something that changed
+      // underneath is refused rather than silently accepted.
+      const res = await window.fren.approveAutomation(a.id, a.currentHash);
+      if (res && res.error) return alertInline(card, res.error);
+      showAutomations();
+    });
+    actions.append(ok);
+  } else {
+    const runBtn = el('button', 'mini primary', a.verified ? 'Run now' : 'Run now (first time)');
+    runBtn.addEventListener('click', async () => {
+      runBtn.disabled = true;
+      runBtn.textContent = 'Running…';
+      const res = await window.fren.runAutomation(a.id);
+      showAutomations();
+      if (res && res.output) alertInline(card, res.output);
+    });
+    actions.append(runBtn);
+
+    if (a.verified) {
+      const sched = el('button', 'mini',
+        a.schedule && a.schedule.enabled ? 'Stop the schedule' : 'Run this on a schedule');
+      sched.addEventListener('click', async () => {
+        const on = !(a.schedule && a.schedule.enabled);
+        const s = a.schedule || { hour: 9, minute: 0, days: [1, 2, 3, 4, 5] };
+        await window.fren.scheduleAutomation(a.id, { ...s, enabled: on });
+        showAutomations();
+        refreshCounts();
+      });
+      actions.append(sched);
+    }
+
+    const revoke = el('button', 'mini', 'Withdraw approval');
+    revoke.addEventListener('click', async () => {
+      await window.fren.revokeAutomation(a.id);
+      showAutomations();
+      refreshCounts();
+    });
+    actions.append(revoke);
+  }
+
+  const del = el('button', 'mini danger', 'Delete');
+  del.addEventListener('click', async () => {
+    await window.fren.deleteAutomation(a.id);
+    showAutomations();
+    refreshCounts();
+  });
+  actions.append(del);
+  card.append(actions);
+
+  if (a.schedule && a.schedule.enabled && a.nextRun) {
+    card.append(el('p', 'caveat', whenNext(a.nextRun)));
+  }
+
+  // Every run, kept. Something that runs unattended should leave a record.
+  if (a.runs && a.runs.length) {
+    const d = el('details', 'last');
+    d.append(el('summary', null, `${a.runs.length} recent run${a.runs.length === 1 ? '' : 's'}`));
+    for (const r of a.runs) {
+      const line = el('div', 'run');
+      line.append(el('span', `dot ${r.status}`, ''));
+      line.append(el('span', null,
+        `${new Date(r.ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ` +
+        `${hhmm(r.ts)} · ${r.trigger} · ${r.status}`));
+      d.append(line);
+      if (r.output) d.append(el('pre', 'run-out', r.output));
+    }
+    card.append(d);
+  }
+
+  return card;
+}
+
+function gate(label, passed, note) {
+  const g = el('span', `gate ${passed ? 'on' : 'off'}`);
+  g.append(el('i', null, passed ? '✓' : '·'));
+  g.append(el('span', null, note ? `${label} — ${note}` : label));
+  return g;
+}
+
+function alertInline(card, text) {
+  const old = card.querySelector('.inline-note');
+  if (old) old.remove();
+  const p = el('p', 'caveat inline-note', text);
+  card.append(p);
+}
+
+
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-/** "every weekday at 09:00", in words rather than as a cron line. */
+/** "Every weekday at 09:00", in words rather than as a cron line. */
 function describeWhen(r) {
   const time = `${pad(r.hour)}:${pad(r.minute)}`;
   if (!r.days || !r.days.length) return `Every day at ${time}`;
@@ -294,12 +421,11 @@ function whenNext(ts) {
   if (!ts) return '';
   const d = new Date(ts);
   const today = new Date();
-  const sameDay = d.toDateString() === today.toDateString();
-  const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
-  const isTomorrow = d.toDateString() === tomorrow.toDateString();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
   const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  if (sameDay) return `Next: today at ${time}`;
-  if (isTomorrow) return `Next: tomorrow at ${time}`;
+  if (d.toDateString() === today.toDateString()) return `Next: today at ${time}`;
+  if (d.toDateString() === tomorrow.toDateString()) return `Next: tomorrow at ${time}`;
   return `Next: ${d.toLocaleDateString(undefined, { weekday: 'short' })} at ${time}`;
 }
 
@@ -328,12 +454,10 @@ async function showRoutines() {
 
   for (const r of list) {
     const card = el('div', 'card');
-
     const head = el('div', 'card-head');
     head.append(el('b', null, r.name));
     head.append(el('time', null, describeWhen(r)));
     card.append(head);
-
     card.append(el('p', null, r.prompt));
 
     const meta = el('div', 'named');
@@ -356,6 +480,7 @@ async function showRoutines() {
     toggle.addEventListener('click', async () => {
       await window.fren.setRoutineEnabled(r.id, !r.enabled);
       showRoutines();
+      refreshCounts();
     });
     const del = el('button', 'mini danger', 'Delete');
     del.addEventListener('click', async () => {
@@ -365,7 +490,6 @@ async function showRoutines() {
     });
     actions.append(toggle, del);
     card.append(actions);
-
     els.content.appendChild(card);
   }
 }

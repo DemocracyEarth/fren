@@ -19,6 +19,45 @@ CREATE TABLE IF NOT EXISTS memories (
   confidence REAL,
   raw_count INTEGER
 );
+-- Automations: scripts fren drafted that the user has chosen to keep.
+--
+-- Three gates stand between a drafted script and it running unattended, and
+-- the schema holds all three so none can be skipped by a code path:
+--
+--   approved_hash  the exact script the user read and approved. Stored as a
+--                  hash of the text, so editing the script voids the approval
+--                  rather than silently inheriting it.
+--   verified       it has run successfully by hand at least once. Nothing is
+--                  scheduled that has never been seen working.
+--   schedule_enabled  the user turned the schedule on, separately from both.
+CREATE TABLE IF NOT EXISTS automations (
+  id            INTEGER PRIMARY KEY,
+  suggestion_id INTEGER,
+  name          TEXT NOT NULL,
+  language      TEXT NOT NULL DEFAULT '',
+  script        TEXT NOT NULL,
+  approved_hash TEXT,
+  approved_at   INTEGER,
+  verified      INTEGER NOT NULL DEFAULT 0,
+  sched_hour    INTEGER,
+  sched_minute  INTEGER,
+  sched_days    TEXT NOT NULL DEFAULT '',
+  sched_enabled INTEGER NOT NULL DEFAULT 0,
+  last_run      INTEGER,
+  created       INTEGER
+);
+
+-- Every execution, kept. An unattended thing that runs on your machine should
+-- leave a record you can read afterwards.
+CREATE TABLE IF NOT EXISTS automation_runs (
+  id            INTEGER PRIMARY KEY,
+  automation_id INTEGER NOT NULL,
+  ts            INTEGER NOT NULL,
+  trigger       TEXT NOT NULL,
+  status        TEXT NOT NULL,
+  output        TEXT
+);
+
 -- Routines: things fren does at a time, rather than when asked.
 --
 -- What a routine does is deliberately narrow: it ASKS fren something and reads
@@ -283,6 +322,80 @@ function openMemory(dbPath) {
      * fren observes. Kept apart from memories on purpose: observations expire,
      * and someone's name should not.
      */
+    // ---- automations ------------------------------------------------------
+    addAutomation({ suggestionId = null, name, language = '', script, created = Date.now() }) {
+      const { lastInsertRowid } = db
+        .prepare('INSERT INTO automations (suggestion_id, name, language, script, created) ' +
+                 'VALUES (?, ?, ?, ?, ?)')
+        .run(suggestionId, String(name), String(language), String(script), Number(created));
+      return Number(lastInsertRowid);
+    },
+
+    getAutomations() {
+      return db.prepare('SELECT * FROM automations ORDER BY created DESC').all().map((a) => ({
+        id: a.id,
+        suggestionId: a.suggestion_id,
+        name: a.name,
+        language: a.language,
+        script: a.script,
+        approvedHash: a.approved_hash,
+        approvedAt: a.approved_at,
+        verified: !!a.verified,
+        schedule: a.sched_hour === null ? null : {
+          hour: a.sched_hour,
+          minute: a.sched_minute,
+          days: a.sched_days ? a.sched_days.split(',').map(Number) : [],
+          enabled: !!a.sched_enabled,
+        },
+        lastRun: a.last_run,
+        created: a.created,
+      }));
+    },
+
+    /** Record that this exact script text was read and approved. */
+    approveAutomation(id, hash, at = Date.now()) {
+      db.prepare('UPDATE automations SET approved_hash = ?, approved_at = ? WHERE id = ?')
+        .run(String(hash), Number(at), Number(id));
+    },
+
+    /** Withdraw approval, and with it the schedule and the verification. */
+    revokeAutomation(id) {
+      db.prepare('UPDATE automations SET approved_hash = NULL, approved_at = NULL, ' +
+                 'verified = 0, sched_enabled = 0 WHERE id = ?')
+        .run(Number(id));
+    },
+
+    markAutomationVerified(id) {
+      db.prepare('UPDATE automations SET verified = 1 WHERE id = ?').run(Number(id));
+    },
+
+    setAutomationSchedule(id, { hour, minute, days = [], enabled }) {
+      db.prepare('UPDATE automations SET sched_hour = ?, sched_minute = ?, ' +
+                 'sched_days = ?, sched_enabled = ? WHERE id = ?')
+        .run(Number(hour), Number(minute), days.join(','), enabled ? 1 : 0, Number(id));
+    },
+
+    deleteAutomation(id) {
+      db.prepare('DELETE FROM automation_runs WHERE automation_id = ?').run(Number(id));
+      db.prepare('DELETE FROM automations WHERE id = ?').run(Number(id));
+    },
+
+    recordRun({ automationId, ts = Date.now(), trigger, status, output }) {
+      db.prepare('INSERT INTO automation_runs (automation_id, ts, trigger, status, output) ' +
+                 'VALUES (?, ?, ?, ?, ?)')
+        .run(Number(automationId), Number(ts), String(trigger), String(status),
+             output == null ? null : String(output).slice(0, 4000));
+      db.prepare('UPDATE automations SET last_run = ? WHERE id = ?')
+        .run(Number(ts), Number(automationId));
+    },
+
+    getRuns(automationId, limit = 20) {
+      return db.prepare('SELECT * FROM automation_runs WHERE automation_id = ? ' +
+                        'ORDER BY ts DESC LIMIT ?')
+        .all(Number(automationId), Number(limit))
+        .map((r) => ({ id: r.id, ts: r.ts, trigger: r.trigger, status: r.status, output: r.output }));
+    },
+
     // ---- routines ---------------------------------------------------------
     addRoutine({ name, prompt, hour, minute, days = [], created = Date.now() }) {
       const { lastInsertRowid } = db

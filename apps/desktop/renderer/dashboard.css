@@ -319,3 +319,40 @@ body[data-watching="1"] #side-status { color: var(--orange-ink); }
   padding: 3px 0;
 }
 .last p { margin: 6px 0 0; font-size: 13px; line-height: 1.55; color: var(--ink-soft); }
+
+/* ---- the three gates ------------------------------------------------------
+ * Shown as state rather than hidden behind disabled buttons, so "why won't
+ * this run?" is answerable by looking at it. */
+.gates { display: flex; flex-wrap: wrap; gap: 7px; margin: 9px 0 11px; }
+.gate {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.gate i { font-style: normal; font-size: 11px; }
+.gate.on { background: rgba(120, 160, 110, 0.16); color: #4E6B45; }
+.gate.off { background: rgba(26, 23, 18, 0.055); color: #A2967F; }
+
+.mini.primary {
+  background: var(--orange);
+  border-color: var(--orange);
+  color: #fff;
+}
+.mini.primary:hover:not(:disabled) { filter: brightness(1.06); background: var(--orange); color: #fff; }
+.mini.primary:disabled { opacity: 0.45; cursor: default; }
+
+.run { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-soft); padding: 4px 0; }
+.run .dot { width: 7px; height: 7px; border-radius: 50%; background: #C2B7A2; flex: 0 0 auto; }
+.run .dot.ok { background: #7FA06E; }
+.run .dot.failed { background: #C0554B; }
+.run .dot.blocked { background: var(--orange); }
+.run-out {
+  margin: 2px 0 8px 15px !important;
+  font-size: 11px !important;
+  max-height: 120px !important;
+  opacity: 0.85;
+}

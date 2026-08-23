@@ -10,7 +10,8 @@ const gateway = require('./gatewayClient');
 const { createObserver } = require('./observer');
 const { createSummarizer } = require('./summarizer');
 const { createPatternWatcher } = require('./patterns');
-const { createRoutineRunner, nextRunAt } = require('./routines');
+const { createRoutineRunner, nextRunAt, isDue } = require('./routines');
+const executor = require('./executor');
 const whisper = require('./whisper');
 const soul = require('./soul');
 const screenCapture = require('./screen');
@@ -81,6 +82,7 @@ let observer = null;
 let summarizer = null;
 let patterns = null;
 let routines = null;
+let automationTimer = null;
 
 const log = (...args) => console.log(...args);
 
@@ -217,6 +219,30 @@ app.whenReady().then(() => {
     },
   });
   routines.start();
+
+  // Scheduled execution rides the same clock and the same rules as routines:
+  // nothing fires while fren is paused, and a missed run expires rather than
+  // arriving hours late. Crucially it still goes through runAutomation, so the
+  // approval hash is re-checked against the current script at the moment of
+  // running — a schedule is permission to run a SPECIFIC script, not a standing
+  // permission to run whatever now sits under that name.
+  automationTimer = setInterval(async () => {
+    if (!state.get().observing) return;
+    let due = [];
+    try {
+      due = memory.getAutomations().filter((a) => {
+        if (!a.schedule || !a.schedule.enabled || !a.verified) return false;
+        return isDue({ ...a.schedule, enabled: true, lastRun: a.lastRun }, Date.now());
+      });
+    } catch { return; }
+    for (const a of due) {
+      const result = await runAutomation(a.id, 'scheduled');
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('fren:automationRan', { name: a.name, status: result.status });
+      }
+    }
+  }, 30 * 1000);
+  if (automationTimer.unref) automationTimer.unref();
 
   createWindow();
 
@@ -564,6 +590,102 @@ app.whenReady().then(() => {
     return true;
   });
 
+  // ---- automations: running what fren drafted ----------------------------
+  //
+  // Every path to execution goes through runAutomation, and it re-checks the
+  // approval hash against the CURRENT script text every single time. Approval
+  // is not a flag that gets set once; it is a claim about a specific script,
+  // and it is verified at the moment of running rather than trusted from
+  // whenever it was granted.
+  async function runAutomation(id, trigger) {
+    const a = memory.getAutomations().find((x) => x.id === Number(id));
+    if (!a) return { error: 'that automation is gone' };
+
+    const hash = executor.hashScript(a.script);
+    if (!a.approvedHash || a.approvedHash !== hash) {
+      const out = a.approvedHash
+        ? 'the script changed since you approved it, so the approval no longer applies'
+        : 'this has not been approved yet';
+      memory.recordRun({ automationId: a.id, trigger, status: 'blocked', output: out });
+      return { status: 'blocked', output: out };
+    }
+    if (trigger === 'scheduled' && !a.verified) {
+      const out = 'not run by hand yet — a schedule only starts after one successful manual run';
+      memory.recordRun({ automationId: a.id, trigger, status: 'blocked', output: out });
+      return { status: 'blocked', output: out };
+    }
+
+    const result = await executor.run({ script: a.script, language: a.language });
+    memory.recordRun({ automationId: a.id, trigger, status: result.status, output: result.output });
+    // A successful MANUAL run is what earns the right to be scheduled.
+    if (result.status === 'ok' && trigger === 'manual') memory.markAutomationVerified(a.id);
+    // PRIVACY: name and status only. Output can contain anything the script saw.
+    log(`[automation] "${a.name}" ${trigger} -> ${result.status}`);
+    return result;
+  }
+
+  ipcMain.handle('fren:automations', () => {
+    try {
+      return memory.getAutomations().map((a) => ({
+        ...a,
+        currentHash: executor.hashScript(a.script),
+        scan: executor.scan(a.script),
+        nextRun: a.schedule && a.schedule.enabled
+          ? nextRunAt({ ...a.schedule, enabled: true })
+          : null,
+        runs: memory.getRuns(a.id, 8),
+      }));
+    } catch { return []; }
+  });
+
+  /** Keep a drafted script as an automation, so it can be reviewed. */
+  ipcMain.handle('fren:keepAutomation', (_e, suggestionId) => {
+    const s = memory.getSuggestions().find((x) => x.id === Number(suggestionId));
+    if (!s || !s.draft || !s.draft.script) return { error: 'no script to keep' };
+    const id = memory.addAutomation({
+      suggestionId: s.id,
+      name: s.pattern || 'automation',
+      language: s.draft.language,
+      script: s.draft.script,
+    });
+    return { id };
+  });
+
+  ipcMain.handle('fren:approveAutomation', (_e, id, hash) => {
+    const a = memory.getAutomations().find((x) => x.id === Number(id));
+    if (!a) return { error: 'that automation is gone' };
+    // The hash must be the one the reviewer was looking at. If the script has
+    // changed since it was rendered, the approval is for a different thing.
+    const current = executor.hashScript(a.script);
+    if (String(hash) !== current) return { error: 'the script changed while you were reading it' };
+    memory.approveAutomation(a.id, current);
+    log(`[automation] "${a.name}" approved`);
+    return { ok: true };
+  });
+
+  ipcMain.handle('fren:revokeAutomation', (_e, id) => {
+    memory.revokeAutomation(Number(id));
+    log('[automation] approval revoked');
+    return true;
+  });
+
+  ipcMain.handle('fren:runAutomation', (_e, id) => runAutomation(id, 'manual'));
+
+  ipcMain.handle('fren:scheduleAutomation', (_e, id, schedule) => {
+    const a = memory.getAutomations().find((x) => x.id === Number(id));
+    if (!a) return { error: 'that automation is gone' };
+    if (schedule.enabled && !a.verified) {
+      return { error: 'run it by hand successfully first — a schedule starts from something known to work' };
+    }
+    memory.setAutomationSchedule(a.id, schedule);
+    return { ok: true };
+  });
+
+  ipcMain.handle('fren:deleteAutomation', (_e, id) => {
+    memory.deleteAutomation(Number(id));
+    return true;
+  });
+
   ipcMain.handle('fren:quit', () => app.quit());
 
   /**
@@ -628,5 +750,6 @@ app.on('before-quit', () => {
   if (summarizer) summarizer.stop();
   if (patterns) patterns.stop();
   if (routines) routines.stop();
+  if (automationTimer) clearInterval(automationTimer);
   if (memory) memory.close();
 });

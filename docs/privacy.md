@@ -51,6 +51,26 @@ API would mean streaming your room — and anyone else in it — to a third part
 If `whisper.cpp` is not installed the mic button is disabled and says so; voice
 input simply does not work, rather than quietly falling back to the network.
 
+## Running automations
+
+This is the one thing fren does that changes your machine rather than reading
+it, so the constraints are worth stating plainly.
+
+fren only runs a script that **you** read and approved, that has already run
+successfully **by hand**, and that you separately put on a schedule. Approval is
+bound to a hash of the exact script — change one character and the approval is
+void. Every execution re-checks that hash, so a schedule cannot become a licence
+to run something else later.
+
+A script runs with a reduced environment (PATH, HOME, USER, LANG, TMPDIR only),
+so it cannot read variables this process holds. It gets a hard timeout. Its
+output is captured and stored locally so you can read afterwards what it did —
+that output is never sent anywhere.
+
+fren will not run scripts that delete data, escalate privileges, pipe a download
+into an interpreter, read credentials or keychains, or install anything
+persistent. That blocklist is a backstop for a rushed review, not a sandbox.
+
 ## Looking at your screen
 
 fren can look at your screen and answer a question about it. This is the only
