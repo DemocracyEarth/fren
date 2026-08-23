@@ -119,6 +119,120 @@
     return toHex({ h: c.h + SHEEN.dH, s: c.s, l: clamp(c.l + SHEEN.dL, 0, 96) });
   }
 
+  // --- the interface accent ------------------------------------------------
+  //
+  // Choosing a colour changes the whole app, not just the sphere: the buttons,
+  // the highlights, the active row, the focus ring. An orange app with a green
+  // orb in the corner reads as a bug rather than as a choice.
+  //
+  // Measured from the shipped orange family, as offsets from --orange.
+  const ACCENT = {
+    lite:   { dH:  4.5, dS:  8.4, dL:  12.9 },
+    deep:   { dH: -4.2, dS: -5.9, dL:  -9.0 },
+    shadow: { dH: -6.8, dS: -2.5, dL: -21.6 },
+  };
+
+  const CREAM = 0xF0E7D6;     // the surface accent text sits on
+  const INK = 0x1A1712;
+  const WHITE = 0xffffff;
+  const AA = 4.5;
+
+  const lum = (hex) => {
+    const ch = (s) => {
+      const v = ((hex >> s) & 255) / 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * ch(16) + 0.7152 * ch(8) + 0.0722 * ch(0);
+  };
+
+  function contrast(a, b) {
+    const x = lum(a);
+    const y = lum(b);
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+  }
+
+  /**
+   * The text weight of a colour: dark enough to read on the cream.
+   *
+   * Solved rather than offset. A fixed lightness shift produces a readable
+   * brown from orange and an unreadable one from yellow, because contrast is a
+   * function of luminance and luminance is not a function of lightness alone.
+   */
+  function inkFor(h, s) {
+    for (let l = 44; l >= 6; l -= 1) {
+      const c = toHex({ h, s: Math.min(100, s + 2), l });
+      if (contrast(c, CREAM) >= AA + 0.3) return c;
+    }
+    return INK;
+  }
+
+  /**
+   * A background that can carry a label, and the label to put on it.
+   *
+   * White on the shipped orange is 2.54:1 — the send button and the sidebar
+   * badges have always failed, and at other hues they fail differently. So the
+   * pair is solved together: keep the accent bright if dark ink reads on it,
+   * and only darken for white when nothing else works.
+   */
+  function solidFor(hex) {
+    const c = toHsl(hex);
+    if (contrast(INK, hex) >= AA) return { solid: hex, on: INK };
+    if (contrast(WHITE, hex) >= AA) return { solid: hex, on: WHITE };
+    for (let l = c.l; l >= 8; l -= 0.5) {
+      const cand = toHex({ h: c.h, s: c.s, l });
+      if (contrast(WHITE, cand) >= AA) return { solid: cand, on: WHITE };
+    }
+    return { solid: toHex({ h: c.h, s: c.s, l: 8 }), on: WHITE };
+  }
+
+  /** Every accent token the interface needs, derived from one colour. */
+  function accentFrom(hex) {
+    const c = toHsl(usable(hex));
+    const shade = (o) => toHex({
+      h: c.h + o.dH,
+      s: clamp(c.s + o.dS, 0, 100),
+      l: clamp(c.l + o.dL, 4, 96),
+    });
+    const accent = toHex({ h: c.h, s: c.s, l: c.l });
+    const { solid, on } = solidFor(accent);
+    return {
+      accent,
+      lite: shade(ACCENT.lite),
+      deep: shade(ACCENT.deep),
+      shadow: shade(ACCENT.shadow),
+      ink: inkFor(c.h, c.s),
+      solid,
+      on,
+      // For the tints, which are written as rgba(...) at a dozen opacities.
+      rgb: [(accent >> 16) & 255, (accent >> 8) & 255, accent & 255].join(', '),
+    };
+  }
+
+  const asHex = (n) => '#' + n.toString(16).padStart(6, '0');
+  const asRgb = (n) => [(n >> 16) & 255, (n >> 8) & 255, n & 255].join(', ');
+
+  /**
+   * Dress the interface in the chosen colour.
+   *
+   * Both windows call this, because the accent is not the orb's colour — it is
+   * the app's, and the orb happens to be the largest thing wearing it.
+   */
+  function applyAccent(hex, target) {
+    const a = accentFrom(hex);
+    const root = target || (typeof document !== 'undefined' ? document.documentElement : null);
+    if (!root) return a;
+    root.style.setProperty('--orange', asHex(a.accent));
+    root.style.setProperty('--orange-lite', asHex(a.lite));
+    root.style.setProperty('--orange-deep', asHex(a.deep));
+    root.style.setProperty('--orange-shadow', asHex(a.shadow));
+    root.style.setProperty('--orange-ink', asHex(a.ink));
+    root.style.setProperty('--accent-solid', asHex(a.solid));
+    root.style.setProperty('--on-accent', asHex(a.on));
+    root.style.setProperty('--accent-rgb', a.rgb);
+    root.style.setProperty('--accent-shadow-rgb', asRgb(a.shadow));
+    return a;
+  }
+
   /**
    * Names, not swatches. "Blue" tells you the hue and nothing else; a name
    * gives the thing a character, which is the entire point of choosing one.
@@ -138,6 +252,7 @@
 
   return {
     PRESETS, DEFAULT_HEX, tonesFrom, sheenColorFrom, usable, toHsl, toHex,
-    LIMITS: { MIN_SAT, MIN_LIT, MAX_LIT },
+    accentFrom, applyAccent, contrast,
+    LIMITS: { MIN_SAT, MIN_LIT, MAX_LIT, AA },
   };
 });

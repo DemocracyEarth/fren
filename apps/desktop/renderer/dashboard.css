@@ -119,7 +119,7 @@ html, body {
   transition: background .15s var(--ease-soft);
 }
 .side-item:hover { background: rgba(26, 23, 18, 0.055); }
-.side-item.on { background: rgba(237, 138, 47, 0.15); color: var(--orange-ink); font-weight: 600; }
+.side-item.on { background: rgba(var(--accent-rgb), 0.15); color: var(--orange-ink); font-weight: 600; }
 .side-item .sub {
   margin-left: auto;
   font-size: 11.5px;
@@ -132,8 +132,8 @@ html, body {
   min-width: 19px;
   padding: 1px 6px;
   border-radius: 999px;
-  background: var(--orange);
-  color: #fff;
+  background: var(--accent-solid);
+  color: var(--on-accent);
   font-size: 11px;
   font-weight: 700;
   text-align: center;
@@ -165,7 +165,7 @@ html, body {
 }
 #side-status:hover { background: rgba(26, 23, 18, .06); border-color: rgba(26, 23, 18, .12); }
 #side-status:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
-body[data-watching="1"] #side-status:hover { background: rgba(237, 138, 47, .12); }
+body[data-watching="1"] #side-status:hover { background: rgba(var(--accent-rgb), .12); }
 #side-status i {
   width: 7px; height: 7px;
   border-radius: 50%;
@@ -173,7 +173,7 @@ body[data-watching="1"] #side-status:hover { background: rgba(237, 138, 47, .12)
 }
 body[data-watching="1"] #side-status i {
   background: var(--orange);
-  box-shadow: 0 0 0 3px rgba(237, 138, 47, 0.18);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.18);
 }
 body[data-watching="1"] #side-status { color: var(--orange-ink); }
 
@@ -409,11 +409,15 @@ body[data-watching="1"] #side-status { color: var(--orange-ink); }
 .gate.off { background: rgba(26, 23, 18, 0.055); color: #A2967F; }
 
 .mini.primary {
-  background: var(--orange);
-  border-color: var(--orange);
-  color: #fff;
+  background: var(--accent-solid);
+  border-color: var(--accent-solid);
+  color: var(--on-accent);
 }
-.mini.primary:hover:not(:disabled) { filter: brightness(1.06); background: var(--orange); color: #fff; }
+.mini.primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+  background: var(--accent-solid);
+  color: var(--on-accent);
+}
 .mini.primary:disabled { opacity: 0.45; cursor: default; }
 
 .run { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-soft); padding: 4px 0; }
@@ -463,7 +467,7 @@ body[data-watching="1"] #side-status { color: var(--orange-ink); }
   color: var(--ink);
   cursor: pointer;
 }
-.wide-btn:hover { border-color: var(--orange); background: rgba(237, 138, 47, 0.07); }
+.wide-btn:hover { border-color: var(--orange); background: rgba(var(--accent-rgb), 0.07); }
 
 /* A switch that governs capture deserves the room to say what it does. The
    sentence under each title is not decoration — it is the difference between
@@ -479,7 +483,7 @@ body[data-watching="1"] #side-status { color: var(--orange-ink); }
   border-radius: 12px;
   cursor: pointer;
 }
-.switch-row:hover { border-color: var(--orange); background: rgba(237, 138, 47, 0.05); }
+.switch-row:hover { border-color: var(--orange); background: rgba(var(--accent-rgb), 0.05); }
 .switch-row input {
   margin-top: 2px;
   width: 16px;
@@ -538,7 +542,7 @@ body[data-watching="1"] #side-status { color: var(--orange-ink); }
 .field-line input::placeholder { color: #A79C89; }
 .field-line input:focus {
   border-color: var(--orange);
-  box-shadow: 0 0 0 3px rgba(237, 138, 47, 0.13);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.13);
 }
 .field-state {
   flex: none;

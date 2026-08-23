@@ -7,16 +7,29 @@
   --panel-hi: #1C1C21;
   --line: #2A2A31;
 
-  /* Character — the orange visor */
+  /* THE ACCENT. Orange by default and by name, but not necessarily orange:
+     choosing fren's colour rewrites all of these at runtime, because an orange
+     app with a green orb in the corner reads as a bug rather than a choice.
+     The names are kept so the 37 call sites do not have to move; palette.js
+     derives every value below from the one colour that was picked. */
   --orange-lite: #F9B765;
   --orange: #ED8A2F;
   --orange-deep: #D4661A;
   --orange-shadow: #9E4410;
-  /* Orange that can carry white text: #ED8A2F is only 2.5:1, this is 5.0:1 */
-  /* The text weight of the orange. Was #B4520F, which measured 4.33:1 on the
-     cream and 3.52:1 on the tinted active row — under AA in both places it is
-     actually used. #8F410B is 6.15 and 4.99. */
+  /* The text weight. Solved for contrast rather than offset: a fixed lightness
+     shift gives a readable brown from orange and an unreadable one from yellow,
+     because contrast follows luminance and luminance does not follow lightness. */
   --orange-ink: #8F410B;
+
+  /* The accent as components, for the dozen tints written as rgba(). Without
+     this they stay literal and a colour change leaves orange ghosts behind. */
+  --accent-rgb: 237, 138, 47;
+  --accent-shadow-rgb: 158, 68, 16;
+  /* A solid surface that can carry a label, and the label to put on it. White
+     on #ED8A2F is 2.54:1 — the send button and the badges have always failed,
+     and at other hues they fail differently. The pair is solved together. */
+  --accent-solid: #ED8A2F;
+  --on-accent: #1A1712;
 
   /* Character — the cream shell, also our surface color */
   --cream: #F0E7D6;

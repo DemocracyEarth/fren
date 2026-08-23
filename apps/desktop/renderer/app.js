@@ -1479,6 +1479,9 @@ scheduleWander();
   // Wear whatever colour was chosen. Before anything is drawn, so fren never
   // appears in the default and then changes.
   const wearColour = (hex) => {
+    // The orb AND the interface. Picking a colour for fren and leaving the
+    // buttons orange looks like a bug rather than a choice.
+    if (window.FrenPalette) window.FrenPalette.applyAccent(hex);
     if (face && face.setPalette) face.setPalette(hex);
   };
   try {

@@ -817,6 +817,8 @@ async function colourPicker() {
   const choose = async (hex) => {
     const usable = P.usable(hex);
     mark(usable);
+    // This window repaints itself; the panel is told separately by main.
+    P.applyAccent(usable);
     try { await window.fren.setOrbColour(usable); } catch { /* it stays as it was */ }
   };
 
@@ -1016,6 +1018,13 @@ for (const b of document.querySelectorAll('.side-item[data-section]')) {
       try { paint(await window.fren.toggleObservation()); } catch { /* it stays as it was */ }
     });
   }
+  // Wear the chosen colour before anything is drawn, or the dashboard opens
+  // orange and then changes under the pointer.
+  try {
+    const colour = await window.fren.getOrbColour();
+    if (colour && window.FrenPalette) window.FrenPalette.applyAccent(colour);
+  } catch { /* the default is fine */ }
+
   window.fren.onStateChanged(paint);
   try { paint(await window.fren.getState()); } catch { /* leave it paused */ }
 

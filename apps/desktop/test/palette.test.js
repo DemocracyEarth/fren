@@ -129,3 +129,84 @@ test('hex and hsl round-trip', () => {
     assert.ok(off <= 3, `${hx(hex)} -> ${hx(back)} drifted by ${off}`);
   }
 });
+
+// --- the interface accent --------------------------------------------------
+//
+// Choosing a colour re-dresses the whole app, so every accent surface has to
+// stay readable at every hue — not just at the orange it was designed around.
+// These are the tests that stop a pretty colour from producing a button nobody
+// can read.
+
+const CREAM = 0xF0E7D6;   // main surfaces
+const BONE = 0xFBF6EC;    // the panel's lighter ground
+const SIDEBAR = 0xE9E1D2; // the dark end of the sidebar gradient
+
+/** Presets plus two awkward hues a picker could easily produce. */
+const HUES = [
+  ...P.PRESETS.map((p) => [p.name, p.hex]),
+  ['a yellow', 0xE8C520],
+  ['a navy', 0x22306E],
+  ['a hot pink', 0xFF2FA0],
+  ['a lime', 0xB6E800],
+];
+
+test('accent text is readable on every surface it lands on, at every hue', () => {
+  for (const [name, hex] of HUES) {
+    const a = P.accentFrom(hex);
+    for (const [where, bg] of [['cream', CREAM], ['bone', BONE], ['sidebar', SIDEBAR]]) {
+      const r = P.contrast(a.ink, bg);
+      assert.ok(r >= P.LIMITS.AA, `${name}: accent text on ${where} is only ${r.toFixed(2)}`);
+    }
+  }
+});
+
+test('a label on a solid accent button is readable at every hue', () => {
+  // White on the shipped orange was 2.54:1 — the send button and the sidebar
+  // badges always failed. The background and its label are solved together, so
+  // whichever pair wins, it clears AA.
+  for (const [name, hex] of HUES) {
+    const a = P.accentFrom(hex);
+    const r = P.contrast(a.on, a.solid);
+    assert.ok(r >= P.LIMITS.AA, `${name}: button label is only ${r.toFixed(2)}`);
+  }
+});
+
+test('the bright accent is kept as the button wherever it can be', () => {
+  // Darkening is the fallback, not the default: an app that dulls its own
+  // accent for every colour has quietly traded the look for the rule.
+  const kept = HUES.filter(([, hex]) => {
+    const a = P.accentFrom(hex);
+    return a.solid === a.accent;
+  });
+  assert.ok(kept.length >= HUES.length - 3,
+    `only ${kept.length} of ${HUES.length} hues kept their bright accent`);
+});
+
+test('the default colour leaves the shipped accent where it was', () => {
+  const a = P.accentFrom(P.DEFAULT_HEX);
+  assert.equal(hx(a.accent), '#ff8a00');
+  // The tints are driven from this, so it has to be the components of the accent.
+  assert.equal(a.rgb, '255, 138, 0');
+});
+
+test('every accent token comes back as something CSS can use', () => {
+  for (const [name, hex] of HUES) {
+    const a = P.accentFrom(hex);
+    for (const k of ['accent', 'lite', 'deep', 'shadow', 'ink', 'solid', 'on']) {
+      assert.ok(Number.isInteger(a[k]) && a[k] >= 0 && a[k] <= 0xffffff,
+        `${name}: ${k} is not a colour`);
+    }
+    assert.match(a.rgb, /^\d{1,3}, \d{1,3}, \d{1,3}$/, `${name}: rgb is malformed`);
+  }
+});
+
+test('the accent family keeps its ordering', () => {
+  // lite is lighter than the accent, deep and shadow darker, shadow darkest.
+  for (const [name, hex] of HUES) {
+    const a = P.accentFrom(hex);
+    const l = (c) => P.toHsl(c).l;
+    assert.ok(l(a.lite) > l(a.accent), `${name}: lite must be lighter`);
+    assert.ok(l(a.deep) < l(a.accent), `${name}: deep must be darker`);
+    assert.ok(l(a.shadow) < l(a.deep), `${name}: shadow must be darkest`);
+  }
+});
