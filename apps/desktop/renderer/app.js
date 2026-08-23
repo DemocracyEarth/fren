@@ -38,6 +38,7 @@ const els = {
   patterns: document.getElementById('patterns'),
   patternsBody: document.getElementById('patterns-body'),
   patternCount: document.getElementById('pattern-count'),
+  statusLabel: document.getElementById('status-label'),
   inputRow: document.getElementById('input-row'),
   look: document.getElementById('look'),
   openFolder: document.getElementById('open-folder'),
@@ -104,9 +105,15 @@ function render(next) {
   const was = state;
   state = next;
   els.panel.hidden = !state.panelOpen;
-  els.gatewayDot.classList.toggle('ok', state.gatewayOk);
+  els.gatewayDot.classList.toggle('down', !state.gatewayOk);
   els.gatewayDot.title = state.gatewayOk ? 'connected' : 'gateway unreachable';
   els.toggle.textContent = state.observing ? 'pause watching' : 'wake up';
+  // The most important fact in the window, in words. The orb says it too, but
+  // the orb may be behind whatever you are working on.
+  document.body.dataset.watching = state.observing ? '1' : '0';
+  if (els.statusLabel) {
+    els.statusLabel.textContent = state.observing ? 'watching' : 'paused';
+  }
   // Offered only when a model that can see is configured, and only while the
   // light is on: looking at the screen while paused is precisely what the light
   // exists to rule out.

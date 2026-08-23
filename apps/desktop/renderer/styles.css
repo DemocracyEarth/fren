@@ -69,7 +69,7 @@ html, body {
 
 /* -------------------------------------------------------------- the panel */
 #panel {
-  width: 336px;
+  width: 100%;              /* the WINDOW decides the width, not this */
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -91,23 +91,53 @@ html, body {
 #panel-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 12px 10px 16px;
-  border-bottom: 1px solid rgba(26, 23, 18, .09);
+  gap: 10px;
+  padding: 13px 13px 12px 17px;
+  border-bottom: 1px solid rgba(26, 23, 18, .07);
   -webkit-app-region: drag;      /* drag the whole thing by its header */
 }
 #panel-head .spacer { flex: 1; }
 
+/* Whether fren is watching is the most important fact in the window, so it is
+ * stated in words next to the wordmark rather than left to the orb alone —
+ * which may be behind whatever you are working on. */
+.head-text { display: flex; align-items: center; min-width: 0; }
+#status-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+#status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #C2B7A2;
+  transition: background .3s var(--ease-soft), box-shadow .3s var(--ease-soft);
+}
+body[data-watching="1"] #status-dot {
+  background: var(--orange);
+  box-shadow: 0 0 0 3px rgba(237, 138, 47, 0.18);
+}
+body[data-watching="1"] #status-label { color: var(--orange-ink); }
+
 .wordmark { display: block; flex: 0 0 auto; }
 
+/* Only shown when the thinking half cannot be reached. A second permanently
+ * lit dot next to the status one just competes with it. */
 #gateway-dot {
-  width: 7px;
-  height: 7px;
+  display: none;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: #C9BCA6;
-  transition: background .3s var(--ease-soft);
+  background: #C0554B;
+  box-shadow: 0 0 0 3px rgba(192, 85, 75, 0.15);
 }
-#gateway-dot.ok { background: var(--orange); }
+#gateway-dot.down { display: block; }
 
 button { font-family: inherit; -webkit-app-region: no-drag; cursor: pointer; }
 
@@ -139,10 +169,10 @@ button { font-family: inherit; -webkit-app-region: no-drag; cursor: pointer; }
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 14px 16px;
+  padding: 14px 16px 18px;
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 10px;
 }
 #messages::-webkit-scrollbar { width: 7px; }
 #messages::-webkit-scrollbar-thumb {
@@ -150,54 +180,101 @@ button { font-family: inherit; -webkit-app-region: no-drag; cursor: pointer; }
   border-radius: 4px;
 }
 
+/*
+ * Two different weights on purpose.
+ *
+ * A chat app gives both sides the same treatment, which makes the whole thing
+ * read as chatter. Here what fren says IS the content — it is the answer you
+ * asked for — so it gets a card with a label, the same shape a noticed pattern
+ * gets, and the whole app ends up speaking one visual language instead of two.
+ *
+ * What you said is context for reading the answer, so it recedes: quiet, small,
+ * right-aligned. The old heavy orange bubble shouted your own words back at you
+ * and made them the loudest thing on screen.
+ */
 .bubble {
-  max-width: 84%;
-  padding: 9px 13px;
-  border-radius: 15px;
-  font-size: 13.5px;
-  line-height: 1.45;
   white-space: pre-wrap;
   word-wrap: break-word;
-  animation: pop .22s var(--ease-out);
+  animation: pop .26s var(--ease-out);
   -webkit-user-select: text;
   user-select: text;
 }
 @keyframes pop {
-  from { opacity: 0; transform: translateY(5px); }
+  from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: none; }
 }
 
 .bubble.user {
   align-self: flex-end;
-  background: var(--orange);
-  color: var(--ink);
-  border-bottom-right-radius: 5px;
-}
-.bubble.fren {
-  align-self: flex-start;
-  background: #fff;
-  color: var(--ink);
-  border-bottom-left-radius: 5px;
-  box-shadow: 0 1px 2px rgba(26, 23, 18, .08);
+  max-width: 86%;
+  padding: 7px 12px;
+  border-radius: 14px 14px 5px 14px;
+  background: rgba(26, 23, 18, 0.055);
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  line-height: 1.45;
+  font-weight: 500;
 }
 
-#empty { margin: auto 0; text-align: center; }
-.empty-line {
-  margin: 0 0 12px;
-  color: var(--ink-soft);
-  font-size: 13px;
-}
-.chips { display: flex; flex-direction: column; gap: 6px; align-items: center; }
-.chip {
-  border: 1px solid rgba(26, 23, 18, .14);
-  background: rgba(255, 255, 255, .6);
+.bubble.fren {
+  align-self: stretch;
+  position: relative;
+  padding: 12px 14px 13px;
+  border-radius: 16px;
+  background: #fff;
+  border: 1px solid rgba(26, 23, 18, 0.06);
   color: var(--ink);
-  font-size: 12.5px;
-  padding: 7px 13px;
-  border-radius: 999px;
-  transition: background .18s var(--ease-soft), transform .18s var(--ease-out);
+  font-size: 14px;
+  line-height: 1.55;
+  box-shadow: 0 1px 2px rgba(24, 16, 6, 0.04), 0 4px 14px rgba(24, 16, 6, 0.05);
 }
-.chip:hover { background: #fff; transform: translateY(-1px); }
+/* The label, drawn rather than marked up, so nothing downstream has to know. */
+.bubble.fren::before {
+  content: 'fren';
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  color: var(--orange-ink);
+}
+
+#empty { margin: auto 0; text-align: center; padding: 0 6px; }
+.empty-line {
+  margin: 0 0 5px;
+  color: var(--ink);
+  font-size: 14.5px;
+  font-weight: 600;
+}
+/* Say what fren can actually answer from, so the first question is not wasted
+ * on something it was never in a position to know. */
+.empty-sub {
+  margin: 0 auto 16px;
+  max-width: 260px;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.chips { display: flex; flex-direction: column; gap: 7px; align-items: stretch; }
+.chip {
+  border: 1px solid rgba(26, 23, 18, .10);
+  background: rgba(255, 255, 255, .72);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 10px 14px;
+  border-radius: 13px;
+  text-align: left;
+  box-shadow: 0 1px 2px rgba(24, 16, 6, 0.03);
+  transition: background .18s var(--ease-soft), transform .18s var(--ease-out),
+              box-shadow .18s var(--ease-soft);
+}
+.chip:hover {
+  background: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(24, 16, 6, 0.05), 0 6px 16px rgba(24, 16, 6, 0.06);
+}
 
 /* Three dots that breathe while fren is thinking. */
 #typing { align-self: flex-start; display: flex; gap: 4px; padding: 10px 4px; }
@@ -216,7 +293,10 @@ button { font-family: inherit; -webkit-app-region: no-drag; cursor: pointer; }
   50%      { transform: translateY(-4px); opacity: .9; }
 }
 
-/* ---------------------------------------------------------------- input */
+/* ---------------------------------------------------------------- input
+ * A composer that feels like a place to speak rather than a form field: it sits
+ * on its own surface, lifts slightly on focus, and the send button only becomes
+ * solid once there is something to send. */
 #input-row {
   display: flex;
   gap: 8px;
@@ -607,3 +687,69 @@ button { font-family: inherit; -webkit-app-region: no-drag; cursor: pointer; }
   line-height: 1.5;
   color: var(--ink-soft);
 }
+
+/* ---- composer, refined ---------------------------------------------------
+ * The old one was a pill on a flat strip. This sits on its own surface, lifts
+ * when focused, and holds the mic inside the field rather than beside it — so
+ * the row reads as one place to speak instead of three separate controls. */
+#input-row {
+  padding: 11px 13px 13px;
+  background: rgba(255, 255, 255, 0.42);
+  border-top: 1px solid rgba(26, 23, 18, 0.06);
+  align-items: center;
+}
+#chat-input {
+  flex: 1;
+  min-width: 0;
+  padding: 11px 14px;
+  border-radius: 13px;
+  border: 1px solid rgba(26, 23, 18, 0.10);
+  background: #fff;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(24, 16, 6, 0.03);
+  transition: border-color .18s var(--ease-soft), box-shadow .18s var(--ease-soft);
+}
+#chat-input::placeholder { color: #A79C89; }
+#chat-input:focus {
+  outline: none;
+  border-color: rgba(237, 138, 47, 0.55);
+  box-shadow: 0 0 0 3px rgba(237, 138, 47, 0.13), 0 1px 2px rgba(24, 16, 6, 0.04);
+}
+#mic, #send {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border-radius: 13px;
+  display: grid;
+  place-items: center;
+  transition: background .18s var(--ease-soft), transform .18s var(--ease-out),
+              filter .18s var(--ease-soft);
+}
+#mic {
+  border: 1px solid rgba(26, 23, 18, 0.10);
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--ink-soft);
+}
+#mic:hover:not(:disabled) { background: #fff; color: var(--ink); }
+#mic:disabled { opacity: 0.4; cursor: default; }
+/* While recording, the button carries the same signal the orb does. */
+#mic.recording {
+  background: var(--orange);
+  border-color: var(--orange);
+  color: #fff;
+  animation: mic-pulse 1.1s infinite var(--ease-soft);
+}
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(237, 138, 47, 0.42); }
+  50%      { box-shadow: 0 0 0 6px rgba(237, 138, 47, 0); }
+}
+#send {
+  border: 0;
+  background: var(--orange);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(158, 68, 16, 0.28);
+}
+#send:hover:not(:disabled) { filter: brightness(1.06); transform: translateY(-1px); }
+#send:disabled { opacity: 0.45; cursor: default; box-shadow: none; }

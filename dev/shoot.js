@@ -54,11 +54,16 @@ app.whenReady().then(async () => {
       const m = document.getElementById('messages');
       const t = document.getElementById('typing');
       const e = document.getElementById('empty');
-      if (e) e.remove();
-      const add = (w, x) => { const b = document.createElement('div');
-        b.className = 'bubble ' + w; b.textContent = x; m.insertBefore(b, t); };
-      add('user', 'What have I been doing?');
-      add('fren', "You've been on the auth flow for about 35 minutes — mostly observer.js in VS Code, with runs back to Chrome to re-test the login redirect.");
+      // FREN_SHOT_EMPTY captures the first thing a new user sees, so the
+      // seeded conversation has to be skipped entirely rather than deleted
+      // afterwards — removing the bubbles cannot bring #empty back.
+      if (${JSON.stringify(process.env.FREN_SHOT_EMPTY !== '1')}) {
+        if (e) e.remove();
+        const add = (w, x) => { const b = document.createElement('div');
+          b.className = 'bubble ' + w; b.textContent = x; m.insertBefore(b, t); };
+        add('user', 'What have I been doing?');
+        add('fren', "You've been on the auth flow for about 35 minutes — mostly observer.js in VS Code, with runs back to Chrome to re-test the login redirect.");
+      }
     ` : ''}
     'ok';
   `);

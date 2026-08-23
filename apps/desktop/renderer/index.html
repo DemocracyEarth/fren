@@ -28,8 +28,13 @@
           <!-- and its lower counter holds fren's own smile -->
           <path d="M146.3 76.5Q172 116 197.7 76.5Z" fill="var(--orange)"/>
         </svg>
-        <span id="gateway-dot" title="thinking half"></span>
+        <div class="head-text">
+          <span id="status-line">
+            <span id="status-dot"></span><span id="status-label">paused</span>
+          </span>
+        </div>
         <span class="spacer"></span>
+        <span id="gateway-dot" title="thinking half"></span>
         <button id="toggle-observe" class="ghost">wake up</button>
         <button id="quit" class="icon" title="Quit fren">&#215;</button>
       </header>
@@ -61,6 +66,8 @@
       <div id="messages" role="log" aria-live="polite" aria-label="Conversation with fren">
         <div id="empty">
           <p class="empty-line">Ask me what you've been up to.</p>
+          <p class="empty-sub">I only know which apps and windows you've had open,
+            and only while my light was on.</p>
           <div class="chips">
             <button class="chip">What have I been doing?</button>
             <button class="chip">Anything I could automate?</button>
