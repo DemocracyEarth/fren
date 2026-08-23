@@ -47,4 +47,5 @@ module.exports = {
   pattern: (payload) => request('/v1/pattern', { method: 'POST', body: payload, timeoutMs: 60_000 }),
   vision: (payload) => request('/v1/vision', { method: 'POST', body: payload, timeoutMs: 90_000 }),
   automate: (payload) => request('/v1/automate', { method: 'POST', body: payload, timeoutMs: 90_000 }),
+  routine: (payload) => request('/v1/routine', { method: 'POST', body: payload, timeoutMs: 30_000 }),
 };

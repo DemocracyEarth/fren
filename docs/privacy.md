@@ -91,6 +91,7 @@ network requests with your data.
 | Your typed chat questions | When you send a chat message |
 | Derived activity summaries **and the recent raw timeline** (up to the last 50 observed app/title entries) as context | When you send a chat message |
 | Derived activity summaries from the last 8 hours | Every 12 minutes while observing, to look for a repeated workflow |
+| The same context a chat message sends | When a routine you set up comes round. Routines never fire while fren is paused. |
 | **One screenshot** | Only when you press the eye button. Never automatically. |
 | Transcribed text of what you said (never the audio) | When you use push-to-talk |
 | The contents of `SOUL.md` and `USER.md` | With every chat message, once you have completed first-run setup |

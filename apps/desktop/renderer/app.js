@@ -508,6 +508,49 @@ async function handleSetupAnswer(answer) {
   return finishSetup();
 }
 
+/**
+ * Does this even look like scheduling?
+ *
+ * A cheap gate before an expensive one. Classifying every message with the
+ * model would add a call and a second of latency to every question asked, to
+ * catch something people say rarely — so the model is only consulted when the
+ * words suggest repetition at a time. Missing an unusual phrasing costs one
+ * retry; taxing every message costs everything.
+ */
+const SCHEDULE_HINT =
+  /\b(every|each|daily|weekly|remind me|routine|schedule)\b|\bevery ?day\b|\bmornings?\b|\bevenings?\b/i;
+
+function looksScheduled(text) {
+  return SCHEDULE_HINT.test(text) && /\b(at|every|each|daily|weekly|morning|evening|afternoon|remind)\b/i.test(text);
+}
+
+/** Ask main whether that was a routine; if it was, it has been created. */
+async function tryRoutine(text) {
+  let res = null;
+  try { res = await window.fren.maybeRoutine(text); } catch { return false; }
+  if (!res || !res.isRoutine || !res.routine) return false;
+
+  const r = res.routine;
+  await speak(
+    `Done — I'll ask myself "${r.prompt}" ${describeWhen(r)}, and read the answer back.\n\n` +
+    `You can see it under Routines in the full window, and turn it off there.`
+  );
+  return true;
+}
+
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/** "every weekday at 09:00", in words. */
+function describeWhen(r) {
+  const time = `${String(r.hour).padStart(2, '0')}:${String(r.minute).padStart(2, '0')}`;
+  if (!r.days || !r.days.length) return `every day at ${time}`;
+  const set = [...r.days].sort().join(',');
+  if (set === '1,2,3,4,5') return `every weekday at ${time}`;
+  if (set === '0,6') return `at weekends at ${time}`;
+  if (r.days.length === 1) return `every ${DAY_NAMES[r.days[0]]} at ${time}`;
+  return `on ${r.days.map((d) => DAY_NAMES[d].slice(0, 3)).join(', ')} at ${time}`;
+}
+
 /** Something said while fren was still busy. Answered next, never dropped. */
 let queued = null;
 
@@ -527,6 +570,9 @@ async function sendMessage(text) {
   addBubble('user', question);
   // During setup the answers are for fren, not for the model.
   if (setup) return handleSetupAnswer(question);
+  // "every weekday at nine, tell me what I did" is not a question to answer
+  // once — it is a routine to set up.
+  if (looksScheduled(question) && await tryRoutine(question)) return;
   awaitingReply = true;
   els.send.disabled = true;
   showTyping(true);
@@ -1285,6 +1331,12 @@ scheduleWander();
   }
 
   window.fren.onSuggestion(onSuggestion);
+  // A routine came round: say it the same way any other reply is said.
+  window.fren.onRoutineRan(async ({ name, text }) => {
+    if (!text || speaking || awaitingReply) return;
+    addBubble('user', name);
+    await speak(text);
+  });
   window.fren.onStateChanged(render);          // subscribe before the first fetch
   render(await window.fren.getState());
   setFace(emotionFor(state), { immediate: true });

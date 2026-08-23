@@ -251,9 +251,20 @@ The last two answers are not about you — they define fren. They are written to
 `SOUL.md` in fren's data folder as instructions it is told to follow, and you
 can open that file, rewrite it, and have it take effect on your next message.
 
+**Routines: tell fren when.** Say "every weekday at nine, tell me what I did
+yesterday" and it sets one up. At that time fren asks itself the question, works
+it out from what it observed, and reads the answer back.
+
+A routine asks a question — it does not run commands. That is a deliberate
+limit: scheduling a generated script is a much larger decision than scheduling a
+question, and it is not one this quietly makes for you. A missed routine expires
+rather than arriving hours late, and none of them fire while fren is paused.
+
 **There is a second window.** Press **Open ↗** in the panel for a full-size
 dashboard: a day at a time down the left, with what you were doing, any stills
-fren stored, the patterns it drew across days, and the automations it drafted.
+fren stored, the patterns it drew across days, the automations it drafted, and
+your routines — where you can see when each next runs, what it said last time,
+and pause or delete it.
 The panel is for glancing; this is for reading back properly. It adds no
 capability — everything in it was already on disk.
 

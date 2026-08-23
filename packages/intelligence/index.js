@@ -319,6 +319,68 @@ function buildAutomationRequest({ pattern, message, memories = [], platform = 'm
   return { system, messages: [{ role: 'user', content }], schema: AUTOMATION_SCHEMA };
 }
 
+const ROUTINE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['isRoutine', 'name', 'prompt', 'hour', 'minute', 'days', 'reason'],
+  properties: {
+    isRoutine: {
+      type: 'boolean',
+      description: 'True only when they are asking for something to happen REPEATEDLY at a time.',
+    },
+    name: { type: 'string', description: 'Three or four words naming it, e.g. "morning recap".' },
+    prompt: {
+      type: 'string',
+      description: 'The question fren should ask itself when the time comes, phrased as a question.',
+    },
+    hour: { type: 'number', description: 'Hour in 24h local time, 0-23.' },
+    minute: { type: 'number', description: 'Minute, 0-59. Use 0 when unstated.' },
+    days: {
+      type: 'array',
+      items: { type: 'number' },
+      description: 'Days of the week as 0=Sunday..6=Saturday. EMPTY means every day. ' +
+                   'Weekdays is [1,2,3,4,5].',
+    },
+    reason: { type: 'string', description: 'If isRoutine is false, one short sentence saying why.' },
+  },
+};
+
+/**
+ * Read a routine out of something someone said.
+ *
+ * "every weekday at nine, tell me what I did yesterday" has to become a time,
+ * a set of days, and a question fren can ask itself later. The hard part is
+ * NOT the parsing — it is refusing. "what did I do yesterday" is a question,
+ * not a routine, and turning it into a daily job because it contained the word
+ * yesterday would be a genuinely annoying failure.
+ */
+function buildRoutineRequest({ text, now = Date.now() } = {}) {
+  const d = new Date(now);
+  return {
+    system: [
+      'You decide whether someone is asking fren, a desktop companion, to set up a REPEATING routine.',
+      '',
+      'A routine is something that happens again and again at a time: "every morning at 9",',
+      '"each weekday at six", "every Friday afternoon". A one-off question is NOT a routine,',
+      'and neither is a request about the past. If in doubt, isRoutine is false — turning an',
+      'ordinary question into a daily job is far more annoying than missing one.',
+      '',
+      'When it IS a routine, write "prompt" as the question fren should ask ITSELF at that time,',
+      'not as a repeat of their words. "tell me what I did yesterday" becomes',
+      '"What did I spend yesterday doing?".',
+      '',
+      'Unstated minute is 0. Unstated days means every day. "Morning" without an hour is 9,',
+      '"afternoon" is 14, "evening" is 18 — but prefer an hour they actually said.',
+      `For reference, it is currently ${d.toTimeString().slice(0, 5)} on a ` +
+      `${d.toLocaleDateString(undefined, { weekday: 'long' })}.`,
+      '',
+      'Return JSON only.',
+    ].join('\n'),
+    messages: [{ role: 'user', content: String(text || '') }],
+    schema: ROUTINE_SCHEMA,
+  };
+}
+
 const EXTRACT_SCHEMA = {
   type: 'object',
   properties: {
@@ -466,6 +528,8 @@ module.exports = {
   buildExtractRequest,
   buildVisionRequest,
   buildAutomationRequest,
+  buildRoutineRequest,
+  ROUTINE_SCHEMA,
   AUTOMATION_SCHEMA,
   EXTRACT_SCHEMA,
 };

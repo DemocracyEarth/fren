@@ -216,6 +216,35 @@ async function handleAutomate(provider, body, res) {
   }
 }
 
+/** Is this a request for a repeating routine, and if so, what? */
+async function handleRoutine(provider, body, res) {
+  const text = body && body.text;
+  if (typeof text !== 'string' || !text.trim()) {
+    return send(res, 400, { error: 'text must be a non-empty string' });
+  }
+  const request = intelligence.buildRoutineRequest({ text });
+  const raw = await callProvider(provider, request, res);
+  if (raw === null) return;
+  try {
+    const p = JSON.parse(String(raw).replace(/^```(?:json)?|```$/gm, '').trim());
+    const days = Array.isArray(p.days)
+      ? [...new Set(p.days.map(Number).filter((n) => n >= 0 && n <= 6))].sort()
+      : [];
+    send(res, 200, {
+      isRoutine: !!p.isRoutine,
+      name: String(p.name || '').slice(0, 60),
+      prompt: String(p.prompt || '').slice(0, 400),
+      hour: Math.min(23, Math.max(0, Number(p.hour) || 0)),
+      minute: Math.min(59, Math.max(0, Number(p.minute) || 0)),
+      days,
+      reason: String(p.reason || ''),
+    });
+  } catch {
+    // Unreadable means "not a routine". Silence is the safe direction.
+    send(res, 200, { isRoutine: false, name: '', prompt: '', hour: 0, minute: 0, days: [], reason: '' });
+  }
+}
+
 async function handleChat(provider, body, res) {
   const question = body && body.question;
   if (typeof question !== 'string' || question.trim() === '') {
@@ -267,7 +296,7 @@ async function handle(provider, voice, vision, req, res, pathname) {
   if (req.method === 'POST' && (pathname === '/v1/summarize' || pathname === '/v1/chat' ||
                                 pathname === '/v1/speak' || pathname === '/v1/extract' ||
                                 pathname === '/v1/pattern' || pathname === '/v1/vision' ||
-                                pathname === '/v1/automate')) {
+                                pathname === '/v1/automate' || pathname === '/v1/routine')) {
     if (req.headers.authorization !== `Bearer ${config.GATEWAY_TOKEN}`) {
       return send(res, 401, { error: 'unauthorized' });
     }
@@ -282,6 +311,7 @@ async function handle(provider, voice, vision, req, res, pathname) {
     if (pathname === '/v1/pattern') return handlePattern(provider, body, res);
     if (pathname === '/v1/vision') return handleVision(vision, body, res);
     if (pathname === '/v1/automate') return handleAutomate(provider, body, res);
+    if (pathname === '/v1/routine') return handleRoutine(provider, body, res);
     if (pathname === '/v1/speak') return handleSpeak(voice, body, res);
     return handleChat(provider, body, res);
   }

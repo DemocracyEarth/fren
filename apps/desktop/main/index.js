@@ -10,6 +10,7 @@ const gateway = require('./gatewayClient');
 const { createObserver } = require('./observer');
 const { createSummarizer } = require('./summarizer');
 const { createPatternWatcher } = require('./patterns');
+const { createRoutineRunner, nextRunAt } = require('./routines');
 const whisper = require('./whisper');
 const soul = require('./soul');
 const screenCapture = require('./screen');
@@ -79,6 +80,7 @@ let dash = null;
 let observer = null;
 let summarizer = null;
 let patterns = null;
+let routines = null;
 
 const log = (...args) => console.log(...args);
 
@@ -198,6 +200,23 @@ app.whenReady().then(() => {
     },
   });
   patterns.start();
+
+  // Routines: the same questions, at times the user chose. The runner refuses
+  // to fire while paused, and a missed one expires rather than arriving hours
+  // late — see routines.js.
+  routines = createRoutineRunner({
+    memory,
+    state,
+    log,
+    run: async (routine) => {
+      const reply = await answer(routine.prompt);
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('fren:routineRan', { name: routine.name, text: reply });
+      }
+      return reply;
+    },
+  });
+  routines.start();
 
   createWindow();
 
@@ -505,7 +524,69 @@ app.whenReady().then(() => {
     }
   });
 
+  // ---- routines ----------------------------------------------------------
+  ipcMain.handle('fren:routines', () => {
+    try {
+      return memory.getRoutines().map((r) => ({ ...r, nextRun: nextRunAt(r) }));
+    } catch { return []; }
+  });
+
+  /** Is this a routine request? If so, create it and say what was created. */
+  ipcMain.handle('fren:maybeRoutine', async (_e, text) => {
+    const said = String(text ?? '').trim().slice(0, 600);
+    if (!said) return { isRoutine: false };
+    try {
+      const parsed = await gateway.routine({ text: said });
+      if (!parsed.isRoutine || !parsed.prompt) return { isRoutine: false };
+      const id = memory.addRoutine({
+        name: parsed.name || 'routine',
+        prompt: parsed.prompt,
+        hour: parsed.hour,
+        minute: parsed.minute,
+        days: parsed.days,
+      });
+      const created = memory.getRoutines().find((r) => r.id === id);
+      log(`[routines] created "${created.name}" for ${created.hour}:${String(created.minute).padStart(2, '0')}`);
+      return { isRoutine: true, routine: { ...created, nextRun: nextRunAt(created) } };
+    } catch (err) {
+      log(`[routines] could not parse a routine: ${err.message}`);
+      return { isRoutine: false };
+    }
+  });
+
+  ipcMain.handle('fren:setRoutineEnabled', (_e, id, enabled) => {
+    memory.setRoutineEnabled(Number(id), !!enabled);
+    return true;
+  });
+
+  ipcMain.handle('fren:deleteRoutine', (_e, id) => {
+    memory.deleteRoutine(Number(id));
+    return true;
+  });
+
   ipcMain.handle('fren:quit', () => app.quit());
+
+  /**
+   * Answer a question from fren's own memory.
+   *
+   * Shared by the chat handler and by routines, so a routine can never do
+   * anything you could not have asked for yourself — it is the same call, at a
+   * time you chose.
+   */
+  async function answer(question) {
+    const eightHoursAgo = Date.now() - 8 * 60 * 60 * 1000;
+    const memories = memory.getRecentMemories({ sinceMs: eightHoursAgo });
+    const observations = memory
+      .getRecentObservations({ limit: 50 })
+      .map(({ ts, activeApp, windowTitle }) => ({ ts, activeApp, windowTitle }));
+    const profile = memory.getSetting('profile');
+    const character = soul.readContext(app.getPath('userData'));
+    const { reply } = await gateway.chat({
+      question, memories, observations, profile,
+      soul: character.soul, userDoc: character.user,
+    });
+    return reply;
+  }
 
   ipcMain.handle('fren:chat', async (_e, text) => {
     const question = String(text ?? '').trim().slice(0, 2000);
@@ -546,5 +627,6 @@ app.on('before-quit', () => {
   if (observer) observer.stop();
   if (summarizer) summarizer.stop();
   if (patterns) patterns.stop();
+  if (routines) routines.stop();
   if (memory) memory.close();
 });

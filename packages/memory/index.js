@@ -19,6 +19,25 @@ CREATE TABLE IF NOT EXISTS memories (
   confidence REAL,
   raw_count INTEGER
 );
+-- Routines: things fren does at a time, rather than when asked.
+--
+-- What a routine does is deliberately narrow: it ASKS fren something and reads
+-- the answer back. It does not run commands. Scheduling arbitrary generated
+-- scripts is a different and much larger decision than scheduling a question,
+-- and this schema does not quietly leave the door open for it.
+CREATE TABLE IF NOT EXISTS routines (
+  id       INTEGER PRIMARY KEY,
+  name     TEXT NOT NULL,
+  prompt   TEXT NOT NULL,
+  hour     INTEGER NOT NULL,
+  minute   INTEGER NOT NULL,
+  days     TEXT NOT NULL DEFAULT '',   -- '' = every day, else '1,2,3,4,5'
+  enabled  INTEGER NOT NULL DEFAULT 1,
+  created  INTEGER,
+  last_run INTEGER,
+  last_text TEXT
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -264,6 +283,47 @@ function openMemory(dbPath) {
      * fren observes. Kept apart from memories on purpose: observations expire,
      * and someone's name should not.
      */
+    // ---- routines ---------------------------------------------------------
+    addRoutine({ name, prompt, hour, minute, days = [], created = Date.now() }) {
+      const { lastInsertRowid } = db
+        .prepare('INSERT INTO routines (name, prompt, hour, minute, days, created) ' +
+                 'VALUES (?, ?, ?, ?, ?, ?)')
+        .run(String(name), String(prompt), Number(hour), Number(minute),
+             days.join(','), Number(created));
+      return Number(lastInsertRowid);
+    },
+
+    getRoutines() {
+      return db.prepare('SELECT * FROM routines ORDER BY hour ASC, minute ASC').all()
+        .map((r) => ({
+          id: r.id,
+          name: r.name,
+          prompt: r.prompt,
+          hour: r.hour,
+          minute: r.minute,
+          days: r.days ? r.days.split(',').map(Number) : [],
+          enabled: !!r.enabled,
+          created: r.created,
+          lastRun: r.last_run,
+          lastText: r.last_text,
+        }));
+    },
+
+    setRoutineEnabled(id, enabled) {
+      db.prepare('UPDATE routines SET enabled = ? WHERE id = ?')
+        .run(enabled ? 1 : 0, Number(id));
+    },
+
+    /** Record that a routine ran, and what it said. */
+    markRoutineRun(id, ts, text) {
+      db.prepare('UPDATE routines SET last_run = ?, last_text = ? WHERE id = ?')
+        .run(Number(ts), text == null ? null : String(text).slice(0, 2000), Number(id));
+    },
+
+    deleteRoutine(id) {
+      db.prepare('DELETE FROM routines WHERE id = ?').run(Number(id));
+    },
+
     getSetting(key) {
       const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(String(key));
       if (!row) return null;

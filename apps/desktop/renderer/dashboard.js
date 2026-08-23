@@ -17,6 +17,7 @@ const els = {
   content: document.getElementById('content'),
   patternCount: document.getElementById('side-pattern-count'),
   autoCount: document.getElementById('side-auto-count'),
+  routineCount: document.getElementById('side-routine-count'),
   status: document.querySelector('#side-status span'),
 };
 
@@ -276,6 +277,117 @@ async function showAutomations() {
   }
 }
 
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/** "every weekday at 09:00", in words rather than as a cron line. */
+function describeWhen(r) {
+  const time = `${pad(r.hour)}:${pad(r.minute)}`;
+  if (!r.days || !r.days.length) return `Every day at ${time}`;
+  const set = [...r.days].sort().join(',');
+  if (set === '1,2,3,4,5') return `Every weekday at ${time}`;
+  if (set === '0,6') return `Weekends at ${time}`;
+  if (r.days.length === 1) return `Every ${DAY_NAMES[r.days[0]]} at ${time}`;
+  return `${r.days.map((d) => DAY_NAMES[d].slice(0, 3)).join(', ')} at ${time}`;
+}
+
+function whenNext(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const today = new Date();
+  const sameDay = d.toDateString() === today.toDateString();
+  const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+  const isTomorrow = d.toDateString() === tomorrow.toDateString();
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  if (sameDay) return `Next: today at ${time}`;
+  if (isTomorrow) return `Next: tomorrow at ${time}`;
+  return `Next: ${d.toLocaleDateString(undefined, { weekday: 'short' })} at ${time}`;
+}
+
+async function showRoutines() {
+  current = { kind: 'routines' };
+  markActive();
+  els.title.textContent = 'Routines';
+  els.content.textContent = '';
+
+  let list = [];
+  try { list = await window.fren.routines(); } catch { list = []; }
+  const on = list.filter((r) => r.enabled).length;
+  els.subtitle.textContent = list.length
+    ? `${list.length} set up${on !== list.length ? `, ${on} active` : ''}`
+    : 'Nothing scheduled';
+
+  if (!list.length) {
+    els.content.appendChild(blank(
+      'Nothing scheduled',
+      'Tell fren when you want something — "every weekday at nine, tell me what ' +
+      'I did yesterday" — and it appears here. A routine asks fren a question ' +
+      'and reads the answer back; it does not run commands.'
+    ));
+    return;
+  }
+
+  for (const r of list) {
+    const card = el('div', 'card');
+
+    const head = el('div', 'card-head');
+    head.append(el('b', null, r.name));
+    head.append(el('time', null, describeWhen(r)));
+    card.append(head);
+
+    card.append(el('p', null, r.prompt));
+
+    const meta = el('div', 'named');
+    meta.append(el('span', null, r.enabled ? whenNext(r.nextRun) : 'Paused'));
+    if (r.lastRun) {
+      meta.append(el('span', 'dim',
+        `Last ran ${new Date(r.lastRun).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`));
+    }
+    card.append(meta);
+
+    if (r.lastText) {
+      const d = el('details', 'last');
+      d.append(el('summary', null, 'What it said last time'));
+      d.append(el('p', null, r.lastText));
+      card.append(d);
+    }
+
+    const actions = el('div', 'row-actions');
+    const toggle = el('button', 'mini', r.enabled ? 'Pause' : 'Resume');
+    toggle.addEventListener('click', async () => {
+      await window.fren.setRoutineEnabled(r.id, !r.enabled);
+      showRoutines();
+    });
+    const del = el('button', 'mini danger', 'Delete');
+    del.addEventListener('click', async () => {
+      await window.fren.deleteRoutine(r.id);
+      showRoutines();
+      refreshCounts();
+    });
+    actions.append(toggle, del);
+    card.append(actions);
+
+    els.content.appendChild(card);
+  }
+}
+
+async function refreshCounts() {
+  cachedSuggestions = null;
+  const all = await suggestions();
+  const live = all.filter((s) => s.status !== 'dismissed').length;
+  const drafted = all.filter((s) => s.draft).length;
+  let routineCount = 0;
+  try { routineCount = (await window.fren.routines()).filter((r) => r.enabled).length; } catch { /* none */ }
+
+  const set = (elm, n) => {
+    if (!elm) return;
+    elm.textContent = String(n);
+    elm.hidden = !n;
+  };
+  set(els.patternCount, live);
+  set(els.autoCount, drafted);
+  set(els.routineCount, routineCount);
+}
+
 let cachedSuggestions = null;
 async function suggestions() {
   if (cachedSuggestions) return cachedSuggestions;
@@ -283,9 +395,13 @@ async function suggestions() {
   return cachedSuggestions;
 }
 
+const SECTIONS = {
+  patterns: showPatterns,
+  automations: showAutomations,
+  routines: showRoutines,
+};
 for (const b of document.querySelectorAll('.side-item[data-section]')) {
-  b.addEventListener('click', () =>
-    (b.dataset.section === 'patterns' ? showPatterns() : showAutomations()));
+  b.addEventListener('click', () => SECTIONS[b.dataset.section]());
 }
 
 // ------------------------------------------------------------------ boot --
@@ -307,11 +423,6 @@ for (const b of document.querySelectorAll('.side-item[data-section]')) {
 
   await loadSidebar();
 
-  const all = await suggestions();
-  const live = all.filter((s) => s.status !== 'dismissed').length;
-  const drafted = all.filter((s) => s.draft).length;
-  if (live) { els.patternCount.textContent = String(live); els.patternCount.hidden = false; }
-  if (drafted) { els.autoCount.textContent = String(drafted); els.autoCount.hidden = false; }
-
+  await refreshCounts();
   await showDay(todayKey());
 })();
