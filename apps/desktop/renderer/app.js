@@ -36,6 +36,8 @@ const els = {
   know: document.getElementById('know'),
   knowFiles: document.getElementById('know-files'),
   volunteerRow: document.getElementById('volunteer-row'),
+  wakeRow: document.getElementById('wake-row'),
+  wakeOnLaunch: document.getElementById('wake-on-launch'),
   volunteer: document.getElementById('volunteer'),
   patterns: document.getElementById('patterns'),
   patternsBody: document.getElementById('patterns-body'),
@@ -103,6 +105,21 @@ function react(trigger) {
   }, hold);
 }
 
+/**
+ * What tapping the orb will do right now.
+ *
+ * "Tap to wake" was true when every launch started dark. It launches awake now,
+ * so the same words would describe the opposite of what the tap does — and this
+ * tooltip is the one place that says, in words, whether fren is watching.
+ */
+function orbVerb() {
+  return state.observing ? 'Watching — tap to pause' : 'Asleep — tap to wake';
+}
+
+// The first state broadcast describes how fren STARTED, not something that
+// just happened to it. Transitions are only transitions after that.
+let firstRender = true;
+
 function render(next) {
   const was = state;
   state = next;
@@ -137,8 +154,11 @@ function render(next) {
     addBubble('fren', "Understood — light off, questions dropped. Tap me when you want me back.");
   }
 
-  // Waking up is worth a little physical reaction.
-  if (state.observing && !was.observing) {
+  // Waking up is worth a little physical reaction — but only when it is
+  // actually waking. Starting awake makes the FIRST broadcast a false->true
+  // edge, so without this fren performs "you just woke me" on every launch and
+  // the gesture stops meaning anything.
+  if (state.observing && !was.observing && !firstRender) {
     // The line above deliberately does not touch the face mid-reply, so that a
     // arriving answer is not stomped. But that also means waking up during a
     // reply would leave fren dark while the observer is running, which breaks
@@ -150,6 +170,7 @@ function render(next) {
     setTimeout(() => face.pulse('bounce'), 180);
   }
   if (state.mascot === 'idea' && was.mascot !== 'idea') { mood.note('idea'); face.pulse('bounce'); }
+  firstRender = false;
 }
 
 function scrollDown() {
@@ -360,8 +381,19 @@ const SETUP_STEPS = [
   },
   {
     key: 'goals',
-    ask: () => "Last one. What would genuinely be useful from me? I watch which " +
+    ask: () => "What would genuinely be useful from me? I watch which " +
                "apps and windows you use, and look for things worth mentioning.",
+  },
+  // Asked last, and asked plainly. By this point fren has been lit through the
+  // whole introduction, so the question is about something already visible
+  // rather than a permission buried in a checkbox nobody reads.
+  {
+    key: 'wake',
+    ask: () => "Last one, about this light. I've had it on since we started, " +
+               "which is me watching.\n\n" +
+               "Should I wake up like this every time you launch me, or start " +
+               "dark and wait until you tap me?",
+    pulse: 'nod',
   },
 ];
 
@@ -450,6 +482,29 @@ async function finishSetup() {
     } catch { /* unclear means wait: see the rule */ }
   }
 
+  // The same read-it-like-a-person treatment as `initiative`: "start dark" and
+  // "wait until I tap you" are the same answer, and no keyword test gets that.
+  let wakeOnLaunch = true;
+  if (answers.wake) {
+    try {
+      const res = await window.fren.extractSetup({
+        field: 'wakeMode',
+        question: 'Should fren be awake and watching when it launches, or start dark until tapped?',
+        answer: answers.wake,
+      });
+      const said = (res && res.value) || '';
+      // Trust an answer we got; keep the default only when there was none. The
+      // classifier already resolves its own ambiguity toward "dark".
+      if (said) wakeOnLaunch = /awake/i.test(said);
+    } catch { /* no answer at all keeps the default they were just shown */ }
+  }
+  try { await window.fren.setWakeOnLaunch(wakeOnLaunch); } catch { /* not worth failing over */ }
+  if (!wakeOnLaunch && state.observing) {
+    // Honour it immediately rather than at the next launch. Being told "start
+    // dark" and staying lit for the rest of the session reads as not listening.
+    try { await window.fren.toggleObservation(); } catch { /* the setting still holds */ }
+  }
+
   const profile = { ...answers, volunteer, completedAt: Date.now() };
   await endSetup(profile);
   face.pulse('stretch');
@@ -457,8 +512,10 @@ async function finishSetup() {
     `Thanks, ${answers.name}. I've written that down as SOUL.md — it's how I'll ` +
     `try to be. You can open it and change it any time, and I'll read it fresh ` +
     `on the next thing you say.\n\n` +
-    `Hold me to talk; you don't need this panel open. And I only watch while my ` +
-    `light is on, so tap me when you're ready for me to start.`
+    `Hold me to talk; you don't need this panel open. ` +
+    (wakeOnLaunch
+      ? `I'll be awake and watching whenever you launch me — tap me any time to stop.`
+      : `I'll start dark from now on, so tap me when you want me watching.`)
   );
 }
 
@@ -710,6 +767,13 @@ function cancelHold() {
  * that happens. Stay put for the hold and it is speech. The drag does not
  * begin at all until movement proves it, so holding still never moves the orb.
  */
+// Any of these means the session has started for real, and a greeting still in
+// flight has missed its moment. Deliberately NOT mouseenter: moving the pointer
+// across the orb is not the user doing something.
+for (const [el, ev] of [[els.orb, 'mousedown'], [els.input, 'keydown'], [els.send, 'click'], [els.mic, 'pointerdown']]) {
+  if (el) el.addEventListener(ev, () => { userActed = true; }, { once: true, capture: true });
+}
+
 els.orb.addEventListener('mousedown', (e) => {
   if (e.button !== 0) return;
   pressing = true;
@@ -950,6 +1014,12 @@ async function showWhatIKnow() {
   if (els.volunteerRow) {
     els.volunteerRow.hidden = !profile;
     if (profile) els.volunteer.checked = !!profile.volunteer;
+  }
+  // Always shown, profile or not: this one governs capture, and someone who
+  // skipped the interview needs it more than someone who sat through it.
+  if (els.wakeRow) {
+    els.wakeRow.hidden = false;
+    try { els.wakeOnLaunch.checked = await window.fren.getWakeOnLaunch(); } catch { /* leave as is */ }
   }
 
   let data = null;
@@ -1271,6 +1341,55 @@ function volunteersOutLoud() {
   return !!(profile && profile.volunteer);
 }
 
+/**
+ * Hello.
+ *
+ * Deliberately not awaited by anything: a greeting that delays the first frame
+ * has already cost more than it is worth. It arrives when it arrives, and if
+ * anything else has started in the meantime it does not arrive at all — being
+ * greeted over the top of something is worse than not being greeted.
+ *
+ * It does NOT go through speak(). speak() force-opens the panel when the words
+ * will not be heard, which is correct for an answer you asked for and wrong
+ * here: the panel is always closed at launch, so a muted machine or a failed
+ * voice call would resize the window over whatever you were doing, every single
+ * launch. A greeting is the one thing that must never take the screen.
+ *
+ * So the bubble is always written, the face always moves, and the words are
+ * only spoken if there is something to hear them.
+ */
+const GREET_DEADLINE_MS = 10_000;
+
+async function greetQuietly(text) {
+  if (!text || setup || speaking || awaitingReply || userActed) return;
+  // A hello that arrives after you have started working is not a hello.
+  if (Date.now() - bootAt > GREET_DEADLINE_MS) return;
+
+  addBubble('fren', text);         // read it whenever the panel is opened
+  els.orb.title = text;            // and on hover in the meantime
+  face.pulse('bounce');
+
+  let audible = false;
+  try { audible = !(await window.fren.audioSilenced()); } catch { /* assume not */ }
+  // Checked BEFORE the call, not after: speaking into a muted machine spends a
+  // paid voice request on nothing.
+  if (!audible || userActed) return;
+
+  try {
+    const res = await window.fren.speak(text);
+    if (res && res.audio) {
+      face.startTalking();
+      await playVoice(res.audio).catch(() => {});
+      face.stopTalking();
+    }
+  } catch { /* a silent hello is still a hello */ }
+}
+
+// When this window came up, and whether the user has done anything since. A
+// greeting is only welcome before either of those has moved on.
+const bootAt = Date.now();
+let userActed = false;
+
 let pendingSuggestion = null;
 
 /**
@@ -1346,8 +1465,8 @@ async function deliverPendingSuggestion() {
   const message = pendingSuggestion;
   pendingSuggestion = null;
   els.orb.title = voiceReady
-    ? 'Tap to wake · hold to talk · drag to move'
-    : 'Tap to wake · drag to move';
+    ? `${orbVerb()} · hold to talk · drag to move`
+    : `${orbVerb()} · drag to move`;
   await speak(message);
   return true;
 }
@@ -1391,6 +1510,20 @@ scheduleWander();
 
   window.fren.onSuggestion(onSuggestion);
   window.fren.onCurious(onCurious);
+  window.fren.greeting()
+    .then((g) => (g && g.text ? greetQuietly(g.text) : null))
+    .catch(() => {});
+  if (els.wakeOnLaunch) {
+    els.wakeOnLaunch.addEventListener('change', async () => {
+      const want = els.wakeOnLaunch.checked;
+      try {
+        const res = await window.fren.setWakeOnLaunch(want);
+        els.wakeOnLaunch.checked = !!(res && res.wakeOnLaunch);
+      } catch {
+        els.wakeOnLaunch.checked = !want;
+      }
+    });
+  }
   if (els.volunteer) {
     els.volunteer.addEventListener('change', async () => {
       const want = els.volunteer.checked;
@@ -1416,8 +1549,8 @@ scheduleWander();
   setFace(emotionFor(state), { immediate: true });
 
   els.orb.title = voiceReady
-    ? 'Tap to wake · hold to talk · drag to move'
-    : 'Tap to wake · drag to move';
+    ? `${orbVerb()} · hold to talk · drag to move`
+    : `${orbVerb()} · drag to move`;
 
   window.fren.getSuggestions().then((l) => updatePatternCount(l.length)).catch(() => {});
 

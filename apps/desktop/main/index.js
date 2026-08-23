@@ -11,6 +11,7 @@ const { createObserver } = require('./observer');
 const { createSummarizer } = require('./summarizer');
 const { createPatternWatcher } = require('./patterns');
 const { createCuriosityWatcher } = require('./curiosity');
+const { wakeOnLaunchFrom } = require('./wake');
 const { createRoutineRunner, nextRunAt, isDue } = require('./routines');
 const executor = require('./executor');
 const whisper = require('./whisper');
@@ -84,6 +85,12 @@ let summarizer = null;
 let patterns = null;
 let routines = null;
 let curiosity = null;
+let heartbeat = null;
+const bootAt = Date.now();
+// When fren was last alive. Written on a heartbeat rather than on quit, because
+// a crash, a force-quit or a logout all skip the tidy exit — and the greeting
+// would then claim a gap of days that was really a gap of minutes.
+let lastSeenAt = null;
 // When the user last said something. Curiosity checks this so a question never
 // lands in the middle of a conversation that is already going.
 let lastChatAt = 0;
@@ -259,6 +266,12 @@ app.whenReady().then(() => {
     // starts while this one is still inside a running script.
     if (automationTickBusy) return;
     if (!state.get().observing) return;
+    // fren now starts awake, and `observing` is what gates scheduled runs — so
+    // without this, "runs while I have fren watching" quietly became "runs on
+    // every launch", and a slot missed while the machine was off would fire
+    // during the first seconds of the next boot. The grace is small on purpose:
+    // enough to notice and pause, no change at all for a fren left running.
+    if (Date.now() - bootAt < 2 * 60 * 1000) return;
 
     let due = [];
     try {
@@ -293,21 +306,37 @@ app.whenReady().then(() => {
   }, 30 * 1000);
   if (automationTimer.unref) automationTimer.unref();
 
+  // Read BEFORE the first beat overwrites it: this is how long fren was gone,
+  // and it is the one thing the greeting is built from.
+  lastSeenAt = Number(memory.getSetting('lastSeenAt')) || null;
+  const beat = () => { try { memory.setSetting('lastSeenAt', Date.now()); } catch { /* not worth failing over */ } };
+  beat();
+  heartbeat = setInterval(beat, 60 * 1000);
+  if (heartbeat.unref) heartbeat.unref();
+
   createWindow();
 
-  // On a first launch fren wakes up by itself and introduces itself. Every
-  // later launch starts paused, as before.
+  // fren wakes up when it launches. This is the owner's decision, and it can be
+  // reversed — at setup, from the Memory pane, or by tapping the orb.
   //
-  // This is a real trade: being lit means fren IS watching, so capture starts
-  // before anyone has agreed to it. It is defensible only because the very
+  // It is a real trade, and worth naming: being lit means fren IS watching, so
+  // capture begins before anyone has said anything this session. Two things
+  // make it defensible rather than sly. The light is not decoration — the whole
+  // state model computes it from `observing`, so an awake face is never on
+  // while capture is off (see state.js: a lit orb that was not watching would
+  // be the actually dishonest arrangement). And on the very first launch, the
   // first thing fren says is that its light is on, what that means, and how to
-  // turn it off — and because the alternative, a dark ball that has to be
-  // discovered, is how the last few sessions ended with the interview ignored.
-  // If it were lit WITHOUT observing, the light would be a lie, which is worse.
+  // stop it.
+  //
+  // Anyone who prefers the old behaviour sets it once and it sticks.
   const firstLaunch = !memory.getSetting('profile');
-  if (firstLaunch) {
-    log('[setup] first launch — waking up to introduce myself');
+  // Absent means never chosen: awake, including for people who completed setup
+  // before this setting existed. See wake.js for why it is resolved there.
+  if (wakeOnLaunchFrom(memory.getSetting('wakeOnLaunch'))) {
+    log(firstLaunch ? '[setup] first launch — waking up to introduce myself' : '[state] awake on launch');
     startObserving();
+  } else {
+    log('[state] starting paused, as set');
   }
 
   state.subscribe((s) => {
@@ -443,6 +472,85 @@ app.whenReady().then(() => {
   // What the user told fren about themselves during first-run setup. Stored
   // locally in the same SQLite file as everything else; it is sent to the model
   // as chat context and nowhere else.
+  /**
+   * Hello, once per arrival.
+   *
+   * The greeting is the most repeated thing fren will ever say, so the question
+   * that matters is not how to write one but when to stay quiet. Restarting the
+   * app four times in ten minutes — which is most of a working day if you are
+   * building it — must not produce four hellos, both because it would be
+   * maddening and because each one is a paid speech call.
+   *
+   * So: greet on an ARRIVAL, not on a launch. A relaunch inside the quiet
+   * window is the same visit continuing.
+   */
+  const GREET_AFTER_MS = 30 * 60 * 1000;   // a gap shorter than this is not an arrival
+  const RECENT_GREETINGS = 'recentGreetings';
+
+  ipcMain.handle('fren:greeting', async () => {
+    // The introduction IS the greeting on a first launch, and it is a better
+    // one. Without this the call is still paid for and then thrown away,
+    // because the renderer drops a hello that lands during setup.
+    if (!memory.getSetting('profile')) return { text: null, why: 'first launch' };
+    const gap = lastSeenAt ? Date.now() - lastSeenAt : null;
+    if (gap !== null && gap < GREET_AFTER_MS) return { text: null, why: 'just restarted' };
+
+    let recent = [];
+    try { recent = JSON.parse(memory.getSetting(RECENT_GREETINGS) || '[]'); } catch { recent = []; }
+
+    // Only what was written down before fren closed. Nothing here is live.
+    let lastActivity = '';
+    try {
+      // Newest N, then re-sorted ascending — so limit 1 is the latest row.
+      const [latest] = memory.getRecentMemories({ sinceMs: Date.now() - 7 * 24 * 3600 * 1000, limit: 1 });
+      if (latest) lastActivity = latest.activity || '';
+    } catch { /* nothing observed yet */ }
+
+    let facts = '';
+    try {
+      const mem = soul.readAll(app.getPath('userData')).files.find((f) => f.name === 'MEMORY.md');
+      facts = (mem ? mem.text : '').split('## Days')[0].split('\n')
+        .filter((l) => l.startsWith('- ')).slice(-6).join('\n');
+    } catch { /* no facts yet */ }
+
+    try {
+      const { text } = await gateway.greet({
+        profile: memory.getSetting('profile'),
+        lastSeenMs: lastSeenAt,
+        lastActivity,
+        facts,
+        avoid: recent,
+      });
+      if (!text) return { text: null, why: 'nothing came back' };
+      try {
+        memory.setSetting(RECENT_GREETINGS, JSON.stringify([...recent, text].slice(-4)));
+      } catch { /* the greeting still stands */ }
+      // PRIVACY: that fren said hello, never what it said — the text is built
+      // from window titles.
+      log('[greeting] said hello');
+      return { text };
+    } catch (err) {
+      // No hello is a fine outcome. A late or failed one must never hold up the
+      // app or surface an error at the very first moment of a session.
+      log(`[greeting] skipped: ${err.message}`);
+      return { text: null, why: 'gateway unavailable' };
+    }
+  });
+
+  /**
+   * Whether fren is awake when it launches.
+   *
+   * Stored apart from the profile because it is not a fact about the user, it
+   * is a standing instruction about capture — the kind of thing that should be
+   * one obvious value someone can find, flip, and trust.
+   */
+  ipcMain.handle('fren:getWakeOnLaunch', () => wakeOnLaunchFrom(memory.getSetting('wakeOnLaunch')));
+  ipcMain.handle('fren:setWakeOnLaunch', (_e, on) => {
+    memory.setSetting('wakeOnLaunch', !!on);
+    log(`[state] launches ${on ? 'awake' : 'paused'} from now on`);
+    return { wakeOnLaunch: !!on };
+  });
+
   ipcMain.handle('fren:getProfile', () => memory.getSetting('profile'));
 
   /**
@@ -874,6 +982,7 @@ app.on('before-quit', () => {
   if (drag) clearInterval(drag.timer);
   if (observer) observer.stop();
   if (summarizer) summarizer.stop();
+  if (heartbeat) clearInterval(heartbeat);
   if (patterns) patterns.stop();
   if (curiosity) curiosity.stop();
   if (routines) routines.stop();

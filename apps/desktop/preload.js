@@ -43,4 +43,7 @@ contextBridge.exposeInMainWorld('fren', {
   onCurious: (cb) => ipcRenderer.on('fren:curious', (_e, q) => cb(q)),
   learn: (question, answer) => ipcRenderer.invoke('fren:learn', question, answer),
   setVolunteer: (on) => ipcRenderer.invoke('fren:setVolunteer', on),
+  greeting: () => ipcRenderer.invoke('fren:greeting'),
+  getWakeOnLaunch: () => ipcRenderer.invoke('fren:getWakeOnLaunch'),
+  setWakeOnLaunch: (on) => ipcRenderer.invoke('fren:setWakeOnLaunch', on),
 });

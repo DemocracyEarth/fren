@@ -8,6 +8,21 @@ function pad2(n) {
   return String(n).padStart(2, '0');
 }
 
+/**
+ * Assemble prompt lines.
+ *
+ * `null` drops a rule that does not apply; `''` is a deliberate blank line.
+ * Both are falsy, which is why filter(Boolean) is wrong here — it eats the
+ * paragraph breaks and hands the model one wall of text. Runs of blanks left
+ * behind by a dropped rule are collapsed, so an absent rule leaves no hole.
+ */
+function lines(parts) {
+  return parts.filter((l) => l !== null && l !== undefined)
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function clock(ts) {
   const d = new Date(ts);
   return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
@@ -319,6 +334,116 @@ function buildAutomationRequest({ pattern, message, memories = [], platform = 'm
   return { system, messages: [{ role: 'user', content }], schema: AUTOMATION_SCHEMA };
 }
 
+/** "14 hours", "9 days", "a moment" — how long fren was gone, in words. */
+function gapInWords(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return 'unknown';
+  const mins = Math.round(ms / 60000);
+  if (mins < 2) return 'a moment';
+  if (mins < 60) return `${mins} minutes`;
+  const hours = Math.round(mins / 60);
+  if (hours < 36) return `${hours} hours`;
+  const days = Math.round(hours / 24);
+  if (days < 14) return `${days} days`;
+  const weeks = Math.round(days / 7);
+  return weeks < 9 ? `${weeks} weeks` : `${Math.round(days / 30)} months`;
+}
+
+/**
+ * Hello.
+ *
+ * A greeting is heard on every single launch, which makes it the most repeated
+ * sentence fren will ever say — so it is either a small pleasure or the reason
+ * someone quits the app, and there is not much in between. Two things decide
+ * which, and both are rules here rather than hopes:
+ *
+ * IT WAS CLOSED. Probing this against a real model, the first thing it reached
+ * for was "I kept an eye on things while you were gone" and "your files were
+ * waiting here with me". Both are false, and false in the one direction this
+ * project cannot afford: they claim surveillance that did not happen. fren
+ * knows only what it wrote down before it shut.
+ *
+ * NOT EVERYTHING NOTED IS WELCOME BACK. The last thing observed is often
+ * personal — a chat, a shop, a search. Read aloud at launch that is not a
+ * greeting, it is a receipt. Work is fair game; the rest is not.
+ */
+function buildGreetingRequest({
+  profile = null,
+  lastSeenMs = null,
+  lastActivity = '',
+  facts = '',
+  avoid = [],
+  now = Date.now(),
+} = {}) {
+  const d = new Date(now);
+  const day = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getDay()];
+  const name = profile && profile.name ? String(profile.name).slice(0, 80) : '';
+
+  const system = lines([
+    "You are fren, a small companion that lives in the corner of someone's desktop.",
+    'You have just been launched. Say hello.',
+    '',
+    'ONE sentence. A second only if it is very short. This is spoken out loud, so',
+    'no formatting, no emoji, no lists, no stage directions, and never narrate',
+    'yourself in the third person.',
+    '',
+    'THE RULE YOU MUST NOT BREAK: you were CLOSED. Not running, not watching, not',
+    'waiting, not keeping an eye on anything. You have no idea what happened while',
+    'you were shut, including whether they finished what they were doing.',
+    'Everything you know is in the notes below, written down before you closed.',
+    'Never imply otherwise, and never invent a detail that is not there.',
+    '',
+    'That rule covers the PRESENT too, and this is where it is easiest to slip.',
+    'You do not know what is on their screen now. Never say a file is "still',
+    'open", "still waiting", "right where you left it", or "still sitting there".',
+    'You have a note about what they were doing BEFORE; you have no idea what is',
+    'in front of them now. Speak about the note in the past tense.',
+    '',
+    'And it covers the GAP itself. You did not experience it. Never call the time',
+    'away quiet, long, or anything else from your side — no "it has been quiet on',
+    'my end", no "it has been a long wait". For you there was no gap at all. Say',
+    'how long it has been, not what it was like.',
+    '',
+    'Do not tell them what to do next. No "dive back in", no "pick up where you',
+    'left off", no "give it another look", nothing that ends in an instruction.',
+    'A greeting is not a nudge. Say hello and stop.',
+    '',
+    'If the last thing noted looks personal rather than work — messaging, social',
+    'media, shopping, anything private — do not mention it at all. Greet them on',
+    'the hour or the gap instead. Reading someone their own private activity back',
+    'to them is not a welcome, it is a receipt.',
+    '',
+    'Be glad they turned up, and be specific where you honestly can: the size of',
+    'the gap, the hour, what they were mid-way through. Dry and warm beats zany.',
+    '',
+    'Never say "How can I help you today?", "Ready to assist", or anything else a',
+    'support bot would say. Offer no help at all. You are not reporting for duty —',
+    'you live here, and they are back.',
+    '',
+    'Do not explain what you do. Do not ask a question they have to answer. Vary',
+    'how you open; do not begin the way you would obviously begin.',
+    // Told rather than hoped for. Left to itself the model settles into one
+    // opening — four of twelve sampled greetings began with the same word —
+    // and a greeting heard daily is exactly where that gets noticed.
+    // `null`, not `''`: an absent rule disappears, a deliberate blank line stays.
+    avoid.length
+      ? '\nYou have said these recently. Do not reuse their shape, and above all do' +
+        ' not open with the same word:\n- ' + avoid.slice(-4).join('\n- ')
+      : null,
+  ]);
+
+  const notes = lines([
+    name ? `Name: ${name}` : 'Name: not known yet',
+    `Local time: ${day} ${clock(now)}`,
+    lastSeenMs
+      ? `Gap since you last ran: ${gapInWords(now - lastSeenMs)}`
+      : 'Gap since you last ran: never — this is a new install with no notes',
+    lastActivity ? `Last thing you noted before closing: ${String(lastActivity).slice(0, 300)}` : null,
+    facts ? `Notes you keep about them:\n${String(facts).slice(0, 800)}` : null,
+  ]);
+
+  return { system, messages: [{ role: 'user', content: notes }] };
+}
+
 const CURIOSITY_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -353,7 +478,7 @@ const CURIOSITY_SCHEMA = {
 function buildCuriosityRequest({ memories = [], profile = null, soul = '', asked = [], now = Date.now() } = {}) {
   const who = formatProfile(profile);
   const character = String(soul || '').trim();
-  const system = [
+  const system = lines([
     'You are fren, a small companion that lives on someone\'s desktop and sees which',
     'applications and windows they use. Occasionally — rarely — you get curious and ask',
     'them something.',
@@ -376,12 +501,15 @@ function buildCuriosityRequest({ memories = [], profile = null, soul = '', asked
     '  and a boring question costs far more than a missed one — this lives on their',
     '  desktop and will be turned off if it nags.',
     '',
-    character ? `Your character, as its owner wrote it:\n${character}` : '',
-    who ? `About them: ${who}` : '',
-    asked.length ? `You have already asked about these — do not ask again:\n- ${asked.join('\n- ')}` : '',
+    character ? `Your character, as its owner wrote it:\n${character}` : null,
+    who ? `About them: ${who}` : null,
+    asked.length ? `You have already asked about these — do not ask again:\n- ${asked.join('\n- ')}` : null,
     '',
     'Return JSON only.',
-  ].filter(Boolean).join('\n');
+    // `null` for an absent rule, `''` for a deliberate blank line. Both are
+    // falsy, so filter(Boolean) silently ate every paragraph break in this
+    // prompt — it read as one wall of text to the model for a whole release.
+  ]);
 
   return {
     system,
@@ -577,6 +705,21 @@ const EXTRACT_RULES = {
     'happening", "stay quiet", "ask me first", "not unless it is important". ' +
     'If it is genuinely unclear, answer "wait": interrupting someone who did not ask ' +
     'for it is the worse mistake.',
+
+  wake: 'Return their instruction about how fren should start up, in THEIR OWN WORDS. ' +
+        'Remove only filler. Do not paraphrase.',
+
+  // The other decision. Same reasoning as initiativeMode: the answers people
+  // actually give — "yeah, wake up", "start dark", "wait till I tap you" —
+  // share no keywords, and this one governs whether capture begins on its own.
+  wakeMode:
+    'Decide what they want. Answer with EXACTLY one word and nothing else: ' +
+    '"awake" if they are happy for fren to be watching as soon as it launches — ' +
+    'including "yes", "like this", "sure", "wake up", "that is fine", "always on". ' +
+    '"dark" if they want it to start paused and wait to be tapped — including ' +
+    '"start dark", "wait for me", "only when I say", "ask me first", "not automatically". ' +
+    'If it is genuinely unclear, answer "dark": starting to watch someone who did not ' +
+    'clearly agree is the worse mistake.',
 };
 
 function buildExtractRequest({ field, question, answer, asked = {} } = {}) {
@@ -650,6 +793,8 @@ module.exports = {
   buildAutomationRequest,
   buildRoutineRequest,
   buildCuriosityRequest,
+  buildGreetingRequest,
+  gapInWords,
   buildLearnRequest,
   ROUTINE_SCHEMA,
   AUTOMATION_SCHEMA,

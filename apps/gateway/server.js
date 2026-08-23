@@ -246,6 +246,35 @@ async function handleRoutine(provider, body, res) {
 }
 
 /**
+ * Hello.
+ *
+ * Free-text, not JSON: a greeting has no fields, and asking for a schema here
+ * only teaches the model to sound like a form. The length cap is enforced on
+ * this side because "one sentence" is a request, not a guarantee.
+ */
+async function handleGreet(provider, body, res) {
+  // Every other endpoint degrades acceptably to the canned mock string. A hello
+  // that says "no LLM is configured, so this is a canned reply" is worse than
+  // no hello at all, and mock mode is what you get with no keys set.
+  if (provider.name === 'mock') return send(res, 200, { text: '' });
+  const request = intelligence.buildGreetingRequest({
+    profile: body.profile && typeof body.profile === 'object' ? body.profile : null,
+    lastSeenMs: Number(body.lastSeenMs) || null,
+    lastActivity: typeof body.lastActivity === 'string' ? body.lastActivity : '',
+    facts: typeof body.facts === 'string' ? body.facts : '',
+    avoid: Array.isArray(body.avoid) ? body.avoid.map(String).slice(-4) : [],
+  });
+  const raw = await callProvider(provider, request, res);
+  if (raw === null) return;
+  const text = String(raw || '')
+    .replace(/^["']|["']$/g, '')     // models like to quote a line they were told to say
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 220);
+  send(res, 200, { text });
+}
+
+/**
  * Is there anything here worth being curious about?
  *
  * Answering "no" is the common case and the correct default, so every failure
@@ -351,7 +380,8 @@ async function handle(provider, voice, vision, req, res, pathname) {
                                 pathname === '/v1/speak' || pathname === '/v1/extract' ||
                                 pathname === '/v1/pattern' || pathname === '/v1/vision' ||
                                 pathname === '/v1/automate' || pathname === '/v1/routine' ||
-                                pathname === '/v1/curious' || pathname === '/v1/learn')) {
+                                pathname === '/v1/curious' || pathname === '/v1/learn' ||
+                                pathname === '/v1/greet')) {
     if (req.headers.authorization !== `Bearer ${config.GATEWAY_TOKEN}`) {
       return send(res, 401, { error: 'unauthorized' });
     }
@@ -369,6 +399,7 @@ async function handle(provider, voice, vision, req, res, pathname) {
     if (pathname === '/v1/routine') return handleRoutine(provider, body, res);
     if (pathname === '/v1/curious') return handleCuriosity(provider, body, res);
     if (pathname === '/v1/learn') return handleLearn(provider, body, res);
+    if (pathname === '/v1/greet') return handleGreet(provider, body, res);
     if (pathname === '/v1/speak') return handleSpeak(voice, body, res);
     return handleChat(provider, body, res);
   }

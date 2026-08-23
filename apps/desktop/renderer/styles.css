@@ -548,7 +548,7 @@ button { font-family: inherit; -webkit-app-region: no-drag; cursor: pointer; }
 }
 /* The one setting that lives outside SOUL.md, because it is the one people
    will want to change after the fact and a Markdown edit cannot express it. */
-#volunteer-row {
+#volunteer-row, #wake-row {
   display: flex;
   gap: 10px;
   align-items: flex-start;
@@ -558,10 +558,10 @@ button { font-family: inherit; -webkit-app-region: no-drag; cursor: pointer; }
   border-radius: 10px;
   cursor: pointer;
 }
-#volunteer-row:hover { border-color: var(--accent); }
-#volunteer-row input { margin-top: 2px; accent-color: var(--accent); flex: none; }
-#volunteer-row span { font-size: 11.5px; line-height: 1.5; color: var(--ink-soft); }
-#volunteer-row strong {
+#volunteer-row:hover, #wake-row:hover { border-color: var(--accent); }
+#volunteer-row input, #wake-row input { margin-top: 2px; accent-color: var(--accent); flex: none; }
+#volunteer-row span, #wake-row span { font-size: 11.5px; line-height: 1.5; color: var(--ink-soft); }
+#volunteer-row strong, #wake-row strong {
   display: block;
   font-size: 12.5px;
   color: var(--ink);

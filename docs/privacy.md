@@ -113,6 +113,7 @@ network requests with your data.
 | Derived activity summaries from the last 8 hours | Every 12 minutes while observing, to look for a repeated workflow |
 | Derived activity summaries from the last 5 hours, plus `SOUL.md` | At most a few times a day while observing, when fren considers asking you something (see "When fren asks you things") |
 | A question fren asked and your answer to it | Right after you answer one, to decide whether anything in it is worth keeping |
+| Your name, how long fren was closed, the last activity noted **before** it closed, and up to six lines of `MEMORY.md` | Once per arrival, to write the greeting (see "Saying hello") |
 | The same context a chat message sends | When a routine you set up comes round. Routines never fire while fren is paused. |
 | **One screenshot** | Only when you press the eye button. Never automatically. |
 | Transcribed text of what you said (never the audio) | When you use push-to-talk |
@@ -148,6 +149,29 @@ process that captures your screen.
 
 Which provider you use changes who sees that data. DeepSeek and Anthropic have
 different data-handling policies — read the one you pick.
+
+## Saying hello
+
+fren greets you when you launch it, in a sentence written for that moment. It
+is generated, so it needs the model: your name, how long fren was shut, and the
+last activity it noted BEFORE closing are sent to your provider, along with up
+to six lines from `MEMORY.md`. Nothing live is sent — fren has no idea what is
+on your screen at that instant, and the prompt says so in as many words.
+
+It greets on an **arrival**, not on a launch: relaunch within 30 minutes and it
+stays quiet, which also means a day of restarts costs one greeting rather than
+twenty. It never greets during first-run setup, and never when no model is
+configured. If the gateway is slow or down the greeting is silently dropped.
+
+The greeting is spoken only if your machine can actually be heard; on a muted
+machine it is written to the panel instead and no speech is generated. Unlike a
+reply you asked for, it will never open the panel by itself.
+
+Two rules are enforced in the prompt because a greeting is the easiest place to
+imply something untrue: fren must not suggest it saw anything while it was
+closed, and it must not read a **personal** last activity back to you —
+messaging, shopping, private browsing. A greeting that recites your private
+activity is a receipt, not a welcome.
 
 ## When fren asks you things
 
@@ -241,14 +265,32 @@ If it were lit without observing, the light would be a lie, and the light is the
 whole basis on which this app asks to be trusted. So it is genuinely on, and it
 says so first.
 
-**Every launch after the first starts paused.** fren captures nothing until you
-wake it. Clicking the sphere
-wakes it — that is a deliberate act, and the change is unmistakable: the light
-comes on, the colour warms, the eyes open.
+**fren wakes up when you launch it.** This is a change: it used to start dark
+after the first run. Being awake means it IS watching — the light is not
+decoration, and this document's central claim (lit ⇔ capturing) holds in both
+directions, which is why an awake face on launch is a true statement rather than
+a convenient one.
 
-To stop, open the panel and click **"pause watching"**. The light goes out, the
-eyes close, everything stops. There is no partial state and no background
-trickle while paused.
+You decide this, and you are asked directly. The last question of the first-run
+interview is whether fren should be awake when it launches or wait in the dark
+until you tap it, and the answer is stored as `wakeOnLaunch`. If you say wait,
+fren pauses immediately and starts dark from then on.
+
+If you completed setup before that question existed, the default is awake. To
+change it, open the Memory pane and untick **"Wake up when you launch me"** — it is there whether or not you did the
+interview — or
+just tap the orb any time to pause the session you are in.
+
+One consequence worth naming: scheduled automations only run while fren is
+watching, so a fren that starts awake can run a due automation shortly after
+launch, where before it needed you to wake it first. Scheduled runs are held for
+the first two minutes after launch so there is time to pause, and all three
+execution gates still apply — see "Running automations" above.
+
+To stop, tap the orb, or open the panel and click **"pause watching"**. The
+light goes out, the eyes close, everything stops. There is no partial state and
+no background trickle while paused. Hovering the orb always says which of the
+two it currently is.
 
 ## How to delete everything
 
