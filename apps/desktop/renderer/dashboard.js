@@ -990,6 +990,16 @@ function whenSaid(ts) {
   return key === todayKey() ? time : `${dayLabel(key)}, ${time}`;
 }
 
+/** One line of the transcript. */
+function saidRow(role, text, ts) {
+  const who = role === 'fren' ? 'fren' : 'you';
+  const row = el('div', `said said-${who}`);
+  const head = el('div', 'said-head');
+  head.append(el('b', null, who), el('time', null, hhmm(ts)));
+  row.append(head, el('p', null, text));
+  return row;
+}
+
 /**
  * The conversation, with room to read it.
  *
@@ -1030,14 +1040,75 @@ async function showChat() {
       lastDay = key;
       log.appendChild(el('div', 'chat-day', dayLabel(key)));
     }
-    const row = el('div', `said said-${m.role === 'fren' ? 'fren' : 'you'}`);
-    const head = el('div', 'said-head');
-    head.append(el('b', null, m.role === 'fren' ? 'fren' : 'you'),
-                el('time', null, hhmm(m.ts)));
-    row.append(head, el('p', null, m.text));
-    log.appendChild(row);
+    log.appendChild(saidRow(m.role, m.text, m.ts));
   }
   els.content.appendChild(log);
+
+  // --- write back ---------------------------------------------------------
+  //
+  // The same conversation, typed instead of spoken. It goes through the very
+  // same fren:chat the panel uses, so it is stored the same way and reaches the
+  // model with the same context — this is a second door into one room, not a
+  // second room.
+  //
+  // No voice here, deliberately. Talking is what the orb is for; this window is
+  // for reading and writing, and a reply read aloud over someone's shoulder
+  // while they are reading it is the wrong half of the character.
+  const write = el('div', 'chat-write');
+  const box = document.createElement('textarea');
+  box.rows = 1;
+  box.placeholder = 'Say something to fren…';
+  const send = el('button', null, 'Send');
+  send.type = 'button';
+  write.append(box, send);
+  els.content.appendChild(write);
+
+  // Grow with the text, up to the cap the stylesheet sets.
+  const fit = () => {
+    box.style.height = 'auto';
+    box.style.height = Math.min(180, box.scrollHeight) + 'px';
+  };
+  box.addEventListener('input', fit);
+
+  let sending = false;
+  async function submit() {
+    const text = box.value.trim();
+    if (!text || sending) return;
+    sending = true;
+    send.disabled = true;
+    box.value = '';
+    fit();
+
+    // Show it immediately. Waiting for the round trip to display your own words
+    // makes the window feel broken on a slow model.
+    log.appendChild(saidRow('you', text, Date.now()));
+    const pending = saidRow('fren', 'thinking…', Date.now());
+    pending.classList.add('thinking');
+    log.appendChild(pending);
+    els.content.scrollTop = els.content.scrollHeight;
+
+    let reply = '';
+    try {
+      const res = await window.fren.chat(text);
+      reply = (res && res.reply) || '';
+    } catch (err) {
+      reply = 'I could not reach my thinking half. ' + (err && err.message ? err.message : '');
+    }
+    pending.classList.remove('thinking');
+    const p = pending.querySelector('p');
+    p.textContent = reply || '…';
+    els.content.scrollTop = els.content.scrollHeight;
+    sending = false;
+    send.disabled = false;
+    box.focus();
+  }
+
+  send.addEventListener('click', submit);
+  box.addEventListener('keydown', (e) => {
+    // Enter sends, shift+Enter is a new line — the expectation everywhere else
+    // a message is typed.
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+  });
 
   const forget = el('button', 'wide-btn', 'Forget this conversation');
   forget.type = 'button';
@@ -1063,6 +1134,16 @@ const SECTIONS = {
   memory: showMemory,
   settings: showSettings,
 };
+// Back to the orb. Main does both halves — opens the panel, closes this window
+// — because doing only one would leave the two views of one conversation that
+// Expand exists to avoid.
+const collapseBtn = document.getElementById('collapse');
+if (collapseBtn) {
+  collapseBtn.addEventListener('click', () => {
+    window.fren.collapse().catch(() => {});
+  });
+}
+
 for (const b of document.querySelectorAll('.side-item[data-section]')) {
   b.addEventListener('click', () => SECTIONS[b.dataset.section]());
 }

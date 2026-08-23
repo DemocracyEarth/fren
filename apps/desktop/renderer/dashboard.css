@@ -804,3 +804,86 @@ body[data-watching="1"] #side-status { color: var(--orange-ink); }
   -webkit-user-select: text;
   user-select: text;
 }
+
+/* --- writing back ------------------------------------------------------- */
+
+#main-head { position: relative; }
+
+/*
+ * Collapse: the inverse of the panel's Expand.
+ *
+ * Top-right of the window, where a "make this smaller" control belongs, and
+ * deliberately the same shape as the Expand button it undoes — one control with
+ * two directions rather than two unrelated buttons.
+ */
+#collapse {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px 6px 10px;
+  border: 1px solid rgba(26, 23, 18, .14);
+  border-radius: 999px;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background .18s var(--ease-soft), color .18s var(--ease-soft),
+              border-color .18s var(--ease-soft);
+}
+#collapse:hover { background: rgba(26, 23, 18, .06); color: var(--ink); }
+#collapse svg { flex: none; }
+
+/* The composer, sized for a window rather than a strip. */
+.chat-write {
+  display: flex;
+  gap: 9px;
+  align-items: flex-end;
+  max-width: 720px;
+  margin-top: 18px;
+}
+.chat-write textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  max-height: 180px;
+  resize: none;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(26, 23, 18, 0.12);
+  background: #fff;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+  outline: none;
+  box-shadow: 0 1px 2px rgba(24, 16, 6, 0.03);
+  transition: border-color .18s var(--ease-soft), box-shadow .18s var(--ease-soft);
+}
+.chat-write textarea::placeholder { color: #A79C89; }
+.chat-write textarea:focus {
+  border-color: rgba(var(--accent-rgb), 0.55);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.13);
+}
+.chat-write button {
+  flex: 0 0 auto;
+  height: 44px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--accent-solid);
+  color: var(--on-accent);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.chat-write button:disabled { opacity: .45; cursor: default; }
+.chat-write button:hover:not(:disabled) { filter: brightness(1.06); }
+
+/* fren composing a reply, in the transcript's own voice. */
+.said.thinking p { color: var(--ink-soft); font-style: italic; }

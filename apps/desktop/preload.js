@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('fren', {
   audioSilenced: () => ipcRenderer.invoke('fren:audioSilenced'),
   getSuggestions: () => ipcRenderer.invoke('fren:getSuggestions'),
   openDashboard: () => ipcRenderer.invoke('fren:openDashboard'),
+  collapse: () => ipcRenderer.invoke('fren:collapse'),
   messages: () => ipcRenderer.invoke('fren:messages'),
   clearMessages: () => ipcRenderer.invoke('fren:clearMessages'),
   days: () => ipcRenderer.invoke('fren:days'),

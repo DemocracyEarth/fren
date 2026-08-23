@@ -301,9 +301,26 @@ function openMemory(dbPath) {
       return rows.map((r) => ({ id: r.id, ts: r.ts, role: r.role, text: r.text }));
     },
 
-    /** Forget the whole conversation, without touching anything else. */
+    /**
+     * Forget the whole conversation, without touching anything else.
+     *
+     * DELETE alone is not forgetting. The rows leave the table but the text
+     * stays legible inside the database file, and in the -wal sibling beside
+     * it — verified by writing a distinctive string, clearing, and finding it
+     * still in the bytes. The button says "Forget" and the privacy document
+     * says the bytes go, so the bytes have to go.
+     *
+     * The checkpoint folds the write-ahead log back in; VACUUM rewrites the
+     * file without the freed pages. Neither can run inside a transaction, and
+     * failing at either still leaves the rows deleted — so the count is honest
+     * either way.
+     */
     clearMessages() {
       const { changes } = db.prepare('DELETE FROM messages').run();
+      try {
+        db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+        db.exec('VACUUM');
+      } catch { /* the rows are gone regardless */ }
       return Number(changes);
     },
 

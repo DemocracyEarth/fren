@@ -1026,6 +1026,36 @@ app.whenReady().then(() => {
 
   ipcMain.handle('fren:openDashboard', () => openDashboard());
 
+  /**
+   * Back to the orb, with the conversation still open beside it.
+   *
+   * The exact inverse of Expand, and it has to do both halves: opening the
+   * panel without closing the big window would leave the two views of one
+   * conversation that Expand exists to avoid.
+   */
+  ipcMain.handle('fren:collapse', () => {
+    setPanelOpen(true);
+    recenter();                                   // and make sure it is on screen
+    if (dash && !dash.isDestroyed()) dash.destroy();
+    if (win && !win.isDestroyed()) win.showInactive();
+    return true;
+  });
+
+  /**
+   * Write one line of the conversation down.
+   *
+   * Everything persisted goes through here, so "what is stored" is one function
+   * rather than a grep — and a failure to write never fails the conversation
+   * itself.
+   */
+  function remember(role, text) {
+    try {
+      memory.addMessage({ role, text });
+    } catch (err) {
+      log(`[chat] could not write the transcript: ${err.message}`);
+    }
+  }
+
   ipcMain.handle('fren:messages', () => {
     try { return memory.getMessages({ limit: 300 }); } catch { return []; }
   });
@@ -1253,6 +1283,11 @@ app.whenReady().then(() => {
     const question = String(text ?? '').trim().slice(0, 2000);
     if (!question) return { reply: '…' };
     lastChatAt = Date.now();
+    // BEFORE the model is asked, not after. What you said happened whether or
+    // not the gateway answers, and both writes used to sit past the await — so
+    // an outage threw to the catch and silently dropped the question from the
+    // transcript, which is the one failure a transcript exists to prevent.
+    remember('you', question);
     state.beginWork();
     try {
       const eightHoursAgo = Date.now() - 8 * 60 * 60 * 1000;
@@ -1268,16 +1303,7 @@ app.whenReady().then(() => {
         question, memories, observations, profile,
         soul: character.soul, userDoc: character.user,
       });
-      // Written down here rather than in the renderer, because this is the one
-      // place BOTH halves of an exchange are visible — and because the panel
-      // also shows things that are not conversation: errors, the setup
-      // interview, the greeting. Those stay out of the transcript.
-      try {
-        memory.addMessage({ role: 'you', text: question });
-        memory.addMessage({ role: 'fren', text: reply });
-      } catch (err) {
-        log(`[chat] could not write the transcript: ${err.message}`);
-      }
+      remember('fren', reply);
       return { reply };
     } catch (err) {
       log(`[chat] failed: ${err.message}`);
