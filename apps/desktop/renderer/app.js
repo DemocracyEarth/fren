@@ -114,7 +114,7 @@ let firstRender = true;
 function render(next) {
   const was = state;
   state = next;
-  els.panel.hidden = !state.panelOpen;
+  paintPanel();
   els.gatewayDot.classList.toggle('down', !state.gatewayOk);
   els.gatewayDot.title = state.gatewayOk ? 'connected' : 'gateway unreachable';
   // The most important fact in the window, in words. The orb says it too, but
@@ -669,11 +669,82 @@ async function sendMessage(text) {
   }
 }
 
+/**
+ * Showing and hiding the conversation.
+ *
+ * The order is reversed between the two directions, which is the whole reason
+ * this is not two lines. The window is transparent, so resizing it is invisible
+ * — what you see is entirely the panel. So:
+ *
+ *   opening — grow the window FIRST (nothing to see), then play the fold inside
+ *             the space that now exists.
+ *   closing — play the fold FIRST, then shrink. Shrinking first clips the panel
+ *             mid-animation, which is what used to happen: there was no exit at
+ *             all, it simply stopped existing.
+ *
+ * While a transition runs it owns the panel's visibility and render() stands
+ * back, or a state broadcast landing mid-fold snaps the panel away.
+ */
+const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+let panelBusy = false;
+
+/** Resolves when the named animation ends, or at once if it cannot run. */
+function played(node, className, deadlineMs) {
+  node.classList.add(className);
+  if (REDUCED.matches) {
+    // The stylesheet disables every animation, so animationend never arrives.
+    // Waiting on it would leave the panel stuck open.
+    node.classList.remove(className);
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      node.removeEventListener('animationend', onEnd);
+      node.classList.remove(className);
+      resolve();
+    };
+    // Only the panel's own animation counts. The staggered children fire this
+    // too, and the last of them would otherwise decide when we are finished.
+    const onEnd = (e) => { if (e.target === node) finish(); };
+    node.addEventListener('animationend', onEnd);
+    // A deadline behind it, so no dropped frame can end with the panel in the
+    // wrong state.
+    setTimeout(finish, deadlineMs);
+  });
+}
+
+/** Put the panel where the state says, unless a transition is mid-flight. */
+function paintPanel() {
+  if (panelBusy) return;
+  els.panel.hidden = !state.panelOpen;
+}
+
 async function setPanel(open) {
-  await window.fren.setPanelOpen(open);       // main resizes the window first
-  state.panelOpen = open;
-  els.panel.hidden = !open;
-  if (open) els.input.focus();
+  if (panelBusy) return;
+  panelBusy = true;
+  try {
+    if (open) {
+      await window.fren.setPanelOpen(true);   // make room, invisibly
+      state.panelOpen = true;
+      els.panel.hidden = false;
+      els.input.focus();
+      // A beat from the character itself, so the orb reads as the thing the
+      // panel came out of rather than a bystander next to it.
+      face.pulse('squash');
+      await played(els.panel, 'opening', 500);
+    } else {
+      await played(els.panel, 'closing', 320);
+      els.panel.hidden = true;
+      state.panelOpen = false;
+      await window.fren.setPanelOpen(false);  // and only now take the room back
+    }
+  } finally {
+    panelBusy = false;
+  }
 }
 
 /**
