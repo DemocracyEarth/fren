@@ -69,10 +69,41 @@ function serveRenderer() {
   });
 }
 
-const ORB_SIZE = { width: 150, height: 150 };
+/**
+ * How big fren is.
+ *
+ * The orb can be scrolled bigger or smaller and stays that way, so none of
+ * these are constants any more — they are the size at scale 1. Everything that
+ * used a constant now asks orbSize(), because a stale copy of the old size
+ * means a window that no longer matches the character inside it.
+ *
+ * The bounds are a judgement about what fren still IS at either end. Below
+ * about two thirds the eyes stop being readable and the expression — the whole
+ * point of the character — is lost. Above double it stops being a thing in the
+ * corner of your screen and becomes something you have to work around.
+ */
+const ORB_BASE = 150;
+const ORB_ZONE_BASE = 144;      // the drag halo, from styles.css
+const SCALE_MIN = 0.65;
+const SCALE_MAX = 2.0;
+let orbScale = 1;
+
+const clampScale = (s) => Math.min(SCALE_MAX, Math.max(SCALE_MIN, Number(s) || 1));
+const orbSize = () => {
+  const n = Math.round(ORB_BASE * orbScale);
+  return { width: n, height: n };
+};
+// The orb sits under the panel in the same window, so a bigger orb needs a
+// taller window — otherwise growing it would push the conversation off the top.
+const panelSize = () => ({
+  width: PANEL_BASE.width,
+  height: PANEL_BASE.height + Math.round(ORB_ZONE_BASE * orbScale),
+});
+
 // Wider than it was: the old 344 left the conversation cramped against both
 // edges, and the design this is built to wants room to breathe.
-const PANEL_SIZE = { width: 384, height: 604 };
+// Height EXCLUDING the orb zone: 604 at scale 1, less the 144px halo.
+const PANEL_BASE = { width: 384, height: 460 };
 const MARGIN = 24;
 
 let win = null;
@@ -111,7 +142,7 @@ function positionWindow(size) {
 
 function createWindow() {
   win = new BrowserWindow({
-    ...ORB_SIZE,
+    ...orbSize(),
     frame: false,
     transparent: true,
     resizable: false,
@@ -132,12 +163,13 @@ function createWindow() {
   });
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   win.loadURL(`${SCHEME}://app/index.html`);
-  positionWindow(ORB_SIZE);
+  positionWindow(orbSize());
 }
 
 function orbCenter() {
   const b = win.getBounds();
-  return { x: b.x + b.width - ORB_SIZE.width / 2, y: b.y + b.height - ORB_SIZE.height / 2 };
+  const { width, height } = orbSize();
+  return { x: b.x + b.width - width / 2, y: b.y + b.height - height / 2 };
 }
 
 /**
@@ -308,6 +340,11 @@ app.whenReady().then(() => {
 
   // Read BEFORE the first beat overwrites it: this is how long fren was gone,
   // and it is the one thing the greeting is built from.
+  // Read before the window exists: restoring afterwards would show fren at the
+  // default size for a frame and then snap, which is exactly the kind of jump
+  // that makes a persisted preference feel unreliable.
+  orbScale = clampScale(memory.getSetting('orbScale'));
+
   lastSeenAt = Number(memory.getSetting('lastSeenAt')) || null;
   const beat = () => { try { memory.setSetting('lastSeenAt', Date.now()); } catch { /* not worth failing over */ } };
   beat();
@@ -370,7 +407,7 @@ app.whenReady().then(() => {
   // the left: the character stays exactly where the user parked it.
   ipcMain.handle('fren:setPanelOpen', (_e, open) => {
     const cur = win.getBounds();
-    const size = open ? PANEL_SIZE : ORB_SIZE;
+    const size = open ? panelSize() : orbSize();
     const anchorRight = cur.x + cur.width;
     const anchorBottom = cur.y + cur.height;
     const { workArea } = screen.getDisplayMatching(cur);
@@ -544,6 +581,43 @@ app.whenReady().then(() => {
    * is a standing instruction about capture — the kind of thing that should be
    * one obvious value someone can find, flip, and trust.
    */
+  /**
+   * Scroll on the orb to make fren bigger or smaller.
+   *
+   * The renderer owns the gesture and the animation; this owns the window,
+   * because the canvas cannot draw outside its own bounds — the window has to
+   * grow first or a growing orb is simply clipped.
+   *
+   * Anchored bottom-right, like every other resize here, so fren grows up and
+   * to the left and stays exactly where it was parked instead of drifting
+   * across the screen as it changes size.
+   */
+  ipcMain.handle('fren:setOrbScale', (_e, next) => {
+    const before = orbScale;
+    orbScale = clampScale(next);
+    const cur = win.getBounds();
+    const size = state.get().panelOpen ? panelSize() : orbSize();
+    const anchorRight = cur.x + cur.width;
+    const anchorBottom = cur.y + cur.height;
+    const { workArea } = screen.getDisplayMatching(cur);
+    win.setBounds({
+      x: Math.min(Math.max(anchorRight - size.width, workArea.x),
+                  workArea.x + workArea.width - size.width),
+      y: Math.min(Math.max(anchorBottom - size.height, workArea.y),
+                  workArea.y + workArea.height - size.height),
+      ...size,
+    });
+    // Written every time rather than on a debounce: this is one small integer,
+    // and the alternative is losing the size to a crash or a force-quit right
+    // after someone has just set it.
+    if (orbScale !== before) {
+      try { memory.setSetting('orbScale', orbScale); } catch { /* size still applied */ }
+    }
+    return { scale: orbScale, min: SCALE_MIN, max: SCALE_MAX };
+  });
+
+  ipcMain.handle('fren:getOrbScale', () => ({ scale: orbScale, min: SCALE_MIN, max: SCALE_MAX }));
+
   ipcMain.handle('fren:getWakeOnLaunch', () => wakeOnLaunchFrom(memory.getSetting('wakeOnLaunch')));
   ipcMain.handle('fren:setWakeOnLaunch', (_e, on) => {
     memory.setSetting('wakeOnLaunch', !!on);

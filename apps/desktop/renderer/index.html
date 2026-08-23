@@ -28,58 +28,27 @@
           <!-- and its lower counter holds fren's own smile -->
           <path d="M146.3 76.5Q172 116 197.7 76.5Z" fill="var(--orange)"/>
         </svg>
-        <div class="head-text">
-          <span id="status-line">
-            <span id="status-dot"></span><span id="status-label">paused</span>
-          </span>
-        </div>
+        <!-- One control, not two. Whether fren is watching is the most
+             important fact in this window, and the thing you most often want
+             to change about it — so saying it and changing it are the same
+             button. -->
+        <button id="watch" type="button" role="switch" aria-checked="false">
+          <span id="watch-dot"></span><span id="watch-label">paused</span>
+        </button>
+
         <span class="spacer"></span>
-        <span id="gateway-dot" title="thinking half"></span>
-        <button id="toggle-observe" class="ghost">wake up</button>
+        <span id="gateway-dot" title="fren cannot reach its thinking half"></span>
+        <button id="open-dash" title="Open the dashboard">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round"
+               stroke-linejoin="round">
+            <path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>
+          </svg>
+          <span>Dashboard</span>
+          <span id="dash-dot" hidden></span>
+        </button>
         <button id="quit" class="icon" title="Quit fren">&#215;</button>
       </header>
-
-      <!-- One row of tabs rather than buttons scattered through the header.
-           The reference design puts navigation on the left; at this width a
-           strip reads the same way and leaves the content its full span. -->
-      <nav id="tabs" role="tablist" aria-label="Views">
-        <button class="tab on" data-view="chat" role="tab" aria-selected="true">Talk</button>
-        <button class="tab" data-view="patterns" role="tab" aria-selected="false">
-          Patterns<span id="pattern-count" class="pill" hidden>0</span>
-        </button>
-        <button class="tab" data-view="know" role="tab" aria-selected="false">Memory</button>
-        <span class="tabs-spacer"></span>
-        <button id="open-dash" class="tab tab-open" title="Open the full window">Open ↗</button>
-      </nav>
-
-      <section id="patterns" hidden aria-label="What fren has noticed">
-        <div id="patterns-body"></div>
-      </section>
-
-      <section id="know" hidden aria-label="What fren has recorded about you">
-        <p class="know-intro">
-          Everything fren holds about you, exactly as written on disk. Plain
-          files — edit them and the change takes effect on your next message.
-        </p>
-        <label id="volunteer-row" hidden>
-          <input type="checkbox" id="volunteer" />
-          <span>
-            <strong>Let fren interrupt you</strong>
-            Every so often it asks about something you're working on, and keeps
-            what it learns in <code>MEMORY.md</code>. A few times a day at most.
-          </span>
-        </label>
-        <label id="wake-row" hidden>
-          <input type="checkbox" id="wake-on-launch" />
-          <span>
-            <strong>Wake up when you launch me</strong>
-            My light comes on as soon as I open, which means I'm watching. Turn
-            this off and I'll wait in the dark until you tap me.
-          </span>
-        </label>
-        <div id="know-files"></div>
-        <button id="open-folder" class="ghost wide">Open the folder</button>
-      </section>
 
       <div id="messages" role="log" aria-live="polite" aria-label="Conversation with fren">
         <div id="empty">

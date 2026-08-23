@@ -522,10 +522,147 @@ async function suggestions() {
   return cachedSuggestions;
 }
 
+// ---------------------------------------------------------------- memory --
+
+/**
+ * Everything fren holds about you, verbatim.
+ *
+ * Verbatim matters. A companion that has formed views about you which you
+ * cannot inspect is not a companion, and paraphrasing its own notes back would
+ * defeat the point of keeping them in Markdown where you can edit them.
+ */
+async function showMemory() {
+  current = { kind: 'memory' };
+  markActive();
+  els.title.textContent = 'Memory';
+  els.content.textContent = '';
+
+  let data = null;
+  try {
+    data = await window.fren.readSoul();
+  } catch (err) {
+    els.subtitle.textContent = '';
+    els.content.appendChild(blank('I could not read my own files',
+      (err && err.message) ? err.message : String(err)));
+    return;
+  }
+
+  els.subtitle.textContent =
+    'Plain files on disk. Edit them and the change takes effect on your next message.';
+
+  for (const f of data.files) {
+    const card = el('div', 'card');
+    const head = el('div', 'card-head');
+    head.append(el('b', null, f.name), el('time', null, f.title));
+    card.appendChild(head);
+    const pre = el('pre', null, f.text.trim() || 'Nothing written yet.');
+    if (!f.text.trim()) pre.classList.add('muted');
+    card.appendChild(pre);
+    els.content.appendChild(card);
+  }
+
+  // Listed rather than dumped: there is one per day, and they are the only
+  // thing here that fren wrote by itself.
+  const logs = el('div', 'card');
+  const lhead = el('div', 'card-head');
+  lhead.append(el('b', null, 'memory/'), el('time', null,
+    data.logs.length ? `${data.logs.length} days` : 'nothing yet'));
+  logs.appendChild(lhead);
+  if (!data.logs.length) {
+    logs.appendChild(el('p', 'caveat', 'What fren observed, once it has watched for a while.'));
+  }
+  for (const log of data.logs) {
+    const b = el('button', 'log-row', `${log.name}  ·  ${Math.max(1, Math.round(log.bytes / 1024))} KB`);
+    b.type = 'button';
+    b.addEventListener('click', async () => {
+      const text = await window.fren.readLog(log.name);
+      const pre = el('pre', null, text || 'Empty.');
+      b.replaceWith(pre);
+    });
+    logs.appendChild(b);
+  }
+  els.content.appendChild(logs);
+
+  const open = el('button', 'wide-btn', 'Open the folder');
+  open.type = 'button';
+  open.addEventListener('click', () => window.fren.openDataFolder());
+  els.content.appendChild(open);
+}
+
+// -------------------------------------------------------------- settings --
+
+/** One switch, with the sentence explaining what it actually does. */
+function switchRow(id, title, detail, checked, onChange) {
+  const row = el('label', 'switch-row');
+  const box = el('input');
+  box.type = 'checkbox';
+  box.id = id;
+  box.checked = !!checked;
+  const text = el('span');
+  text.append(el('strong', null, title), document.createTextNode(detail));
+  row.append(box, text);
+  box.addEventListener('change', async () => {
+    const want = box.checked;
+    // Show what actually got saved, not what was clicked — a switch that lies
+    // about a failed write is worse than one that refuses to move.
+    try { box.checked = await onChange(want); } catch { box.checked = !want; }
+  });
+  return row;
+}
+
+/**
+ * The two decisions fren makes on its own, in one place.
+ *
+ * Both govern behaviour rather than notes, which is why they are not in
+ * SOUL.md: that file is read by the model, and neither of these is a matter of
+ * interpretation. They are switches, and they should look like switches.
+ */
+async function showSettings() {
+  current = { kind: 'settings' };
+  markActive();
+  els.title.textContent = 'Settings';
+  els.subtitle.textContent = 'What fren is allowed to do without being asked.';
+  els.content.textContent = '';
+
+  let profile = null;
+  let wake = true;
+  try { profile = await window.fren.getProfile(); } catch { /* never set up */ }
+  try { wake = await window.fren.getWakeOnLaunch(); } catch { /* default */ }
+
+  els.content.appendChild(switchRow(
+    'set-wake',
+    'Wake up when you launch me',
+    ' My light comes on as soon as I open, which means I am watching. ' +
+    'Turn this off and I will wait in the dark until you tap me.',
+    wake,
+    async (on) => (await window.fren.setWakeOnLaunch(on)).wakeOnLaunch,
+  ));
+
+  els.content.appendChild(switchRow(
+    'set-volunteer',
+    'Let me interrupt you',
+    ' Every so often I ask about something you are working on, and keep what I ' +
+    'learn in MEMORY.md. A few times a day at most.',
+    profile && profile.volunteer,
+    async (on) => {
+      const res = await window.fren.setVolunteer(on);
+      return !!(res && res.volunteer);
+    },
+  ));
+
+  if (!profile) {
+    els.content.appendChild(el('p', 'caveat',
+      'You have not been through the introduction yet, so fren will not interrupt ' +
+      'you whatever this says — it has not been invited.'));
+  }
+}
+
 const SECTIONS = {
   patterns: showPatterns,
   automations: showAutomations,
   routines: showRoutines,
+  memory: showMemory,
+  settings: showSettings,
 };
 for (const b of document.querySelectorAll('.side-item[data-section]')) {
   b.addEventListener('click', () => SECTIONS[b.dataset.section]());

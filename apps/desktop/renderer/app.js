@@ -24,7 +24,9 @@ const els = {
   orb: document.getElementById('orb'),
   panel: document.getElementById('panel'),
   gatewayDot: document.getElementById('gateway-dot'),
-  toggle: document.getElementById('toggle-observe'),
+  watch: document.getElementById('watch'),
+  watchLabel: document.getElementById('watch-label'),
+  dashDot: document.getElementById('dash-dot'),
   quit: document.getElementById('quit'),
   messages: document.getElementById('messages'),
   empty: document.getElementById('empty'),
@@ -33,19 +35,8 @@ const els = {
   input: document.getElementById('chat-input'),
   send: document.getElementById('send'),
   mic: document.getElementById('mic'),
-  know: document.getElementById('know'),
-  knowFiles: document.getElementById('know-files'),
-  volunteerRow: document.getElementById('volunteer-row'),
-  wakeRow: document.getElementById('wake-row'),
-  wakeOnLaunch: document.getElementById('wake-on-launch'),
-  volunteer: document.getElementById('volunteer'),
-  patterns: document.getElementById('patterns'),
-  patternsBody: document.getElementById('patterns-body'),
-  patternCount: document.getElementById('pattern-count'),
-  statusLabel: document.getElementById('status-label'),
   inputRow: document.getElementById('input-row'),
   look: document.getElementById('look'),
-  openFolder: document.getElementById('open-folder'),
 };
 
 const face = new window.FrenFace.Face(els.orb, { size: els.orb.clientWidth || 164 });
@@ -126,13 +117,10 @@ function render(next) {
   els.panel.hidden = !state.panelOpen;
   els.gatewayDot.classList.toggle('down', !state.gatewayOk);
   els.gatewayDot.title = state.gatewayOk ? 'connected' : 'gateway unreachable';
-  els.toggle.textContent = state.observing ? 'pause watching' : 'wake up';
   // The most important fact in the window, in words. The orb says it too, but
   // the orb may be behind whatever you are working on.
   document.body.dataset.watching = state.observing ? '1' : '0';
-  if (els.statusLabel) {
-    els.statusLabel.textContent = state.observing ? 'watching' : 'paused';
-  }
+  paintWatch();
   // Offered only when a model that can see is configured, and only while the
   // light is on: looking at the screen while paused is precisely what the light
   // exists to rule out.
@@ -1000,318 +988,66 @@ if (els.mic) {
 }
 
 /**
- * Show the person what has been written about them.
+ * The one control that both states and changes whether fren is watching.
  *
- * Verbatim, and as files rather than as a rendered summary. A companion that
- * has formed views about you which you cannot inspect is not a companion, and
- * paraphrasing its own notes back would defeat the point of keeping them in
- * Markdown in the first place.
+ * At rest it reads as the state; under the pointer it reads as what clicking
+ * will do. Two words for one control, but never both at once — which is what
+ * made the old pair (a label saying "paused" beside a button saying "wake up")
+ * something you had to stop and parse.
  */
-async function showWhatIKnow() {
-  // The interrupt switch sits above the files because it is the only thing on
-  // this pane that changes what fren DOES, rather than showing what it holds.
-  // Hidden until setup is done: there is no profile to flip before then.
-  if (els.volunteerRow) {
-    els.volunteerRow.hidden = !profile;
-    if (profile) els.volunteer.checked = !!profile.volunteer;
-  }
-  // Always shown, profile or not: this one governs capture, and someone who
-  // skipped the interview needs it more than someone who sat through it.
-  if (els.wakeRow) {
-    els.wakeRow.hidden = false;
-    try { els.wakeOnLaunch.checked = await window.fren.getWakeOnLaunch(); } catch { /* leave as is */ }
-  }
-
-  let data = null;
+/**
+ * A dot on the dashboard button when something is waiting there.
+ *
+ * The Patterns tab used to carry a count, and removing it took away the only
+ * way fren could say "I found something" without speaking. It goes here
+ * instead, on the one door left to the place patterns now live — a dot rather
+ * than a number, because the exact count is not the point at a glance and this
+ * button is 26px wide.
+ */
+async function markUnread() {
+  if (!els.dashDot) return;
   try {
-    data = await window.fren.readSoul();
-  } catch (err) {
-    els.knowFiles.textContent = '';
-    const p = document.createElement('p');
-    p.className = 'know-why';
-    p.textContent = 'I could not read my own files: ' + (err && err.message ? err.message : err);
-    els.knowFiles.appendChild(p);
-    return;
-  }
-  els.knowFiles.textContent = '';
-
-  for (const f of data.files) {
-    const box = document.createElement('div');
-    box.className = 'know-file';
-    const h = document.createElement('h3');
-    h.textContent = f.name;
-    const why = document.createElement('p');
-    why.className = 'know-why';
-    why.textContent = f.title;
-    const pre = document.createElement('pre');
-    if (f.text.trim()) {
-      pre.textContent = f.text;
-    } else {
-      pre.textContent = 'Nothing written yet.';
-      pre.className = 'empty';
-    }
-    box.append(h, why, pre);
-    els.knowFiles.appendChild(box);
-  }
-
-  // The daily logs are listed rather than dumped: there can be a lot of them,
-  // and they are the one thing here fren wrote by itself.
-  const days = document.createElement('div');
-  days.className = 'know-file';
-  const dh = document.createElement('h3');
-  dh.textContent = 'memory/';
-  const dw = document.createElement('p');
-  dw.className = 'know-why';
-  dw.textContent = data.logs.length
-    ? `What fren observed, one file per day — ${data.logs.length} so far`
-    : 'What fren observes, once it has watched for a while';
-  days.append(dh, dw);
-
-  const list = document.createElement('div');
-  list.id = 'know-days';
-  for (const log of data.logs) {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.textContent = `${log.name}  ·  ${Math.max(1, Math.round(log.bytes / 1024))} KB`;
-    b.addEventListener('click', async () => {
-      const text = await window.fren.readLog(log.name);
-      const pre = document.createElement('pre');
-      pre.textContent = text || 'Empty.';
-      b.replaceWith(pre);
-    });
-    list.appendChild(b);
-  }
-  days.appendChild(list);
-  els.knowFiles.appendChild(days);
+    const list = await window.fren.getSuggestions();
+    els.dashDot.hidden = !list.some((s) => s.status !== 'dismissed');
+  } catch { /* leave it as it was */ }
 }
 
-const VIEWS = ['chat', 'patterns', 'know'];
+let watchHover = false;
 
-/** Switch panes. One place decides what is visible, so they cannot overlap. */
-async function showView(name) {
-  if (!VIEWS.includes(name)) return;
-  els.messages.hidden = name !== 'chat';
-  els.patterns.hidden = name !== 'patterns';
-  els.know.hidden = name !== 'know';
-  els.inputRow.hidden = name !== 'chat';
-  for (const t of document.querySelectorAll('.tab')) {
-    const on = t.dataset.view === name;
-    t.classList.toggle('on', on);
-    t.setAttribute('aria-selected', on ? 'true' : 'false');
-  }
-  if (name === 'patterns') await showPatterns();
-  if (name === 'know') await showWhatIKnow();
+function paintWatch() {
+  if (!els.watch) return;
+  const on = !!state.observing;
+  els.watchLabel.textContent = watchHover
+    ? (on ? 'pause' : 'wake up')
+    : (on ? 'watching' : 'paused');
+  els.watch.setAttribute('aria-checked', on ? 'true' : 'false');
+  // The accessible name never becomes the hover word: a screen reader gets the
+  // state from aria-checked and should not hear the label flip under a pointer
+  // it is not using.
+  els.watch.setAttribute('aria-label',
+    on ? 'Watching. Turn off to stop watching.' : 'Not watching. Turn on to start watching.');
+  els.watch.title = on
+    ? 'fren is watching — click to pause'
+    : 'fren is paused — click to start watching';
 }
 
-for (const t of document.querySelectorAll('.tab[data-view]')) {
-  t.addEventListener('click', () => showView(t.dataset.view));
-}
-
-// The panel is for glancing; the dashboard is for reading back properly.
+// The panel is for talking; the dashboard is for reading back properly. With
+// the tabs gone this is the only way through, so it is a real button rather
+// than a link tucked in a corner.
 const dashBtn = document.getElementById('open-dash');
-if (dashBtn) dashBtn.addEventListener('click', () => window.fren.openDashboard());
-
-/**
- * What fren has noticed, as cards.
- *
- * The count is shown next to every one, because it is the entire justification
- * for having interrupted: "you did this seven times" is an observation, while
- * "you seem to do this" is a guess. Showing the evidence is also what makes a
- * wrong one obviously wrong rather than merely annoying.
- */
-async function showPatterns() {
-  let list = [];
-  try { list = await window.fren.getSuggestions(); } catch { list = []; }
-
-  els.patternsBody.textContent = '';
-  updatePatternCount(list.length);
-
-  if (!list.length) {
-    const blank = document.createElement('div');
-    blank.className = 'blank';
-    const strong = document.createElement('strong');
-    strong.textContent = 'Nothing yet';
-    const span = document.createElement('span');
-    span.textContent =
-      'I look across the last few hours every so often, for a sequence you ' +
-      'repeat. I would rather say nothing than guess, so this stays empty ' +
-      'until something is genuinely repeated.';
-    blank.append(strong, span);
-    els.patternsBody.appendChild(blank);
-    return;
-  }
-
-  for (const s of list) {
-    if (s.status === 'dismissed') continue;
-    els.patternsBody.appendChild(patternCard(s));
-  }
-}
-
-/** One noticed pattern, with what can honestly be done about it. */
-function patternCard(s) {
-  const card = document.createElement('div');
-  card.className = 'noticed';
-
-  const head = document.createElement('div');
-  head.className = 'noticed-head';
-  const b = document.createElement('b');
-  b.textContent = 'fren noticed';
-  head.appendChild(b);
-  if (s.ts) {
-    const time = document.createElement('time');
-    const d = new Date(s.ts);
-    time.dateTime = d.toISOString();
-    time.textContent = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) +
-      ' · ' + d.toTimeString().slice(0, 5);
-    head.appendChild(time);
-  }
-
-  const p = document.createElement('p');
-  p.textContent = s.message;
-  card.append(head, p);
-
-  if (s.pattern) {
-    const row = document.createElement('div');
-    row.className = 'pattern-row';
-    const label = document.createElement('span');
-    label.textContent = s.pattern;
-    row.appendChild(label);
-    card.appendChild(row);
-  }
-
-  const actions = document.createElement('div');
-  actions.className = 'actions';
-  const draftBtn = document.createElement('button');
-  draftBtn.className = 'primary';
-  draftBtn.textContent = 'Can you automate it?';
-  const laterBtn = document.createElement('button');
-  laterBtn.className = 'ghost';
-  laterBtn.textContent = 'Not now';
-  actions.append(draftBtn, laterBtn);
-  card.appendChild(actions);
-
-  const holder = document.createElement('div');
-  card.appendChild(holder);
-
-  laterBtn.addEventListener('click', async () => {
-    try { await window.fren.dismissSuggestion(s.id); } catch { /* nothing to do */ }
-    card.remove();
-    window.fren.getSuggestions()
-      .then((l) => updatePatternCount(l.filter((x) => x.status !== 'dismissed').length))
-      .catch(() => {});
+if (dashBtn) {
+  dashBtn.addEventListener('click', () => {
+    window.fren.openDashboard();
+    // Whatever was waiting is about to be on screen.
+    if (els.dashDot) els.dashDot.hidden = true;
   });
-
-  draftBtn.addEventListener('click', async () => {
-    draftBtn.disabled = true;
-    draftBtn.textContent = 'Working it out…';
-    try {
-      const res = await window.fren.automate(s.id);
-      if (res && res.error) {
-        holder.appendChild(note("I couldn't draft that: " + res.error));
-        draftBtn.disabled = false;
-        draftBtn.textContent = 'Try again';
-        return;
-      }
-      actions.remove();
-      holder.appendChild(renderDraft(res.draft));
-    } catch (err) {
-      holder.appendChild(note("I couldn't draft that: " + (err && err.message ? err.message : err)));
-      draftBtn.disabled = false;
-      draftBtn.textContent = 'Try again';
-    }
-  });
-
-  if (s.draft) { actions.remove(); holder.appendChild(renderDraft(s.draft)); }
-  return card;
 }
 
-function note(text) {
-  const el = document.createElement('p');
-  el.className = 'draft-note';
-  el.textContent = text;
-  return el;
-}
-
-/**
- * A drafted automation, shown read-only.
- *
- * fren proposes; it does not act. There is no run button and no code path that
- * executes any of this — the script is here to be READ, and the caveats are
- * shown as prominently as the script because fren only ever saw window titles
- * and cannot know a filename or a column from that.
- */
-function renderDraft(d) {
-  const wrap = document.createElement('div');
-  wrap.className = 'draft';
-
-  if (!d || !d.feasible) {
-    wrap.appendChild(note(
-      (d && d.caveats) || "I don't think I can automate this one from what I've seen."
-    ));
-    return wrap;
-  }
-
-  if (d.approach) {
-    const a = document.createElement('p');
-    a.className = 'draft-approach';
-    a.textContent = d.approach;
-    wrap.appendChild(a);
-  }
-
-  if (d.steps && d.steps.length) {
-    const ol = document.createElement('ol');
-    ol.className = 'draft-steps';
-    for (const step of d.steps) {
-      const li = document.createElement('li');
-      li.textContent = step;
-      ol.appendChild(li);
-    }
-    wrap.appendChild(ol);
-  }
-
-  if (d.script) {
-    const head = document.createElement('div');
-    head.className = 'draft-script-head';
-    const lang = document.createElement('span');
-    lang.textContent = d.language || 'script';
-    const copy = document.createElement('button');
-    copy.className = 'ghost tiny';
-    copy.textContent = 'Copy';
-    copy.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(d.script);
-        copy.textContent = 'Copied';
-        setTimeout(() => { copy.textContent = 'Copy'; }, 1400);
-      } catch { copy.textContent = 'Copy failed'; }
-    });
-    head.append(lang, copy);
-
-    const pre = document.createElement('pre');
-    pre.className = 'draft-script';
-    pre.textContent = d.script;     // textContent, never innerHTML
-    wrap.append(head, pre);
-
-    // Said every time, next to the script rather than buried in a doc: fren
-    // wrote this from window titles alone and has not run it.
-    wrap.appendChild(note('I have not run this, and I cannot. Read it before you do.'));
-  }
-
-  if (d.caveats) {
-    const c = document.createElement('p');
-    c.className = 'draft-caveats';
-    c.textContent = d.caveats;
-    wrap.appendChild(c);
-  }
-  return wrap;
-}
-
-function updatePatternCount(n) {
-  if (!els.patternCount) return;
-  els.patternCount.textContent = String(n);
-  els.patternCount.hidden = !n;
-}
-
-els.toggle.addEventListener('click', () => window.fren.toggleObservation());
+els.watch.addEventListener('click', () => window.fren.toggleObservation());
+els.watch.addEventListener('mouseenter', () => { watchHover = true; paintWatch(); });
+els.watch.addEventListener('mouseleave', () => { watchHover = false; paintWatch(); });
+els.watch.addEventListener('focus', () => { watchHover = true; paintWatch(); });
+els.watch.addEventListener('blur', () => { watchHover = false; paintWatch(); });
 els.quit.addEventListener('click', () => window.fren.quit());
 
 els.form.addEventListener('submit', (e) => {
@@ -1442,7 +1178,7 @@ function learnFrom(answer) {
 async function onSuggestion({ message }) {
   // Show it on the tab regardless of whether it is spoken: noticing is
   // visible, interrupting is opt-in.
-  window.fren.getSuggestions().then((l) => updatePatternCount(l.length)).catch(() => {});
+  markUnread();
   if (!message || speaking || awaitingReply) { pendingSuggestion = message; return; }
   pendingSuggestion = message;
   mood.note('idea');
@@ -1513,31 +1249,6 @@ scheduleWander();
   window.fren.greeting()
     .then((g) => (g && g.text ? greetQuietly(g.text) : null))
     .catch(() => {});
-  if (els.wakeOnLaunch) {
-    els.wakeOnLaunch.addEventListener('change', async () => {
-      const want = els.wakeOnLaunch.checked;
-      try {
-        const res = await window.fren.setWakeOnLaunch(want);
-        els.wakeOnLaunch.checked = !!(res && res.wakeOnLaunch);
-      } catch {
-        els.wakeOnLaunch.checked = !want;
-      }
-    });
-  }
-  if (els.volunteer) {
-    els.volunteer.addEventListener('change', async () => {
-      const want = els.volunteer.checked;
-      try {
-        const res = await window.fren.setVolunteer(want);
-        // Trust what main reports rather than what was clicked: if the write
-        // did not take, the box should say so instead of lying about it.
-        if (profile) profile.volunteer = !!(res && res.volunteer);
-        els.volunteer.checked = !!(res && res.volunteer);
-      } catch {
-        els.volunteer.checked = !want;
-      }
-    });
-  }
   // A routine came round: say it the same way any other reply is said.
   window.fren.onRoutineRan(async ({ name, text }) => {
     if (!text || speaking || awaitingReply) return;
@@ -1552,7 +1263,7 @@ scheduleWander();
     ? `${orbVerb()} · hold to talk · drag to move`
     : `${orbVerb()} · drag to move`;
 
-  window.fren.getSuggestions().then((l) => updatePatternCount(l.length)).catch(() => {});
+  markUnread();
 
   await runSetupIfNeeded();
 })();

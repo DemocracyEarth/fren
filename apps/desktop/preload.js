@@ -44,6 +44,8 @@ contextBridge.exposeInMainWorld('fren', {
   learn: (question, answer) => ipcRenderer.invoke('fren:learn', question, answer),
   setVolunteer: (on) => ipcRenderer.invoke('fren:setVolunteer', on),
   greeting: () => ipcRenderer.invoke('fren:greeting'),
+  getOrbScale: () => ipcRenderer.invoke('fren:getOrbScale'),
+  setOrbScale: (s) => ipcRenderer.invoke('fren:setOrbScale', s),
   getWakeOnLaunch: () => ipcRenderer.invoke('fren:getWakeOnLaunch'),
   setWakeOnLaunch: (on) => ipcRenderer.invoke('fren:setWakeOnLaunch', on),
 });

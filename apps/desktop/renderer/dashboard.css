@@ -356,3 +356,76 @@ body[data-watching="1"] #side-status { color: var(--orange-ink); }
   max-height: 120px !important;
   opacity: 0.85;
 }
+
+/* --- memory and settings ------------------------------------------------ */
+
+/* One day's log, before it is opened. A row rather than a card: there can be
+   sixty of them and they are an index, not content. */
+.log-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  margin-top: 6px;
+  border: 1px solid rgba(26, 23, 18, 0.10);
+  border-radius: 8px;
+  background: transparent;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.log-row:hover { border-color: var(--orange); color: var(--ink); }
+
+.card pre.muted { color: var(--ink-soft); font-style: italic; }
+
+.wide-btn {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  padding: 11px;
+  border: 1px solid rgba(26, 23, 18, 0.14);
+  border-radius: 10px;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.wide-btn:hover { border-color: var(--orange); background: rgba(237, 138, 47, 0.07); }
+
+/* A switch that governs capture deserves the room to say what it does. The
+   sentence under each title is not decoration — it is the difference between
+   a setting someone flips confidently and one they leave alone. */
+.switch-row {
+  display: flex;
+  gap: 13px;
+  align-items: flex-start;
+  max-width: 620px;
+  margin-bottom: 12px;
+  padding: 15px 16px;
+  border: 1px solid rgba(26, 23, 18, 0.12);
+  border-radius: 12px;
+  cursor: pointer;
+}
+.switch-row:hover { border-color: var(--orange); background: rgba(237, 138, 47, 0.05); }
+.switch-row input {
+  margin-top: 2px;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--orange);
+  flex: none;
+  cursor: pointer;
+}
+.switch-row span {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+.switch-row strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 3px;
+}
