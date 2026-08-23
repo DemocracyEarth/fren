@@ -83,6 +83,7 @@ let summarizer = null;
 let patterns = null;
 let routines = null;
 let automationTimer = null;
+let automationTickBusy = false;
 
 const log = (...args) => console.log(...args);
 
@@ -227,19 +228,40 @@ app.whenReady().then(() => {
   // running — a schedule is permission to run a SPECIFIC script, not a standing
   // permission to run whatever now sits under that name.
   automationTimer = setInterval(async () => {
+    // The tick is async and nothing awaits it, so without this the next tick
+    // starts while this one is still inside a running script.
+    if (automationTickBusy) return;
     if (!state.get().observing) return;
+
     let due = [];
     try {
       due = memory.getAutomations().filter((a) => {
         if (!a.schedule || !a.schedule.enabled || !a.verified) return false;
         return isDue({ ...a.schedule, enabled: true, lastRun: a.lastRun }, Date.now());
       });
-    } catch { return; }
-    for (const a of due) {
-      const result = await runAutomation(a.id, 'scheduled');
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('fren:automationRan', { name: a.name, status: result.status });
+    } catch (err) {
+      log(`[automation] could not read the schedule: ${err.message}`);
+      return;
+    }
+    if (!due.length) return;
+
+    automationTickBusy = true;
+    try {
+      for (const a of due) {
+        // Re-checked per item, not just at the top: pausing partway through a
+        // batch should stop the rest of it.
+        if (!state.get().observing) break;
+        const result = await runAutomation(a.id, 'scheduled');
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('fren:automationRan', { name: a.name, status: result.status });
+        }
       }
+    } catch (err) {
+      // An escaping error here would kill the interval and silently end all
+      // future scheduled runs.
+      log(`[automation] scheduled run failed: ${err.message}`);
+    } finally {
+      automationTickBusy = false;
     }
   }, 30 * 1000);
   if (automationTimer.unref) automationTimer.unref();
@@ -597,6 +619,9 @@ app.whenReady().then(() => {
   // is not a flag that gets set once; it is a claim about a specific script,
   // and it is verified at the moment of running rather than trusted from
   // whenever it was granted.
+  // Automations currently executing, so one cannot be started twice over.
+  const running = new Set();
+
   async function runAutomation(id, trigger) {
     const a = memory.getAutomations().find((x) => x.id === Number(id));
     if (!a) return { error: 'that automation is gone' };
@@ -614,8 +639,31 @@ app.whenReady().then(() => {
       memory.recordRun({ automationId: a.id, trigger, status: 'blocked', output: out });
       return { status: 'blocked', output: out };
     }
+    // The pause check belongs HERE, not only in the scheduling loop, so every
+    // path to execution carries it. A loop that has already dispatched its work
+    // would otherwise keep running scripts after the light went out.
+    if (trigger === 'scheduled' && !state.get().observing) {
+      return { status: 'blocked', output: 'fren was paused before this could run' };
+    }
+    // One at a time. Without this a script that outlives the 30s tick is
+    // started again by the next tick, and a single approval for a single 09:00
+    // slot executes two or three overlapping copies.
+    if (running.has(a.id)) {
+      return { status: 'blocked', output: 'this automation is already running' };
+    }
+    running.add(a.id);
 
-    const result = await executor.run({ script: a.script, language: a.language });
+    // Claim the slot BEFORE the work, so a long or crashing run cannot be
+    // re-fired every thirty seconds for the rest of its grace window. The real
+    // outcome overwrites this a moment later.
+    memory.recordRun({ automationId: a.id, trigger, status: 'started', output: null });
+
+    let result;
+    try {
+      result = await executor.run({ script: a.script, language: a.language });
+    } finally {
+      running.delete(a.id);
+    }
     memory.recordRun({ automationId: a.id, trigger, status: result.status, output: result.output });
     // A successful MANUAL run is what earns the right to be scheduled.
     if (result.status === 'ok' && trigger === 'manual') memory.markAutomationVerified(a.id);

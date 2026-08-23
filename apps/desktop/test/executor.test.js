@@ -142,3 +142,48 @@ test('the script does not inherit this process environment', async (t) => {
     delete process.env.FREN_SECRET_CANARY;
   }
 });
+
+// --- regressions from the execution audit -----------------------------------
+// All three were demonstrated against the real executor before being fixed.
+
+test('a script that backgrounds its work cannot report success', async (t) => {
+  if (process.platform === 'win32') return t.skip('bash test');
+  // This is the worst of the three. Reporting ok would mark the automation
+  // VERIFIED, which is the gate that makes it eligible for scheduling — so a
+  // script could earn a schedule while its real work never finished.
+  const r = await run({
+    script: '(sleep 30) &\necho started\n',
+    language: 'bash',
+    timeoutMs: 1200,
+  });
+  assert.notEqual(r.status, 'ok', 'work outliving the run must not count as success');
+});
+
+test('the timeout takes down the whole process group, not just the shell', async (t) => {
+  if (process.platform === 'win32') return t.skip('posix process groups');
+  const { execFileSync } = require('node:child_process');
+  const marker = 'fren-audit-survivor';
+  await run({
+    script: `echo go; (sleep 25; echo ${marker}) & sleep 25`,
+    language: 'bash',
+    timeoutMs: 1000,
+  });
+  await new Promise((r) => setTimeout(r, 400));
+  let alive = '';
+  try { alive = execFileSync('pgrep', ['-f', 'sleep 25']).toString().trim(); } catch { alive = ''; }
+  try { execFileSync('pkill', ['-f', 'sleep 25']); } catch { /* nothing left */ }
+  assert.equal(alive, '', 'nothing the script started may outlive the run');
+});
+
+test('the interpreter is an absolute path, never resolved through PATH', () => {
+  // Otherwise the hash binds the script while a writable directory earlier on
+  // PATH decides what interpreting it means.
+  const { RUNNERS } = require('../main/executor.js');
+  for (const [name, r] of Object.entries(RUNNERS)) {
+    const paths = r.cmd ? [r.cmd] : r.candidates;
+    for (const p of paths) {
+      assert.ok(p.startsWith('/') || /^[A-Z]:\\/.test(p),
+        `${name} must name an absolute interpreter, got ${p}`);
+    }
+  }
+});

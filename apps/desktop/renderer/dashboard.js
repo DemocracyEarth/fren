@@ -375,6 +375,9 @@ function automationCard(a) {
     const d = el('details', 'last');
     d.append(el('summary', null, `${a.runs.length} recent run${a.runs.length === 1 ? '' : 's'}`));
     for (const r of a.runs) {
+      // 'started' is the slot-claim written before the work. If one is still
+      // showing, the run is in flight rather than finished.
+      if (r.status === 'started') continue;
       const line = el('div', 'run');
       line.append(el('span', `dot ${r.status}`, ''));
       line.append(el('span', null,

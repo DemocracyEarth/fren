@@ -19,7 +19,7 @@
  * and a reduced environment so a script does not inherit every variable this
  * process happens to be holding.
  */
-const { execFile } = require('node:child_process');
+const { spawn } = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -89,14 +89,40 @@ const RUNNERS = {
   sh: { cmd: '/bin/sh', args: (f) => [f], ext: '.sh', platforms: ['darwin', 'linux'] },
   zsh: { cmd: '/bin/zsh', args: (f) => [f], ext: '.sh', platforms: ['darwin', 'linux'] },
   applescript: { cmd: '/usr/bin/osascript', args: (f) => [f], ext: '.scpt', platforms: ['darwin'] },
-  python: { cmd: 'python3', args: (f) => [f], ext: '.py', platforms: ['darwin', 'linux', 'win32'] },
+  // Named rather than given a single path: python3 lives somewhere different
+  // on nearly every machine. resolveCommand below turns this into an ABSOLUTE
+  // path from a fixed list — approval binds the script, and it has to bind what
+  // interprets the script too, or a writable directory earlier on PATH decides
+  // what "approved" means.
+  python: {
+    candidates: ['/usr/bin/python3', '/usr/local/bin/python3', '/opt/homebrew/bin/python3'],
+    args: (f) => [f], ext: '.py', platforms: ['darwin', 'linux'],
+  },
   powershell: {
-    cmd: 'powershell.exe',
+    candidates: [
+      'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+      'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
+    ],
     args: (f) => ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', f],
     ext: '.ps1',
     platforms: ['win32'],
   },
 };
+
+/**
+ * The absolute path of the interpreter, or nothing.
+ *
+ * Never resolved through PATH. An inherited PATH means a writable directory
+ * earlier in it can supply the interpreter, and then the hash guards the script
+ * while something else entirely decides what running it means.
+ */
+function resolveCommand(runner) {
+  if (runner.cmd) return fs.existsSync(runner.cmd) ? runner.cmd : null;
+  for (const c of runner.candidates || []) {
+    try { if (fs.existsSync(c)) return c; } catch { /* keep looking */ }
+  }
+  return null;
+}
 
 function runnerFor(language, platform = process.platform) {
   const key = String(language || '').toLowerCase().trim();
@@ -104,6 +130,11 @@ function runnerFor(language, platform = process.platform) {
   if (!r) return { error: `fren cannot run "${language || 'an unnamed language'}"` };
   if (!r.platforms.includes(platform)) {
     return { error: `${key} scripts do not run on ${platform}` };
+  }
+  // Only resolve for the platform we are actually on; a cross-platform check is
+  // about support, not about what exists on this disk.
+  if (platform === process.platform && !resolveCommand(r)) {
+    return { error: `no interpreter for ${key} was found in a known location` };
   }
   return { runner: r };
 }
@@ -136,28 +167,79 @@ function run({ script, language, timeoutMs = TIMEOUT_MS, platform = process.plat
     // A reduced environment. A drafted script has no business inheriting every
     // variable this process happens to be holding.
     const env = {
-      PATH: process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin',
+      // A fixed PATH rather than the inherited one, for the same reason the
+      // interpreter is resolved absolutely: what a script resolves a command to
+      // should not depend on what happened to be in this process's environment.
+      PATH: process.platform === 'win32'
+        ? 'C:\\Windows\\System32;C:\\Windows'
+        : '/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin',
       HOME: process.env.HOME || os.homedir(),
       USER: process.env.USER || '',
       LANG: process.env.LANG || 'en_US.UTF-8',
       TMPDIR: os.tmpdir(),
     };
 
-    execFile(runner.cmd, runner.args(file), {
-      timeout: timeoutMs,
-      killSignal: 'SIGKILL',
-      maxBuffer: MAX_OUTPUT * 4,
+    // spawn, not execFile, and DETACHED — so the script gets its own process
+    // group. execFile's timeout signals one pid, which a script escapes simply
+    // by backgrounding its work: the shell exits, the run is reported over, and
+    // the real work carries on unbounded. An audit demonstrated exactly that,
+    // with three processes still alive after the "hard timeout" fired.
+    const child = spawn(resolveCommand(runner), runner.args(file), {
+      detached: true,
       env,
       cwd: os.homedir(),
       windowsHide: true,
-    }, (err, stdout, stderr) => {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    /** Take down the whole group, not just the shell that started it. */
+    const killGroup = () => {
+      try {
+        if (process.platform === 'win32') {
+          spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true });
+        } else {
+          process.kill(-child.pid, 'SIGKILL');   // negative pid == the group
+        }
+      } catch { /* already gone */ }
+    };
+
+    let out = '';
+    let overflowed = false;
+    const collect = (buf) => {
+      if (out.length >= MAX_OUTPUT) { overflowed = true; return; }
+      out += buf.toString();
+      if (out.length > MAX_OUTPUT) { out = out.slice(0, MAX_OUTPUT); overflowed = true; }
+    };
+    child.stdout.on('data', collect);
+    child.stderr.on('data', collect);
+
+    let timedOut = false;
+    let settled = false;
+    const timer = setTimeout(() => { timedOut = true; killGroup(); }, timeoutMs);
+
+    const finish = (status, extra) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      // Whatever happened, nothing from this run outlives it. A script that
+      // backgrounds work and exits immediately would otherwise be reported
+      // finished while its real work continues — and, worse, be marked
+      // VERIFIED and become eligible for scheduling on that basis.
+      killGroup();
       try { fs.rmSync(path.dirname(file), { recursive: true, force: true }); } catch { /* gone */ }
-      const out = `${stdout || ''}${stderr ? `\n${stderr}` : ''}`.trim().slice(0, MAX_OUTPUT);
-      if (err && err.killed) {
-        return resolve({ status: 'failed', output: `timed out after ${Math.round(timeoutMs / 1000)}s\n${out}` });
+      const text = [extra, out.trim(), overflowed ? '…output truncated' : '']
+        .filter(Boolean).join('\n').slice(0, MAX_OUTPUT);
+      resolve({ status, output: text || '(no output)' });
+    };
+
+    child.on('error', (err) => finish('failed', `could not start the interpreter: ${err.message}`));
+    child.on('close', (code, signal) => {
+      if (timedOut) {
+        return finish('failed', `timed out after ${Math.round(timeoutMs / 1000)}s and was stopped`);
       }
-      if (err) return resolve({ status: 'failed', output: out || err.message });
-      resolve({ status: 'ok', output: out || '(no output)' });
+      if (signal) return finish('failed', `stopped by ${signal}`);
+      if (code !== 0) return finish('failed', `exited with code ${code}`);
+      finish('ok');
     });
   });
 }
