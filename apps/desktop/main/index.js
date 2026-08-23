@@ -344,7 +344,7 @@ app.whenReady().then(() => {
   // default size for a frame and then snap, which is exactly the kind of jump
   // that makes a persisted preference feel unreliable.
   orbScale = clampScale(memory.getSetting('orbScale'));
-  if (orbScale !== 1) log(`[orb] restored at ${orbScale}x (${orbSize().width}px)`);
+  if (orbScale !== 1) log(`[orb] restored at ${orbScale.toFixed(2)}x (${orbSize().width}px)`);
 
   lastSeenAt = Number(memory.getSetting('lastSeenAt')) || null;
   const beat = () => { try { memory.setSetting('lastSeenAt', Date.now()); } catch { /* not worth failing over */ } };
