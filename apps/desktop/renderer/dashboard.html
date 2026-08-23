@@ -19,16 +19,23 @@
         <span class="wordmark" role="img" aria-label="fren"></span>
       </div>
 
-      <div class="side-group">
-        <div class="side-label">Days</div>
-        <div id="day-list"></div>
-      </div>
+      <!-- Today and yesterday are pinned. Everything else about the ordering
+           follows from one measurement: with the day list above the sections,
+           on a 720px window Patterns began at y=704 against a fold at 680 — so
+           not a single navigation item was visible without scrolling, and
+           Settings was 301px down. Navigation is fixed now and only history
+           scrolls. -->
+      <div class="side-group" id="day-quick"></div>
 
       <div class="side-group">
-        <div class="side-label">Across time</div>
+        <div class="side-label">What fren noticed</div>
         <button class="side-item" data-section="patterns">
           <span>Patterns</span><span id="side-pattern-count" class="side-count" hidden></span>
         </button>
+      </div>
+
+      <div class="side-group">
+        <div class="side-label">What it runs</div>
         <button class="side-item" data-section="automations">
           <span>Automations</span><span id="side-auto-count" class="side-count" hidden></span>
         </button>
@@ -47,6 +54,14 @@
         <button class="side-item" data-section="settings"><span>Settings</span></button>
       </div>
 
+      <!-- Last, and the only thing that scrolls. It also holds every day now:
+           getActiveDays fetches 60 and the old list rendered 14 of them with no
+           way to reach the rest. -->
+      <div class="side-group" id="history">
+        <div class="side-label">Earlier</div>
+        <div id="day-list"></div>
+      </div>
+
       <div class="side-foot">
         <span id="side-status"><i></i><span>paused</span></span>
       </div>
@@ -61,6 +76,8 @@
     </main>
   </div>
 
+  <script src="face/palette.js"></script>
+  <script src="markdown.js"></script>
   <script src="dashboard.js"></script>
 </body>
 </html>

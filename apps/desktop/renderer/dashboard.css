@@ -41,7 +41,9 @@ html, body {
   padding: 42px 12px 12px;
   background: linear-gradient(180deg, #EFE8DB 0%, #E9E1D2 100%);
   border-right: 1px solid rgba(26, 23, 18, 0.07);
-  overflow-y: auto;
+  /* The nav itself does not scroll any more. Only #day-list does, so every
+     section stays reachable however much history accumulates. */
+  overflow: hidden;
 }
 .brand { padding: 0 8px 18px; -webkit-app-region: drag; }
 /* The wordmark, as a mask rather than inline paths.
@@ -61,6 +63,29 @@ html, body {
 }
 
 .side-group { margin-bottom: 20px; }
+.side-group:last-of-type { margin-bottom: 0; }
+
+/* History takes whatever room is left and scrolls inside it. min-height:0 is
+   load-bearing: without it a flex child refuses to shrink below its content
+   and the list pushes the status foot off the bottom instead of scrolling. */
+#history {
+  flex: 1 1 auto;
+  min-height: 64px;
+  display: flex;
+  flex-direction: column;
+}
+#day-list {
+  overflow-y: auto;
+  min-height: 0;
+  /* Room for the scrollbar so rows do not shift when it appears. */
+  padding-right: 2px;
+}
+#day-list::-webkit-scrollbar { width: 6px; }
+#day-list::-webkit-scrollbar-thumb {
+  background: rgba(26, 23, 18, .14);
+  border-radius: 3px;
+}
+#day-list::-webkit-scrollbar-thumb:hover { background: rgba(26, 23, 18, .24); }
 .side-label {
   padding: 0 10px 7px;
   font-size: 10.5px;
@@ -517,3 +542,182 @@ body[data-watching="1"] #side-status { color: var(--orange-ink); }
   cursor: pointer;
 }
 .field-clear:hover { border-color: var(--orange); color: var(--ink); }
+
+/* --- reading vs source -------------------------------------------------- */
+
+/* Two words, not an icon. This switches between something readable and
+   something editable, and an icon would make you click it to find out which. */
+.view-toggle {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(26, 23, 18, 0.055);
+}
+.view-btn {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  color: var(--ink-soft);
+  padding: 3px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background .15s var(--ease-soft), color .15s var(--ease-soft);
+}
+.view-btn:hover { color: var(--ink); }
+.view-btn.on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(24, 16, 6, .08); }
+
+.file-body { margin-top: 10px; }
+
+/* --- rendered markdown --------------------------------------------------- */
+
+/* Sized for reading rather than for scanning: this is prose fren wrote about
+   you, and the source view is right there for anyone who wants the characters.
+   The measure is capped because a full-width line of 14px text across a 1040px
+   window is about 130 characters, roughly twice a comfortable line. */
+.md { max-width: 62ch; font-size: 14px; line-height: 1.62; color: var(--ink); }
+.md > *:first-child { margin-top: 0; }
+.md > *:last-child { margin-bottom: 0; }
+
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+  margin: 22px 0 8px;
+  line-height: 1.3;
+  font-weight: 650;
+  letter-spacing: -.01em;
+  color: var(--ink);
+}
+.md h1 { font-size: 19px; }
+.md h2 { font-size: 15.5px; }
+.md h3, .md h4, .md h5, .md h6 { font-size: 14px; color: var(--ink-soft); }
+/* The first heading is the filename repeated — it has a card title above it. */
+.md > h1:first-child { margin-top: 0; }
+
+.md p { margin: 0 0 12px; }
+.md ul, .md ol { margin: 0 0 12px; padding-left: 20px; }
+.md li { margin-bottom: 5px; }
+.md li::marker { color: var(--orange); }
+
+/* fren quotes the user's own words back in SOUL.md, so a quote here is
+   literally something you said. It gets the accent. */
+.md blockquote {
+  margin: 0 0 12px;
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid var(--orange);
+  color: var(--ink);
+  font-style: normal;
+}
+
+.md code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(26, 23, 18, 0.06);
+}
+.md-pre {
+  margin: 0 0 12px;
+  padding: 11px 13px;
+  border-radius: 10px;
+  background: rgba(26, 23, 18, 0.05);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+  overflow-x: auto;
+  white-space: pre;
+}
+.md hr {
+  border: 0;
+  border-top: 1px solid rgba(26, 23, 18, 0.12);
+  margin: 18px 0;
+}
+
+/* A link is shown, not offered. Dotted rather than underlined so it does not
+   look clickable — because it is not, deliberately: see markdown.js. */
+.md-link {
+  border-bottom: 1px dotted rgba(26, 23, 18, .34);
+  cursor: help;
+}
+.md-wiki { color: var(--orange-ink); font-weight: 600; }
+
+/* --- what colour fren is ------------------------------------------------- */
+
+.setting-block {
+  max-width: 620px;
+  margin-bottom: 12px;
+  padding: 15px 16px;
+  border: 1px solid rgba(26, 23, 18, 0.12);
+  border-radius: 12px;
+}
+.setting-block > strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 12px;
+}
+
+/* A grid, not a wrapping row. Left to wrap, six swatches broke 5 + 1 and the
+   last one read as an afterthought rather than as one of the set. */
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  max-width: 420px;
+}
+
+.swatch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 8px;
+  border: 1px solid rgba(26, 23, 18, 0.12);
+  border-radius: 999px;
+  background: transparent;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: border-color .15s var(--ease-soft), background .15s var(--ease-soft),
+              color .15s var(--ease-soft);
+}
+.swatch:hover { background: rgba(26, 23, 18, 0.05); color: var(--ink); }
+.swatch.on {
+  border-color: rgba(26, 23, 18, 0.34);
+  background: rgba(26, 23, 18, 0.055);
+  color: var(--ink);
+}
+
+/* A small orb rather than a flat chip: the choice is what fren will LOOK like,
+   and a flat square of the base tone does not show the lit surface it becomes. */
+.swatch-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  flex: none;
+  box-shadow: inset 0 -2px 3px rgba(0, 0, 0, .22), 0 1px 2px rgba(24, 16, 6, .18);
+}
+
+.custom-colour {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 12px;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.custom-colour input[type="color"] {
+  width: 30px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid rgba(26, 23, 18, 0.16);
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+}
+.setting-block .caveat { margin-top: 12px; max-width: 52ch; }

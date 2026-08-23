@@ -666,6 +666,37 @@ app.whenReady().then(() => {
     return saved;
   });
 
+  /**
+   * What colour fren is.
+   *
+   * Stored as a plain integer and broadcast, because the setting is changed in
+   * the DASHBOARD window while the orb lives in the PANEL window. Without the
+   * broadcast the choice would only take effect at the next launch, which for
+   * a colour — the one setting whose whole point is that you can see it — would
+   * feel broken rather than deferred.
+   *
+   * The renderer clamps too (palette.js), but the value is clamped here as
+   * well: this is what gets written to disk and read at boot, and a hand-edited
+   * database should not be able to produce an orb that cannot be told from a
+   * sleeping one.
+   */
+  ipcMain.handle('fren:getOrbColour', () => {
+    const stored = Number(memory.getSetting('orbColour'));
+    const colour = Number.isFinite(stored) && stored > 0 ? stored : null;  // null == default
+    if (colour) log(`[orb] wearing #${colour.toString(16).padStart(6, '0')}`);
+    return colour;
+  });
+
+  ipcMain.handle('fren:setOrbColour', (_e, hex) => {
+    const n = Number(hex);
+    const value = Number.isFinite(n) && n >= 0 && n <= 0xffffff ? Math.round(n) : null;
+    if (value === null) return { colour: null };
+    memory.setSetting('orbColour', value);
+    if (win && !win.isDestroyed()) win.webContents.send('fren:orbColour', value);
+    log(`[orb] colour set to #${value.toString(16).padStart(6, '0')}`);
+    return { colour: value };
+  });
+
   ipcMain.handle('fren:getWakeOnLaunch', () => wakeOnLaunchFrom(memory.getSetting('wakeOnLaunch')));
   ipcMain.handle('fren:setWakeOnLaunch', (_e, on) => {
     memory.setSetting('wakeOnLaunch', !!on);
