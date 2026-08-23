@@ -182,6 +182,40 @@ async function handleVision(vision, body, res) {
   }
 }
 
+/** Draft an automation. fren writes it down; the user decides what to run. */
+async function handleAutomate(provider, body, res) {
+  const { pattern, message } = body || {};
+  if (typeof message !== 'string' || !message.trim()) {
+    return send(res, 400, { error: 'message must be a non-empty string' });
+  }
+  const request = intelligence.buildAutomationRequest({
+    pattern: String(pattern || ''),
+    message,
+    memories: Array.isArray(body.memories) ? body.memories : [],
+    platform: String(body.platform || 'macOS'),
+  });
+  const raw = await callProvider(provider, request, res);
+  if (raw === null) return;
+  try {
+    const p = JSON.parse(String(raw).replace(/^```(?:json)?|```$/gm, '').trim());
+    send(res, 200, {
+      feasible: !!p.feasible,
+      approach: String(p.approach || ''),
+      steps: Array.isArray(p.steps) ? p.steps.map(String).slice(0, 12) : [],
+      script: String(p.script || ''),
+      language: String(p.language || ''),
+      caveats: String(p.caveats || ''),
+    });
+  } catch {
+    // An unusable draft is not a draft. Saying so beats showing nonsense the
+    // user might run.
+    send(res, 200, {
+      feasible: false, approach: '', steps: [], script: '', language: '',
+      caveats: 'I could not put together a usable draft for this one.',
+    });
+  }
+}
+
 async function handleChat(provider, body, res) {
   const question = body && body.question;
   if (typeof question !== 'string' || question.trim() === '') {
@@ -232,7 +266,8 @@ async function handle(provider, voice, vision, req, res, pathname) {
 
   if (req.method === 'POST' && (pathname === '/v1/summarize' || pathname === '/v1/chat' ||
                                 pathname === '/v1/speak' || pathname === '/v1/extract' ||
-                                pathname === '/v1/pattern' || pathname === '/v1/vision')) {
+                                pathname === '/v1/pattern' || pathname === '/v1/vision' ||
+                                pathname === '/v1/automate')) {
     if (req.headers.authorization !== `Bearer ${config.GATEWAY_TOKEN}`) {
       return send(res, 401, { error: 'unauthorized' });
     }
@@ -246,6 +281,7 @@ async function handle(provider, voice, vision, req, res, pathname) {
     if (pathname === '/v1/extract') return handleExtract(provider, body, res);
     if (pathname === '/v1/pattern') return handlePattern(provider, body, res);
     if (pathname === '/v1/vision') return handleVision(vision, body, res);
+    if (pathname === '/v1/automate') return handleAutomate(provider, body, res);
     if (pathname === '/v1/speak') return handleSpeak(voice, body, res);
     return handleChat(provider, body, res);
   }

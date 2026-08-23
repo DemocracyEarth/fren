@@ -247,6 +247,78 @@ const PATTERN_SCHEMA = {
   },
 };
 
+const AUTOMATION_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['feasible', 'approach', 'steps', 'script', 'language', 'caveats'],
+  properties: {
+    feasible: {
+      type: 'boolean',
+      description: 'False when this cannot honestly be automated from what was observed.',
+    },
+    approach: { type: 'string', description: 'One or two sentences: how it would work.' },
+    steps: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'The manual steps this would replace, in order.',
+    },
+    script: {
+      type: 'string',
+      description: 'A script the user could run themselves, or an empty string if none fits.',
+    },
+    language: { type: 'string', description: 'bash, applescript, python, powershell, or empty.' },
+    caveats: {
+      type: 'string',
+      description: 'What you could not know from window titles alone, and what to check first.',
+    },
+  },
+};
+
+/**
+ * Draft an automation for a pattern fren noticed.
+ *
+ * fren does not act. It writes something down and the person decides — so the
+ * output is a plan and a script for THEM to run, and the prompt is built around
+ * the limits of what fren actually saw.
+ *
+ * It only ever had application names and window titles. It never saw the
+ * contents of anything, so it cannot know a URL, a filename, a column or a
+ * credential. A draft that quietly invents those looks authoritative and wastes
+ * the reader's time, so it is told to name what it is missing instead.
+ */
+function buildAutomationRequest({ pattern, message, memories = [], platform = 'macOS' } = {}) {
+  const system = [
+    'You draft an automation for a workflow that fren, a desktop companion, noticed being repeated.',
+    '',
+    'WHAT YOU ACTUALLY KNOW: fren sees only which application is in front and what its window',
+    'is called. It has never seen the contents of any window. You therefore do NOT know URLs,',
+    'file paths, field names, spreadsheet columns, credentials or record IDs.',
+    'Do not invent any of them. Where one is needed, use an obvious placeholder and say so in caveats.',
+    '',
+    'THE SCRIPT IS FOR THE USER TO RUN, not for you to run, and they will read it first.',
+    'It must be safe to read and reversible in effect:',
+    '- Never delete, overwrite or move files. Never `rm`, `mv` over an existing path, or truncate.',
+    '- Never touch credentials, keychains or password stores.',
+    '- Never send anything to the network except an API the user clearly already uses.',
+    '- Prefer reading, copying and opening over writing and changing.',
+    'If a safe script is not possible, return an empty script and explain why in caveats.',
+    '',
+    `Target platform: ${platform}.`,
+    'Be concrete and short. If this genuinely cannot be automated from what was observed,',
+    'set feasible to false and say so plainly — that is a useful answer, not a failure.',
+  ].join('\n');
+
+  const content = [
+    `The repeated workflow: ${pattern || '(unnamed)'}`,
+    `What fren said about it: ${message || '(nothing)'}`,
+    '',
+    'Recent activity summaries for context:',
+    formatMemories(memories) || '(none)',
+  ].join('\n');
+
+  return { system, messages: [{ role: 'user', content }], schema: AUTOMATION_SCHEMA };
+}
+
 const EXTRACT_SCHEMA = {
   type: 'object',
   properties: {
@@ -393,5 +465,7 @@ module.exports = {
   buildPatternRequest,
   buildExtractRequest,
   buildVisionRequest,
+  buildAutomationRequest,
+  AUTOMATION_SCHEMA,
   EXTRACT_SCHEMA,
 };

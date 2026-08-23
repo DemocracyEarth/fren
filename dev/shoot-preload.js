@@ -10,6 +10,15 @@ const state = {
 };
 contextBridge.exposeInMainWorld('fren', {
   // Enough of the soul files to see the view rendered.
+  automate: async () => ({ draft: {
+    feasible: true,
+    approach: 'A shortcut can pull the three columns straight out of the dashboard export and append them to the sheet, so the copy step disappears.',
+    steps: ['Open the dashboard export', 'Copy the three columns', 'Paste into the weekly sheet', 'Fix the date row'],
+    script: '#!/usr/bin/env bash\\n# Replace with your own export URL and sheet id.\\ncurl -s "$DASHBOARD_EXPORT_URL" -o /tmp/latest.csv\\nopen /tmp/latest.csv',
+    language: 'bash',
+    caveats: 'I have only ever seen window titles, so I do not know the export URL or which sheet you paste into. Both are placeholders above.',
+  } }),
+  dismissSuggestion: async () => true,
   getSuggestions: async () => ([
     { ts: Date.now() - 3600e3, pattern: 'export dashboard numbers into the weekly sheet',
       message: 'You have exported the dashboard numbers into the weekly sheet seven times this week, always the same three columns.' },

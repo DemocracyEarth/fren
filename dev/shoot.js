@@ -73,6 +73,18 @@ app.whenReady().then(async () => {
     await new Promise((r) => setTimeout(r, 900));
   }
 
+  if (process.env.FREN_SHOT_CLICK) {
+    await win.webContents.executeJavaScript(
+      `[...document.querySelectorAll('button')].find(b => b.textContent.includes(${JSON.stringify(process.env.FREN_SHOT_CLICK)}))?.click()`);
+    await new Promise((r) => setTimeout(r, 1200));
+  }
+
+  if (process.env.FREN_SHOT_SCROLL) {
+    await win.webContents.executeJavaScript(
+      `document.getElementById('patterns').scrollTop = ${Number(process.env.FREN_SHOT_SCROLL)}`);
+    await new Promise((r) => setTimeout(r, 400));
+  }
+
   if (process.env.FREN_SHOT_KNOW === '1') {
     await win.webContents.executeJavaScript("document.getElementById('what-i-know').click()");
     await new Promise((r) => setTimeout(r, 900));

@@ -396,6 +396,44 @@ app.whenReady().then(() => {
     try { return memory.getSuggestions().slice().reverse(); } catch { return []; }
   });
 
+  /**
+   * Draft an automation for something fren noticed.
+   *
+   * The draft is stored and shown. It is never run — fren proposes, the person
+   * decides, and there is deliberately no code path here that executes what
+   * comes back.
+   */
+  ipcMain.handle('fren:automate', async (_e, id) => {
+    const all = memory.getSuggestions();
+    const s = all.find((x) => x.id === Number(id));
+    if (!s) return { error: 'that suggestion is gone' };
+    if (s.draft) return { draft: s.draft };          // drafted once is enough
+    state.beginWork();
+    try {
+      const memories = memory.getRecentMemories({ sinceMs: Date.now() - 24 * 60 * 60 * 1000 });
+      const draft = await gateway.automate({
+        pattern: s.pattern,
+        message: s.message,
+        memories,
+        platform: process.platform === 'win32' ? 'Windows'
+          : process.platform === 'linux' ? 'Linux' : 'macOS',
+      });
+      memory.setSuggestionDraft(s.id, draft);
+      log(`[automate] drafted for suggestion ${s.id} (feasible=${draft.feasible})`);
+      return { draft };
+    } catch (err) {
+      log(`[automate] failed: ${err.message}`);
+      return { error: err.message };
+    } finally {
+      state.endWork();
+    }
+  });
+
+  ipcMain.handle('fren:dismissSuggestion', (_e, id) => {
+    memory.setSuggestionStatus(Number(id), 'dismissed');
+    return true;
+  });
+
   ipcMain.handle('fren:quit', () => app.quit());
 
   ipcMain.handle('fren:chat', async (_e, text) => {

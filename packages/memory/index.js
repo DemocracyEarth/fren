@@ -29,7 +29,10 @@ CREATE TABLE IF NOT EXISTS suggestions (
   ts INTEGER,
   message TEXT NOT NULL,
   pattern TEXT,
-  status TEXT NOT NULL DEFAULT 'proposed'
+  status TEXT NOT NULL DEFAULT 'proposed',
+  -- A drafted automation, as JSON. fren writes it; the user reads it and
+  -- decides. Nothing here is ever executed.
+  draft TEXT
 );
 `;
 
@@ -138,6 +141,17 @@ function openMemory(dbPath) {
       return Number(lastInsertRowid);
     },
 
+    setSuggestionStatus(id, status) {
+      db.prepare('UPDATE suggestions SET status = ? WHERE id = ?')
+        .run(String(status), Number(id));
+    },
+
+    /** Store a drafted automation against the pattern it came from. */
+    setSuggestionDraft(id, draft) {
+      db.prepare('UPDATE suggestions SET draft = ?, status = ? WHERE id = ?')
+        .run(draft == null ? null : JSON.stringify(draft), 'drafted', Number(id));
+    },
+
     getSuggestions() {
       const rows = db
         .prepare('SELECT * FROM suggestions ORDER BY ts ASC, id ASC')
@@ -148,6 +162,7 @@ function openMemory(dbPath) {
         message: row.message,
         pattern: row.pattern,
         status: row.status,
+        draft: (() => { try { return row.draft ? JSON.parse(row.draft) : null; } catch { return null; } })(),
       }));
     },
 

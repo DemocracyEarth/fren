@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('fren', {
   lookAtScreen: (text) => ipcRenderer.invoke('fren:lookAtScreen', text),
   audioSilenced: () => ipcRenderer.invoke('fren:audioSilenced'),
   getSuggestions: () => ipcRenderer.invoke('fren:getSuggestions'),
+  automate: (id) => ipcRenderer.invoke('fren:automate', id),
+  dismissSuggestion: (id) => ipcRenderer.invoke('fren:dismissSuggestion', id),
   dragStart: () => ipcRenderer.invoke('fren:dragStart'),
   dragEnd: () => ipcRenderer.invoke('fren:dragEnd'),
   onCursor: (cb) => ipcRenderer.on('fren:cursor', (_e, p) => cb(p)),

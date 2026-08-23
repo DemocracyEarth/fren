@@ -279,7 +279,10 @@ These are designed to exist later. They are not built now, and the code does not
 pretend otherwise:
 
 - always-on listening (voice is push-to-talk only, by design)
-- autonomous mouse/keyboard control (fren proposes; it does not act)
+- autonomous mouse/keyboard control — fren will DRAFT an automation when you
+  ask ("Can you automate it?" on a noticed pattern), and show you the steps and
+  a script to read. It never runs any of it, and there is no code path that
+  could: the draft is displayed, not executed.
 - a browser extension
 - WhatsApp or mobile clients
 - multi-device sync

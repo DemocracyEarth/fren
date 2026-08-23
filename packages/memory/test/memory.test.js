@@ -128,7 +128,9 @@ test('suggestions insert and query', () => {
   const id = mem.addSuggestion({ ts: 5, message: 'take a break', pattern: 'long-session' });
   const rows = mem.getSuggestions();
   assert.deepStrictEqual(rows, [
-    { id, ts: 5, message: 'take a break', pattern: 'long-session', status: 'proposed' },
+    // draft is null until asked: fren proposes an automation only on request,
+    // and never runs what it writes.
+    { id, ts: 5, message: 'take a break', pattern: 'long-session', status: 'proposed', draft: null },
   ]);
   mem.close();
 });

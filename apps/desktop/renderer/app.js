@@ -1003,37 +1003,167 @@ async function showPatterns() {
   }
 
   for (const s of list) {
-    const card = document.createElement('div');
-    card.className = 'noticed';
-
-    const head = document.createElement('div');
-    head.className = 'noticed-head';
-    const b = document.createElement('b');
-    b.textContent = 'fren noticed';
-    head.appendChild(b);
-    if (s.ts) {
-      const time = document.createElement('time');
-      const d = new Date(s.ts);
-      time.dateTime = d.toISOString();
-      time.textContent = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) +
-        ' · ' + d.toTimeString().slice(0, 5);
-      head.appendChild(time);
-    }
-
-    const p = document.createElement('p');
-    p.textContent = s.message;
-    card.append(head, p);
-
-    if (s.pattern) {
-      const row = document.createElement('div');
-      row.className = 'pattern-row';
-      const label = document.createElement('span');
-      label.textContent = s.pattern;
-      row.appendChild(label);
-      card.appendChild(row);
-    }
-    els.patternsBody.appendChild(card);
+    if (s.status === 'dismissed') continue;
+    els.patternsBody.appendChild(patternCard(s));
   }
+}
+
+/** One noticed pattern, with what can honestly be done about it. */
+function patternCard(s) {
+  const card = document.createElement('div');
+  card.className = 'noticed';
+
+  const head = document.createElement('div');
+  head.className = 'noticed-head';
+  const b = document.createElement('b');
+  b.textContent = 'fren noticed';
+  head.appendChild(b);
+  if (s.ts) {
+    const time = document.createElement('time');
+    const d = new Date(s.ts);
+    time.dateTime = d.toISOString();
+    time.textContent = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) +
+      ' · ' + d.toTimeString().slice(0, 5);
+    head.appendChild(time);
+  }
+
+  const p = document.createElement('p');
+  p.textContent = s.message;
+  card.append(head, p);
+
+  if (s.pattern) {
+    const row = document.createElement('div');
+    row.className = 'pattern-row';
+    const label = document.createElement('span');
+    label.textContent = s.pattern;
+    row.appendChild(label);
+    card.appendChild(row);
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  const draftBtn = document.createElement('button');
+  draftBtn.className = 'primary';
+  draftBtn.textContent = 'Can you automate it?';
+  const laterBtn = document.createElement('button');
+  laterBtn.className = 'ghost';
+  laterBtn.textContent = 'Not now';
+  actions.append(draftBtn, laterBtn);
+  card.appendChild(actions);
+
+  const holder = document.createElement('div');
+  card.appendChild(holder);
+
+  laterBtn.addEventListener('click', async () => {
+    try { await window.fren.dismissSuggestion(s.id); } catch { /* nothing to do */ }
+    card.remove();
+    window.fren.getSuggestions()
+      .then((l) => updatePatternCount(l.filter((x) => x.status !== 'dismissed').length))
+      .catch(() => {});
+  });
+
+  draftBtn.addEventListener('click', async () => {
+    draftBtn.disabled = true;
+    draftBtn.textContent = 'Working it out…';
+    try {
+      const res = await window.fren.automate(s.id);
+      if (res && res.error) {
+        holder.appendChild(note("I couldn't draft that: " + res.error));
+        draftBtn.disabled = false;
+        draftBtn.textContent = 'Try again';
+        return;
+      }
+      actions.remove();
+      holder.appendChild(renderDraft(res.draft));
+    } catch (err) {
+      holder.appendChild(note("I couldn't draft that: " + (err && err.message ? err.message : err)));
+      draftBtn.disabled = false;
+      draftBtn.textContent = 'Try again';
+    }
+  });
+
+  if (s.draft) { actions.remove(); holder.appendChild(renderDraft(s.draft)); }
+  return card;
+}
+
+function note(text) {
+  const el = document.createElement('p');
+  el.className = 'draft-note';
+  el.textContent = text;
+  return el;
+}
+
+/**
+ * A drafted automation, shown read-only.
+ *
+ * fren proposes; it does not act. There is no run button and no code path that
+ * executes any of this — the script is here to be READ, and the caveats are
+ * shown as prominently as the script because fren only ever saw window titles
+ * and cannot know a filename or a column from that.
+ */
+function renderDraft(d) {
+  const wrap = document.createElement('div');
+  wrap.className = 'draft';
+
+  if (!d || !d.feasible) {
+    wrap.appendChild(note(
+      (d && d.caveats) || "I don't think I can automate this one from what I've seen."
+    ));
+    return wrap;
+  }
+
+  if (d.approach) {
+    const a = document.createElement('p');
+    a.className = 'draft-approach';
+    a.textContent = d.approach;
+    wrap.appendChild(a);
+  }
+
+  if (d.steps && d.steps.length) {
+    const ol = document.createElement('ol');
+    ol.className = 'draft-steps';
+    for (const step of d.steps) {
+      const li = document.createElement('li');
+      li.textContent = step;
+      ol.appendChild(li);
+    }
+    wrap.appendChild(ol);
+  }
+
+  if (d.script) {
+    const head = document.createElement('div');
+    head.className = 'draft-script-head';
+    const lang = document.createElement('span');
+    lang.textContent = d.language || 'script';
+    const copy = document.createElement('button');
+    copy.className = 'ghost tiny';
+    copy.textContent = 'Copy';
+    copy.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(d.script);
+        copy.textContent = 'Copied';
+        setTimeout(() => { copy.textContent = 'Copy'; }, 1400);
+      } catch { copy.textContent = 'Copy failed'; }
+    });
+    head.append(lang, copy);
+
+    const pre = document.createElement('pre');
+    pre.className = 'draft-script';
+    pre.textContent = d.script;     // textContent, never innerHTML
+    wrap.append(head, pre);
+
+    // Said every time, next to the script rather than buried in a doc: fren
+    // wrote this from window titles alone and has not run it.
+    wrap.appendChild(note('I have not run this, and I cannot. Read it before you do.'));
+  }
+
+  if (d.caveats) {
+    const c = document.createElement('p');
+    c.className = 'draft-caveats';
+    c.textContent = d.caveats;
+    wrap.appendChild(c);
+  }
+  return wrap;
 }
 
 function updatePatternCount(n) {
