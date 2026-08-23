@@ -1,7 +1,7 @@
 // Electron main process: creates the mascot window and wires the loop
 // observe -> remember -> summarize -> chat. Owns the observation on/off state.
 const path = require('path');
-const { app, BrowserWindow, ipcMain, screen, protocol, net, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, protocol, net, shell, dialog, Menu } = require('electron');
 const { pathToFileURL } = require('node:url');
 const { config, loadEnv } = require('../../../packages/shared');
 const { openMemory } = require('../../../packages/memory');
@@ -12,6 +12,7 @@ const { createSummarizer } = require('./summarizer');
 const { createPatternWatcher } = require('./patterns');
 const { createCuriosityWatcher } = require('./curiosity');
 const { wakeOnLaunchFrom } = require('./wake');
+const { clampInto } = require('./place');
 const providerSettings = require('./settings');
 const { createRoutineRunner, nextRunAt, isDue } = require('./routines');
 const executor = require('./executor');
@@ -118,6 +119,9 @@ let patterns = null;
 let routines = null;
 let curiosity = null;
 let heartbeat = null;
+// Set once the user has actually chosen to quit, so the dashboard's close
+// handler does not ask again while app.quit() is closing that same window.
+let quitting = false;
 const bootAt = Date.now();
 // When fren was last alive. Written on a heartbeat rather than on quit, because
 // a crash, a force-quit or a logout all skip the tidy exit — and the greeting
@@ -131,6 +135,42 @@ let automationTickBusy = false;
 
 const log = (...args) => console.log(...args);
 
+/**
+ * Keep the character on a screen.
+ *
+ * The window is mostly empty space — the orb sits in its bottom-right corner
+ * and the panel grows up and to the left — so clamping the WINDOW into the
+ * work area would stop you parking fren against an edge, which is exactly where
+ * people put it. What has to stay visible is the character itself.
+ *
+ * Without this, dragging fren past the edge of the display left it there for
+ * good: nothing ever brought it back, nothing persisted a position to correct,
+ * and on a window with no title bar there is nothing to grab. Which is how it
+ * got lost.
+ */
+function clampToScreen(bounds) {
+  const orb = orbSize();
+  // Nearest to the ORB, not to the window: with the panel open the window's
+  // own centre can be on a different display from the character.
+  const { workArea } = screen.getDisplayNearestPoint({
+    x: Math.round(bounds.x + bounds.width - orb.width / 2),
+    y: Math.round(bounds.y + bounds.height - orb.height / 2),
+  });
+  return clampInto(bounds, orb, workArea);
+}
+
+/** Put fren somewhere it can be seen, wherever it has got to. */
+function recenter() {
+  if (!win || win.isDestroyed()) return;
+  const b = win.getBounds();
+  const at = clampToScreen(b);
+  if (at.x !== b.x || at.y !== b.y) {
+    win.setPosition(at.x, at.y);
+    log(`[window] brought fren back on screen from ${b.x},${b.y}`);
+  }
+  win.showInactive();
+}
+
 function positionWindow(size) {
   // Anchor to the bottom-right corner of the primary display's work area.
   const { workArea } = screen.getPrimaryDisplay();
@@ -139,6 +179,34 @@ function positionWindow(size) {
     y: workArea.y + workArea.height - size.height - MARGIN,
     ...size,
   });
+}
+
+/**
+ * Grow or shrink the window around the panel.
+ *
+ * The orb lives at the window's bottom-right, so the window grows up and to the
+ * left: the character stays exactly where it was parked.
+ */
+function setPanelOpen(open) {
+  const cur = win.getBounds();
+  const size = open ? panelSize() : orbSize();
+  const anchorRight = cur.x + cur.width;
+  const anchorBottom = cur.y + cur.height;
+  const { workArea } = screen.getDisplayMatching(cur);
+  const x = Math.min(
+    Math.max(anchorRight - size.width, workArea.x),
+    workArea.x + workArea.width - size.width
+  );
+  const y = Math.min(
+    Math.max(anchorBottom - size.height, workArea.y),
+    workArea.y + workArea.height - size.height
+  );
+  win.setBounds({ x, y, ...size });
+  // Opening the panel grows the window up and to the left; near a top or left
+  // edge that can carry the orb out of the work area.
+  const at = clampToScreen(win.getBounds());
+  win.setPosition(at.x, at.y);
+  state.set({ panelOpen: !!open });
 }
 
 function createWindow() {
@@ -165,6 +233,10 @@ function createWindow() {
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   win.loadURL(`${SCHEME}://app/index.html`);
   positionWindow(orbSize());
+  const b = win.getBounds();
+  const { workArea, bounds: full, scaleFactor } = screen.getPrimaryDisplay();
+  log(`[window] orb ${b.x},${b.y} ${b.width}x${b.height} | work ${workArea.x},${workArea.y} ` +
+      `${workArea.width}x${workArea.height} | display ${full.width}x${full.height} @${scaleFactor}x`);
 }
 
 function orbCenter() {
@@ -389,6 +461,28 @@ app.whenReady().then(() => {
     log('[state] starting paused, as set');
   }
 
+  /**
+   * Screens come and go, and fren must not go with them.
+   *
+   * Clamping on drag only covers fren moving. A display can move instead:
+   * unplug the monitor fren was parked on, change the arrangement, or alter
+   * the scale, and a window that was perfectly placed is suddenly nowhere —
+   * with no title bar to drag it back by. macOS usually rehomes ordinary
+   * windows; an always-on-top frameless one is not reliably ordinary.
+   */
+  for (const ev of ['display-removed', 'display-added', 'display-metrics-changed']) {
+    screen.on(ev, () => {
+      // After the layout settles, not during it.
+      setTimeout(() => {
+        if (!win || win.isDestroyed()) return;
+        const before = win.getBounds();
+        recenter();
+        const after = win.getBounds();
+        if (before.x !== after.x || before.y !== after.y) log(`[window] ${ev}: moved fren back`);
+      }, 400);
+    });
+  }
+
   state.subscribe((s) => {
     if (win && !win.isDestroyed()) win.webContents.send('fren:stateChanged', s);
   });
@@ -418,23 +512,27 @@ app.whenReady().then(() => {
 
   // The orb lives at the window's bottom-right, so the window grows up and to
   // the left: the character stays exactly where the user parked it.
-  ipcMain.handle('fren:setPanelOpen', (_e, open) => {
-    const cur = win.getBounds();
-    const size = open ? panelSize() : orbSize();
-    const anchorRight = cur.x + cur.width;
-    const anchorBottom = cur.y + cur.height;
-    const { workArea } = screen.getDisplayMatching(cur);
-    const x = Math.min(
-      Math.max(anchorRight - size.width, workArea.x),
-      workArea.x + workArea.width - size.width
-    );
-    const y = Math.min(
-      Math.max(anchorBottom - size.height, workArea.y),
-      workArea.y + workArea.height - size.height
-    );
-    win.setBounds({ x, y, ...size });
-    state.set({ panelOpen: !!open });
-  });
+  ipcMain.handle('fren:setPanelOpen', (_e, open) => setPanelOpen(open));
+
+  /**
+   * A way in that does not depend on the right mouse button.
+   *
+   * The chat panel is opened by right-clicking the orb now, which is fine until
+   * it is not: a mouse with one button, an input device that cannot send it, or
+   * a drag region quietly swallowing the event, and the panel is unreachable —
+   * on a window with no title bar, no close button and no menu of its own.
+   *
+   * macOS gives every app a dock icon unless it asks not to, so there is
+   * already a menu there. This puts the two doors into it. Windows and Linux
+   * have no equivalent, and would want a tray icon; that is not built.
+   */
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.setMenu(Menu.buildFromTemplate([
+      { label: 'Bring fren back', click: () => recenter() },
+      { label: 'Open the chat', click: () => { setPanelOpen(true); recenter(); } },
+      { label: 'Open the dashboard', click: () => openDashboard() },
+    ]));
+  }
 
   ipcMain.handle('fren:dragStart', () => {
     const cursor = screen.getCursorScreenPoint();
@@ -447,7 +545,10 @@ app.whenReady().then(() => {
       const y = c.y - drag.dy;
       const cur = win.getBounds();
       if (Math.abs(x - cur.x) > 2 || Math.abs(y - cur.y) > 2) drag.moved = true;
-      win.setPosition(x, y);
+      // Clamped, so fren can be parked against any edge but never carried off
+      // one. There is no title bar to grab it back by.
+      const at = clampToScreen({ x, y, width: cur.width, height: cur.height });
+      win.setPosition(at.x, at.y);
     }, 16);
   });
 
@@ -610,16 +711,17 @@ app.whenReady().then(() => {
     orbScale = clampScale(next);
     const cur = win.getBounds();
     const size = state.get().panelOpen ? panelSize() : orbSize();
-    const anchorRight = cur.x + cur.width;
-    const anchorBottom = cur.y + cur.height;
-    const { workArea } = screen.getDisplayMatching(cur);
-    win.setBounds({
-      x: Math.min(Math.max(anchorRight - size.width, workArea.x),
-                  workArea.x + workArea.width - size.width),
-      y: Math.min(Math.max(anchorBottom - size.height, workArea.y),
-                  workArea.y + workArea.height - size.height),
-      ...size,
+    // Anchored bottom-right so fren grows up and to the left, staying where it
+    // was parked. One clamp rule for every path that moves the window: this
+    // used to force the whole window into the work area while the drag used no
+    // rule at all, which is two answers to the same question.
+    const at = clampToScreen({
+      x: cur.x + cur.width - size.width,
+      y: cur.y + cur.height - size.height,
+      width: size.width,
+      height: size.height,
     });
+    win.setBounds({ ...at, ...size });
     // Written every time rather than on a debounce: this is one small integer,
     // and the alternative is losing the size to a crash or a force-quit right
     // after someone has just set it.
@@ -866,7 +968,8 @@ app.whenReady().then(() => {
    * Trying to fold a sidebar and a day timeline into 384px would have made both
    * worse.
    */
-  ipcMain.handle('fren:openDashboard', () => {
+  /** Open the dashboard, or bring the one that exists to the front. */
+  function openDashboard() {
     if (dash && !dash.isDestroyed()) { dash.show(); dash.focus(); return true; }
     dash = new BrowserWindow({
       width: 1040,
@@ -883,9 +986,41 @@ app.whenReady().then(() => {
       },
     });
     dash.loadURL(`${SCHEME}://app/dashboard.html`);
+
+    /**
+     * Closing the dashboard asks whether that means closing fren.
+     *
+     * The orb has no title bar, no close button and no menu — so once the
+     * chat's × stops quitting, this window is the only place the question can
+     * be asked. Getting it wrong in the quiet direction leaves fren running
+     * with no window to reach it by; getting it wrong in the loud direction
+     * kills the app when someone tidied a window away.
+     *
+     * `quitting` guards the re-entry: app.quit() closes this window too, which
+     * would fire this handler again and ask a second time.
+     */
+    dash.on('close', (e) => {
+      if (quitting) return;
+      e.preventDefault();
+      const response = dialog.showMessageBoxSync(dash, {
+        type: 'question',
+        buttons: ['Close this window', 'Quit fren', 'Cancel'],
+        defaultId: 0,
+        cancelId: 2,
+        message: 'Close the dashboard, or quit fren?',
+        detail: 'fren keeps running in the corner of your screen unless you quit it. ' +
+                'Quitting stops it watching and closes everything.',
+      });
+      if (response === 2) return;                 // cancel: leave it open
+      if (response === 1) { quitting = true; app.quit(); return; }
+      dash.destroy();                             // just this window
+    });
+
     dash.on('closed', () => { dash = null; });
     return true;
-  });
+  }
+
+  ipcMain.handle('fren:openDashboard', () => openDashboard());
 
   ipcMain.handle('fren:days', () => {
     try { return memory.getActiveDays(60); } catch { return []; }
@@ -1072,7 +1207,7 @@ app.whenReady().then(() => {
     return true;
   });
 
-  ipcMain.handle('fren:quit', () => app.quit());
+  ipcMain.handle('fren:quit', () => { quitting = true; app.quit(); });
 
   /**
    * Answer a question from fren's own memory.
@@ -1128,9 +1263,21 @@ app.whenReady().then(() => {
   });
 });
 
-app.on('window-all-closed', () => app.quit());
+// NOT app.quit(). The orb window is the app: it is frameless with no close
+// button, so "all windows closed" can only mean the dashboard was closed and
+// the orb is being rebuilt — quitting there would take fren down with it.
+// Quitting is a decision made in one place, the dashboard's close dialog.
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') return;      // and even then, stay up
+});
 
 app.on('before-quit', () => {
+  // FIRST, before anything is torn down. Quitting closes the dashboard too, and
+  // that window's close handler asks whether you meant to quit — so without
+  // this, Cmd+Q ran this teardown, stopped every timer, closed the database,
+  // and was then blocked by a dialog asking a question already answered.
+  // Choosing "Cancel" there left fren running on a closed database.
+  quitting = true;
   if (gazeTimer) clearInterval(gazeTimer);
   if (drag) clearInterval(drag.timer);
   if (observer) observer.stop();

@@ -325,6 +325,7 @@
         </g>
         <g class="fx"></g>`;
       mount.appendChild(svg);
+      this.mount = mount;
 
       const q = (s) => svg.querySelector(s);
       this.svg = svg;
@@ -437,6 +438,7 @@
       this.svg.setAttribute('height', n);
       this._wake();
     }
+
 
     // A drawn face cannot roll like a ball — spinning a flat one reads as a
     // sticker turning, not as a sphere. The size still changes; only the

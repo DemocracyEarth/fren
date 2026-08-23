@@ -139,7 +139,7 @@ function render(next) {
   // stop watching them would be tone deaf.
   if (!state.observing && was.observing && setup) {
     endSetup({ skipped: true });
-    addBubble('fren', "Understood — light off, questions dropped. Tap me when you want me back.");
+    addBubble('fren', "Understood — light off, questions dropped. Right-click me when you want me back.");
   }
 
   // Waking up is worth a little physical reaction — but only when it is
@@ -306,8 +306,15 @@ async function speak(text) {
     setTimeout(step, 90);
 
     async function finish() {
-      cutReplyShort = null;
+      // Disarmed only once the VOICE has finished, not once the text has. The
+      // typing animation ends long before a spoken reply does, and clearing
+      // this at the top left a window — often several seconds — where fren was
+      // still talking, `speaking` was still true, and there was no longer
+      // anything to interrupt. Clicking the orb in that window fell through to
+      // "busy thinking", shook, and did nothing: exactly the moment you most
+      // want to cut in.
       if (spoken) await spoken;     // let the voice finish before settling
+      cutReplyShort = null;
       bubble.textContent = text;
       face.stopTalking();
       // Settle through a reaction rather than snapping back — and not the
@@ -343,8 +350,9 @@ const SETUP_STEPS = [
                "Not a typo — friend, worn down to the part that matters. " +
                "I live down here in the corner.\n\n" +
                "My light is on, which means I'm watching what you're doing. " +
-               "Tap me whenever you want that to stop.\n\n" +
-               "First though — hold me and tell me what to call you.",
+               "Right-click me for the menu whenever you want that to stop.\n\n" +
+               "First though — click me and tell me what to call you. " +
+               "Click again when you're done.",
   },
   {
     key: 'work',
@@ -380,7 +388,7 @@ const SETUP_STEPS = [
     ask: () => "Last one, about this light. I've had it on since we started, " +
                "which is me watching.\n\n" +
                "Should I wake up like this every time you launch me, or start " +
-               "dark and wait until you tap me?",
+               "dark and wait until you say so?",
     pulse: 'nod',
   },
 ];
@@ -396,7 +404,7 @@ async function runSetupIfNeeded() {
 
   setup = { step: 0, answers: {} };
   // Voice first. The chat panel opens when the user asks for it and not
-  // before — fren talks, and holding it is how you answer. The exception is
+  // before — fren talks, and clicking it is how you answer. The exception is
   // when there is no voice available at all, in which case typing is the only
   // way to reply and the panel has to be there.
   if (!voiceReady) await setPanel(true);
@@ -500,10 +508,11 @@ async function finishSetup() {
     `Thanks, ${answers.name}. I've written that down as SOUL.md — it's how I'll ` +
     `try to be. You can open it and change it any time, and I'll read it fresh ` +
     `on the next thing you say.\n\n` +
-    `Hold me to talk; you don't need this panel open. ` +
+    `Click me to talk — once to start, once to stop. You don't need this panel ` +
+    `open, and right-clicking me brings it back. ` +
     (wakeOnLaunch
-      ? `I'll be awake and watching whenever you launch me — tap me any time to stop.`
-      : `I'll start dark from now on, so tap me when you want me watching.`)
+      ? `I'll be awake and watching whenever you launch me — right-click me for the menu to stop.`
+      : `I'll start dark from now on, so right-click me when you want me watching.`)
   );
 }
 
@@ -514,7 +523,7 @@ async function handleSetupAnswer(answer) {
   // is not on screen to be clicked.
   if (SKIP_WORDS.test(answer.trim())) {
     await endSetup({ skipped: true });
-    await speak("Fine by me. Hold me any time you want to talk.");
+    await speak("Fine by me. Click me any time you want to talk.");
     return;
   }
 
@@ -760,11 +769,12 @@ async function surface(text) {
 /**
  * Tapping the orb. Asleep, one tap wakes it. Awake, it toggles the chat panel.
  *
- * Waking deliberately does NOT open the panel any more: you can hold the orb
- * and talk to it without ever seeing a chat window, and forcing the transcript
- * into view made reading it feel compulsory rather than available.
+ * Waking deliberately does NOT open the panel: you can talk to fren without
+ * ever seeing a chat window, and forcing the transcript into view made reading
+ * it feel compulsory rather than available.
  */
 async function activateOrb() {
+  // Reached from the keyboard now, not from a click. A click records.
   face.pulse('bounce');
   if (!state.observing) {
     mood.note('wake');
@@ -784,31 +794,96 @@ async function togglePanel() {
 }
 
 /**
- * The orb takes three gestures, and talking is the one that matters most.
+ * The orb takes four gestures.
  *
- *   tap        -> wake, or toggle the chat panel once awake
- *   hold       -> TALK. Speak while held, release to send.
- *   press+drag -> carry fren somewhere else on screen
+ *   left click  -> RECORD. Click to start, click again to stop and send.
+ *   right click -> the menu: the chat panel
+ *   press+drag  -> carry fren somewhere else on screen
+ *   wheel       -> bigger or smaller
  *
- * Holding the character itself to speak to it is the whole point: voice should
- * not require finding a small button inside a panel that has to be opened
- * first. The chat panel is for reading back what was said, and is optional.
+ * Click-to-record replaced press-and-hold. Holding meant you could not do
+ * anything else while speaking, could not put the mouse down, and had no
+ * indication of how long you had been going. A record button you press once is
+ * what everything else that records you does.
+ *
+ * The cost is that a tap no longer opens the panel, so waking a paused fren
+ * moved to the menu. Recording works while paused either way — the microphone
+ * and the screen are separate, and the ring says which one is open.
  *
  * Main owns the window position, so it is also what tells us whether a gesture
  * turned out to be a drag.
  */
-const HOLD_TO_TALK_MS = 320;
 const DRAG_SLOP_PX = 11;     // above trackpad tremor: below this, holding still
                              // must not be mistaken for an intention to move
 
 let pressing = false;
-let holdTimer = null;
-let talkingFromOrb = false;
 let dragging = false;
 let pressAt = { x: 0, y: 0 };
+// Whether the RECORDING was started from the orb. The mic button in the panel
+// has its own path, and a click on the orb must not end a recording somebody
+// started down there.
+let recordingFromOrb = false;
 
-function cancelHold() {
-  if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+/**
+ * A recording stops itself eventually.
+ *
+ * Press-and-hold needed no such thing: the bound was your hand, and letting go
+ * of a mouse is not something you forget to do. A click that opens the
+ * microphone and waits for a second click has no bound at all, so clicking and
+ * walking away would leave it open until the machine sleeps.
+ *
+ * Two minutes is longer than anything anyone says to a desktop companion in
+ * one go, and short enough that a forgotten microphone is a mistake rather than
+ * an afternoon.
+ */
+const MAX_RECORDING_MS = 2 * 60 * 1000;
+let recordingCap = null;
+
+function armRecordingCap() {
+  clearTimeout(recordingCap);
+  recordingCap = setTimeout(() => {
+    recordingCap = null;
+    if (!wantRecording) return;
+    vlog('recording:capped');
+    surface("I stopped recording — that had been going for two minutes.");
+    stopTalkingAndSend();
+  }, MAX_RECORDING_MS);
+}
+
+function disarmRecordingCap() {
+  clearTimeout(recordingCap);
+  recordingCap = null;
+}
+
+/**
+ * One click starts it, the next stops it and sends.
+ *
+ * Ordered so the orb is never dead. A click has to do SOMETHING, and with no
+ * voice configured — no whisper binary, no microphone permission — starting a
+ * recording is not available, so it falls back to the menu rather than
+ * swallowing the click in silence.
+ */
+async function toggleRecording() {
+  if (recordingFromOrb) {
+    recordingFromOrb = false;
+    await stopTalkingAndSend();
+    return;
+  }
+  // If fren has been holding on to something, saying it is what a click is for.
+  if (await deliverPendingSuggestion()) return;
+
+  if (!voiceReady || !mic) {
+    react('click');
+    await setPanel(!state.panelOpen);
+    return;
+  }
+
+  recordingFromOrb = true;
+  await startTalking();
+  // startTalking bails on its own for several reasons — still thinking about
+  // the last thing, no microphone, permission refused. Believe whether a
+  // recording actually began rather than that one was asked for.
+  if (!wantRecording) recordingFromOrb = false;
 }
 
 /**
@@ -833,45 +908,44 @@ for (const [el, ev] of [[els.orb, 'mousedown'], [els.input, 'keydown'], [els.sen
   if (el) el.addEventListener(ev, () => { userActed = true; }, { once: true, capture: true });
 }
 
+// macOS delivers ctrl+click as button 0 with ctrlKey set, AND fires
+// contextmenu for it. Without this clause the same gesture asked for the menu
+// and opened the microphone: mousedown armed the press, the contextmenu handler
+// bailed because a press was in progress, and the release started recording.
+const CTRL_CLICK_IS_RIGHT_CLICK = navigator.platform.toUpperCase().includes('MAC');
+
 els.orb.addEventListener('mousedown', (e) => {
   if (e.button !== 0) return;
+  if (CTRL_CLICK_IS_RIGHT_CLICK && e.ctrlKey) return;   // that is a right-click
   pressing = true;
   dragging = false;
-  talkingFromOrb = false;
   pressAt = { x: e.screenX, y: e.screenY };
-  holdTimer = setTimeout(() => {
-    holdTimer = null;
-    if (!pressing || dragging) return;
-    talkingFromOrb = true;
-    startTalking();
-  }, HOLD_TO_TALK_MS);
 });
 
 window.addEventListener('mousemove', (e) => {
-  if (!pressing || dragging || talkingFromOrb) return;
+  if (!pressing || dragging) return;
   if (Math.hypot(e.screenX - pressAt.x, e.screenY - pressAt.y) < DRAG_SLOP_PX) return;
   // Moving means carrying it. Main takes the cursor offset from here, so the
   // orb keeps its position under the pointer instead of jumping.
   dragging = true;
-  cancelHold();
   window.fren.dragStart();
 });
 
-window.addEventListener('mouseup', async () => {
+window.addEventListener('mouseup', async (e) => {
+  // Only the left button ends a left-button gesture. Releasing the right button
+  // during a press would otherwise consume it and start a recording.
+  if (e.button !== 0) return;
   if (!pressing) return;
   pressing = false;
-  cancelHold();
-  if (talkingFromOrb) {
-    talkingFromOrb = false;
-    stopTalkingAndSend();
-    return;
-  }
   if (dragging) {
+    // Carried, not clicked. Putting it down must never start or stop a
+    // recording — this is the only thing standing between "moved fren" and
+    // "opened the microphone without meaning to".
     dragging = false;
-    await window.fren.dragEnd();     // put it down where it was left
+    await window.fren.dragEnd();
     return;
   }
-  activateOrb();                     // a tap: nothing moved, nothing was said
+  toggleRecording();
 });
 
 // Keyboard activation still opens the panel (detail 0 == not a mouse click).
@@ -956,6 +1030,26 @@ els.orb.addEventListener('wheel', (e) => {
   pumpScale();
 }, { passive: false });
 
+/**
+ * Right-click opens the menu.
+ *
+ * On the orb itself, which is `-webkit-app-region: no-drag` (styles.css:44)
+ * while the halo around it is a drag region — a drag region swallows mouse
+ * events, so this listener has to be on the character, not the zone.
+ *
+ * preventDefault stops Chromium's own context menu appearing over a window
+ * that has no business showing one.
+ */
+els.orb.addEventListener('contextmenu', async (e) => {
+  e.preventDefault();
+  // A right-click during a genuine left-button DRAG is an accident. A press
+  // that has not moved is not — on macOS a ctrl+click arrives as one.
+  if (dragging) return;
+  pressing = false;
+  react('click');
+  await setPanel(!state.panelOpen);
+});
+
 els.orb.addEventListener('mouseenter', () => react('hover'));
 els.orb.addEventListener('mouseleave', () => {
   // Let the reaction finish on its own — snapping back mid-expression is what
@@ -1014,6 +1108,38 @@ function vlog(step, extra) {
   console.log('[voice]', step, JSON.stringify(extra ? { ...state, ...extra } : state));
 }
 
+/**
+ * The face's listening state and the recording ring, together.
+ *
+ * One function because they must never disagree. The ring is what tells you
+ * the microphone is open, and the one way to get that badly wrong is to leave
+ * it lit after a recording has ended — so every path that stops listening goes
+ * through here, including the ones that fail.
+ *
+ * The ring is deliberately NOT part of the face. Sweeping the face's own glow
+ * showed it is plainly visible while fren is watching and nearly invisible
+ * while it is paused, because a paused face is drained with its eyes shut and
+ * has almost nothing to light up. An indicator that fades out exactly when the
+ * screen light is off is the wrong way round.
+ */
+function listening(level) {
+  const on = level !== null && level !== undefined;
+  // A late level reading must not relight the ring.
+  //
+  // The meter runs on requestAnimationFrame inside mic.js. Stopping clears the
+  // ring and THEN awaits mic.stop(), and the await is a gap a queued frame can
+  // fire in — setting the ring back on a moment before the meter is torn down,
+  // with nothing left to come and clear it. The ring then pulsed forever over a
+  // microphone that had been shut for minutes, which is the most alarming thing
+  // this app could get wrong.
+  //
+  // wantRecording is already false by then, so it is the honest gate.
+  if (on && !wantRecording) return;
+  face.setListening(level);
+  document.body.dataset.recording = on ? '1' : '0';
+  if (!on) disarmRecordingCap();
+}
+
 async function startTalking() {
   vlog('startTalking:enter');
   if (!mic || !voiceReady) {
@@ -1043,12 +1169,13 @@ async function startTalking() {
   try {
     // The face brightens with the level, so it is visibly hearing YOU rather
     // than merely having changed state.
-    await mic.start((level) => face.setListening(level));
+    await mic.start((level) => listening(level));
+    armRecordingCap();
     vlog('startTalking:recording');
     // Opening the microphone is asynchronous, and the button can be released
     // before it finishes. Without this check the recorder would start with
     // nobody holding it and keep listening until the next press.
-    if (!wantRecording) { mic.cancel(); face.setListening(null); setFace(emotionFor(state)); return; }
+    if (!wantRecording) { mic.cancel(); listening(null); setFace(emotionFor(state)); return; }
     blip(true);
     els.mic.classList.add('recording');
     // The face IS the feedback when talking from the orb -- there may be no
@@ -1057,7 +1184,7 @@ async function startTalking() {
     face.pulse('nod');
   } catch (err) {
     els.mic.classList.remove('recording');
-    face.setListening(null);
+    listening(null);
     surface('I could not open the microphone: ' + (err && err.message ? err.message : err));
     setFace(emotionFor(state));
   }
@@ -1066,15 +1193,24 @@ async function startTalking() {
 let stopping = false;
 
 async function stopTalkingAndSend() {
+  // Whoever stopped it, the orb is no longer holding a recording open. The
+  // panel's mic button can end one the orb started; without this the next
+  // click on the orb would try to stop a recording that is already over.
+  recordingFromOrb = false;
   // Read it before clearing it, or the check below can never be true.
   const expected = wantRecording;
   wantRecording = false;
+  // Unconditional, and before the early returns below. The ring says the
+  // microphone is open; the one unforgivable state is leaving it lit over a
+  // shut one, so no path out of this function may skip putting it out.
+  document.body.dataset.recording = '0';
+  disarmRecordingCap();
   // Two separate window-level mouseup handlers can both land here for one
   // gesture; a second entry must not stop a recorder the first is already
   // draining.
   if (stopping) return;
   if (!mic || !mic.isRecording()) {
-    face.setListening(null);
+    listening(null);
     // Only worth reporting when a recording was expected. Otherwise this is an
     // ordinary release and the log fills up with it.
     if (expected) vlog('stop:nothing-recording');
@@ -1082,7 +1218,7 @@ async function stopTalkingAndSend() {
   }
   stopping = true;
   blip(false);
-  face.setListening(null);
+  listening(null);
   els.mic.classList.remove('recording');
   setFace('thinking');
   let wav = null;
@@ -1205,7 +1341,10 @@ if (dashBtn) {
 }
 
 els.watch.addEventListener('click', () => window.fren.toggleObservation());
-els.quit.addEventListener('click', () => window.fren.quit());
+// Closes the CHAT, not fren. Quitting is one decision, made in one place: the
+// dashboard's close dialog. A × on a chat panel that killed the whole app was
+// the kind of thing you only learn once.
+els.quit.addEventListener('click', () => setPanel(false));
 
 els.form.addEventListener('submit', (e) => {
   e.preventDefault();
@@ -1358,8 +1497,8 @@ async function deliverPendingSuggestion() {
   const message = pendingSuggestion;
   pendingSuggestion = null;
   els.orb.title = voiceReady
-    ? `${orbVerb()} · hold to talk · drag to move`
-    : `${orbVerb()} · drag to move`;
+    ? `${orbVerb()} · click to record · right-click for the menu`
+    : `${orbVerb()} · right-click for the menu · drag to move`;
   await speak(message);
   return true;
 }
@@ -1445,8 +1584,8 @@ scheduleWander();
   setFace(emotionFor(state), { immediate: true });
 
   els.orb.title = voiceReady
-    ? `${orbVerb()} · hold to talk · drag to move`
-    : `${orbVerb()} · drag to move`;
+    ? `${orbVerb()} · click to record · right-click for the menu`
+    : `${orbVerb()} · right-click for the menu · drag to move`;
 
   markUnread();
 

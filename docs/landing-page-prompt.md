@@ -80,7 +80,8 @@ This is the product's actual differentiator and it must not be a footnote.
   cannot capture while looking asleep.
 - **Screenshots never leave the machine.** They are written locally, capped, and
   pruned. The model only ever sees text.
-- **The microphone is only open while you hold the orb.** Not a wake word. Not
+- **The microphone is only open between the click that starts it and the one
+  that stops it, and a ring pulses the whole time it is open.** Not a wake word. Not
   always-on. Speech is transcribed by whisper.cpp on your own machine; the audio
   never leaves it.
 - **Keystrokes are never captured at all.** There is no keylogger.

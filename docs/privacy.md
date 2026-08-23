@@ -28,9 +28,19 @@ monitoring, no clipboard access.
 ## The microphone
 
 fren does **not** listen continuously, and there is no wake word. The
-microphone is opened only while you are physically holding the mic button
-down, and released the moment you let go — the macOS recording indicator is
-the second source of truth for this.
+microphone opens when you click the orb and closes when you click it again —
+the macOS recording indicator is the second source of truth for this.
+
+This changed, and the change is worth being plain about. It used to be
+press-and-hold, where the bound on a recording was your own hand. A recording
+you start with a click and stop with another has no such bound, so two things
+replace it: **a ring pulses around the orb the entire time the microphone is
+open**, deliberately separate from the face so it is just as visible when fren
+is paused and dark as when it is watching; and **a recording stops itself after
+two minutes**, so a forgotten microphone is a mistake rather than an afternoon.
+
+The mic button inside the chat panel is still press-and-hold. A button you hold
+is unambiguous, and it costs nothing to keep.
 
 What happens to that audio matters more than how it is captured:
 
@@ -297,7 +307,7 @@ on the gateway being reachable, or on you remembering to clean up.
 **The very first launch is the exception, and it matters.** fren wakes up by
 itself to introduce itself, which means it is watching from the moment it
 appears. The first thing it says is exactly that — its light is on, that means
-it is watching, and tapping it stops that. Capture is real during the
+it is watching, and the menu on a right-click stops that. Capture is real during the
 introduction: app names and window titles are recorded like any other time.
 
 If it were lit without observing, the light would be a lie, and the light is the
@@ -312,13 +322,13 @@ a convenient one.
 
 You decide this, and you are asked directly. The last question of the first-run
 interview is whether fren should be awake when it launches or wait in the dark
-until you tap it, and the answer is stored as `wakeOnLaunch`. If you say wait,
+until you say so, and the answer is stored as `wakeOnLaunch`. If you say wait,
 fren pauses immediately and starts dark from then on.
 
 If you completed setup before that question existed, the default is awake. To
 change it, open the Memory pane and untick **"Wake up when you launch me"** — it is there whether or not you did the
 interview — or
-just tap the orb any time to pause the session you are in.
+just use the watching control in the menu to pause the session you are in.
 
 One consequence worth naming: scheduled automations only run while fren is
 watching, so a fren that starts awake can run a due automation shortly after
@@ -326,7 +336,8 @@ launch, where before it needed you to wake it first. Scheduled runs are held for
 the first two minutes after launch so there is time to pause, and all three
 execution gates still apply — see "Running automations" above.
 
-To stop, tap the orb, or open the panel and click **"pause watching"**. The
+To stop, right-click the orb for the menu and use the watching control there —
+a left click records now rather than pausing. The
 light goes out, the eyes close, everything stops. There is no partial state and
 no background trickle while paused. Hovering the orb always says which of the
 two it currently is.

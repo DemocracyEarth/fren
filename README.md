@@ -149,7 +149,7 @@ curl -L -o ~/.cache/whisper.cpp/ggml-base.en.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
 ```
 
-Both are auto-detected. Then **hold** the mic button in the panel to talk and
+Both are auto-detected. Then **click the orb** to talk, or hold the mic button in the panel, and
 release to send. Nothing is recorded unless the button is down, and the audio
 is transcribed on this machine — it never leaves it.
 
@@ -200,7 +200,8 @@ What **never** leaves your machine:
 - the screenshots fren takes on its own timer (stored locally, pruned
   automatically — not even sent to the gateway; a separate code path from the
   eye button, and a test enforces the separation)
-- microphone audio (recorded only while you hold the button, transcribed
+- microphone audio (recorded only between the click that starts it and the one
+  that stops it, transcribed
   locally by whisper.cpp, then deleted)
 - the SQLite database
 - keystrokes (never captured at all, by anything)
@@ -209,23 +210,30 @@ Full details in [docs/privacy.md](docs/privacy.md).
 
 ## How do I talk to it?
 
-**Hold the orb and speak.** Release to send. You do not need the chat panel open
-— the reply is spoken aloud, and the panel is there for reading back what was
-said rather than as the way in.
+**Click the orb and speak. Click again to send.** You do not need the chat panel
+open — the reply is spoken aloud, and the panel is there for reading back what
+was said rather than as the way in.
 
-The orb takes three gestures:
+While the microphone is open a ring pulses around the orb. It is drawn outside
+the character rather than as part of its face, so it reads the same whether fren
+is lit and watching or dark and paused — that is the moment you most need to
+know the microphone is open, not the least.
 
 | Gesture | What happens |
 |---|---|
-| Tap | Wakes fren; once awake, opens or closes the chat panel |
-| Hold still | Records while held, sends on release |
+| Left click | Starts recording; click again to stop and send |
+| Right click | Opens the menu — the chat panel |
 | Press and move | Carries fren anywhere on screen |
+| Scroll | Makes fren bigger or smaller, and it stays that size |
 
-The three are told apart by what your hand does, not by a timer: move past a few
-pixels and you are carrying it, stay put and you are talking to it. Holding
-still never drags the orb, and a slow deliberate drag never starts a recording.
+A click and a carry are told apart by what your hand does, not by a timer: move
+past a few pixels and you are carrying it, and putting it down never starts or
+stops a recording.
 
-You can talk over it. Holding the orb while fren is replying cuts the reply
+A recording stops itself after two minutes. Holding a button had your hand as
+its natural bound; a click does not, so it needs one.
+
+You can talk over it. Clicking the orb while fren is replying cuts the reply
 short and starts listening, and anything you say while it is still thinking is
 answered next rather than discarded.
 
@@ -242,7 +250,7 @@ The first time you run fren it wakes up, says hello, and asks five short
 questions — your name, what you are working on, how it should talk to you,
 whether it should speak up or stay quiet, and what would actually be useful.
 
-It asks **out loud**, and the chat panel stays shut: hold the orb to answer.
+It asks **out loud**, and the chat panel stays shut: click the orb to answer.
 The panel only opens if you open it, or if fren has no voice configured and
 therefore cannot be heard at all. Saying "skip" ends the interview, and so does
 pausing fren.
@@ -304,7 +312,8 @@ inspected is not a companion.
 ## How do I turn observation on and off?
 
 On the **first** launch fren wakes by itself to introduce itself, and says so:
-its light is on, that means it is watching, and tapping it stops that. Capture
+its light is on, that means it is watching, and the menu on a right-click stops
+that. Capture
 is real for that conversation. Lighting up without watching would make the light
 a lie, which is worse than starting awake and saying so.
 

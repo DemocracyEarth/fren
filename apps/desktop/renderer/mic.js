@@ -157,7 +157,12 @@
           // thresholds stacked: you had to hold for two thirds of a second
           // before a single word was kept. The gesture is the accident filter
           // now; this only has to reject a genuine slip.
-          const tooShort = Date.now() - startedAt < 160;
+          // The 320ms hold used to be the accident filter: a recording could
+          // not begin until you had held the orb that long. Click-to-record
+          // starts instantly, so this threshold is now the ONLY thing between a
+          // double click and a transcription request for a quarter second of
+          // room noise.
+          const tooShort = Date.now() - startedAt < 350;
           recorder.onstop = async () => {
             try {
               if (tooShort || !chunks.length) return resolve(null);
