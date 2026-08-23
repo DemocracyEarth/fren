@@ -181,10 +181,17 @@ Only this, and only via the local gateway:
 - the transcript of anything you say with push-to-talk — never the audio
 - the text of fren's reply, if you configured a voice
 
+**Looking at your screen** is opt-in per use: press the eye button next to the
+message box and fren sends one screenshot to answer that one question. There is
+no setting to leave on, it announces itself before sending, it refuses while
+paused, and the image is never written to disk. It needs an `ANTHROPIC_API_KEY`,
+because DeepSeek's chat models cannot see images.
+
 What **never** leaves your machine:
 
-- screenshots (captured only while observing, stored locally, pruned
-  automatically — not even sent to the gateway)
+- the screenshots fren takes on its own timer (stored locally, pruned
+  automatically — not even sent to the gateway; a separate code path from the
+  eye button, and a test enforces the separation)
 - microphone audio (recorded only while you hold the button, transcribed
   locally by whisper.cpp, then deleted)
 - the SQLite database

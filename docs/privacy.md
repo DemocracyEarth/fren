@@ -46,6 +46,31 @@ API would mean streaming your room — and anyone else in it — to a third part
 If `whisper.cpp` is not installed the mic button is disabled and says so; voice
 input simply does not work, rather than quietly falling back to the network.
 
+## Looking at your screen
+
+fren can look at your screen and answer a question about it. This is the only
+thing fren does that sends an image anywhere, and it is built to be impossible
+to do by accident:
+
+- **There is no setting to leave on.** Every look is a separate press of the eye
+  button next to the message box. There is no standing permission that can be
+  enabled once and forgotten.
+- **It says so, every time.** "Taking one look at your screen…" appears before
+  the image is sent, not after.
+- **It is refused while fren is paused.** Looking with the light off is exactly
+  what the light exists to rule out.
+- **The image is never written to disk.** It is captured in memory, sent once,
+  and dropped. It is not the observed screenshots — those are a separate code
+  path that never transmits anything.
+- **The button does not exist unless a model that can see is configured.**
+  DeepSeek's chat models are text-only. This needs an `ANTHROPIC_API_KEY`.
+- The model is instructed to answer your question and ignore the rest of the
+  screen — and specifically not to mention credentials, private messages, other
+  people's names or financial details if they happen to be visible.
+
+A screenshot of your desktop contains whatever was on it. Treat one look as
+handing over that whole frame, because that is what it is.
+
 ## What leaves the machine
 
 Data leaves your machine on exactly one path: desktop app → local gateway
@@ -61,6 +86,7 @@ network requests with your data.
 | Your typed chat questions | When you send a chat message |
 | Derived activity summaries **and the recent raw timeline** (up to the last 50 observed app/title entries) as context | When you send a chat message |
 | Derived activity summaries from the last 8 hours | Every 12 minutes while observing, to look for a repeated workflow |
+| **One screenshot** | Only when you press the eye button. Never automatically. |
 | Transcribed text of what you said (never the audio) | When you use push-to-talk |
 | The contents of `SOUL.md` and `USER.md` | With every chat message, once you have completed first-run setup |
 | The text of fren's reply, to ElevenLabs | Only when a voice key is configured |
@@ -71,10 +97,16 @@ Pausing stops new capture; it does not redact what you already let fren see.
 
 **Never sent, to anyone, ever:**
 
-- **Screenshots.** Captured only while observing, written as local JPEGs,
-  pruned automatically. They are not sent to the gateway, not sent to the
-  model provider, not uploaded anywhere. The summarizer works from the text
-  timeline alone.
+- **Observed screenshots.** The ones fren takes on its own timer, roughly every
+  15 seconds while watching, are written as local JPEGs and pruned
+  automatically. They are not sent to the gateway, not sent to the model
+  provider, not uploaded anywhere. The summarizer works from the text timeline
+  alone. **This has not changed**, and the separation is enforced in the code:
+  the observer has no way to reach the gateway at all, and a test asserts it.
+
+  There is now one narrow exception, and it is a different code path with a
+  different promise — see "Looking at your screen" below. Nothing fren captures
+  by itself is ever transmitted.
 - **The SQLite database.** It never leaves the userData folder.
 - **Keystrokes.** Not captured at all (see above), so there is nothing to send.
 - **Microphone audio.** Transcribed locally and deleted; only the resulting

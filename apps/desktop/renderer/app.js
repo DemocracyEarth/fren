@@ -36,6 +36,7 @@ const els = {
   know: document.getElementById('know'),
   knowFiles: document.getElementById('know-files'),
   knowBtn: document.getElementById('what-i-know'),
+  look: document.getElementById('look'),
   openFolder: document.getElementById('open-folder'),
 };
 
@@ -103,6 +104,10 @@ function render(next) {
   els.gatewayDot.classList.toggle('ok', state.gatewayOk);
   els.gatewayDot.title = state.gatewayOk ? 'connected' : 'gateway unreachable';
   els.toggle.textContent = state.observing ? 'pause watching' : 'wake up';
+  // Offered only when a model that can see is configured, and only while the
+  // light is on: looking at the screen while paused is precisely what the light
+  // exists to rule out.
+  if (els.look) els.look.hidden = !(state.canSeeScreen && state.observing);
   els.orb.setAttribute(
     'aria-label',
     `${state.panelOpen ? 'Close' : 'Open'} fren — ${state.observing ? 'watching' : 'not watching'}`
@@ -901,6 +906,57 @@ if (els.openFolder) {
     if (r && !r.ok) surface('I could not open the folder: ' + r.error);
   });
 }
+
+/**
+ * Look at the screen — once, because this button was pressed.
+ *
+ * There is no setting to leave on. Every capture is its own deliberate act,
+ * which is a stronger guarantee than a toggle someone enabled last month and
+ * has since forgotten about. The button only exists at all when a model that
+ * can see is configured.
+ *
+ * fren's ORDINARY knowledge still comes from app names and window titles, and
+ * observed screenshots still never leave the machine. This is a separate,
+ * narrower thing, and it says so when it does it.
+ */
+async function lookAtScreen() {
+  if (awaitingReply) return;
+  const question = els.input.value.trim() || 'What am I looking at?';
+  els.input.value = '';
+  addBubble('user', question);
+  // Say plainly that a screenshot is being sent, every time. Doing this
+  // quietly would be the wrong habit for this product to have.
+  const note = addBubble('fren', 'Taking one look at your screen…');
+  awaitingReply = true;
+  els.send.disabled = true;
+  els.look.disabled = true;
+  speaking = true;
+  setFace('focused');
+
+  try {
+    const res = await window.fren.lookAtScreen(question);
+    note.remove();
+    speaking = false;
+    if (res && res.error) {
+      surface("I couldn't look: " + res.error);
+      setFace(emotionFor(state));
+      return;
+    }
+    await speak((res && res.reply) || '(nothing came back)');
+  } catch (err) {
+    note.remove();
+    speaking = false;
+    surface("I couldn't look: " + (err && err.message ? err.message : err));
+    setFace(emotionFor(state));
+  } finally {
+    awaitingReply = false;
+    els.send.disabled = false;
+    els.look.disabled = false;
+    speaking = false;
+  }
+}
+
+if (els.look) els.look.addEventListener('click', lookAtScreen);
 
 els.toggle.addEventListener('click', () => window.fren.toggleObservation());
 els.quit.addEventListener('click', () => window.fren.quit());

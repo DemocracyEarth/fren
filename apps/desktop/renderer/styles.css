@@ -362,3 +362,20 @@ button { font-family: inherit; -webkit-app-region: no-drag; cursor: pointer; }
  * underneath the files. */
 #messages[hidden],
 #know[hidden] { display: none !important; }
+
+/* The screen-look button. Sits next to the mic because it is the same kind of
+ * thing — a capability you invoke deliberately, not one that runs on its own. */
+#look {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.10);
+  background: rgba(255, 255, 255, 0.6);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.75;
+}
+#look:hover:not(:disabled) { opacity: 1; background: #fff; }
+#look:disabled { opacity: 0.35; cursor: default; }

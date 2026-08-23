@@ -134,6 +134,48 @@ async function handlePattern(provider, body, res) {
   }
 }
 
+/**
+ * Answer a question about ONE screenshot the user asked fren to take.
+ *
+ * The image is passed straight through to the provider and never written to
+ * disk here, never logged, and never kept: it exists for the duration of this
+ * request.
+ */
+async function handleVision(vision, body, res) {
+  if (!vision) {
+    return send(res, 503, {
+      error: 'no vision-capable model is configured. Screen looking needs an ' +
+             'ANTHROPIC_API_KEY; DeepSeek\'s chat models cannot see images.',
+    });
+  }
+  const question = body && body.question;
+  const image = body && body.image;
+  if (typeof question !== 'string' || !question.trim()) {
+    return send(res, 400, { error: 'question must be a non-empty string' });
+  }
+  if (typeof image !== 'string' || !image) {
+    return send(res, 400, { error: 'image must be base64 data' });
+  }
+
+  const request = intelligence.buildVisionRequest({
+    question,
+    soul: typeof body.soul === 'string' ? body.soul : '',
+    userDoc: typeof body.userDoc === 'string' ? body.userDoc : '',
+  });
+  // The image rides alongside the question in the same turn.
+  request.messages = [{
+    role: 'user',
+    content: [
+      { type: 'image', source: { type: 'base64', media_type: body.mediaType || 'image/jpeg', data: image } },
+      { type: 'text', text: question },
+    ],
+  }];
+
+  const reply = await callProvider(vision, request, res);
+  if (reply === null) return;
+  send(res, 200, { reply: String(reply || '').trim() });
+}
+
 async function handleChat(provider, body, res) {
   const question = body && body.question;
   if (typeof question !== 'string' || question.trim() === '') {
@@ -169,19 +211,22 @@ async function handleSpeak(voice, body, res) {
   }
 }
 
-async function handle(provider, voice, req, res, pathname) {
+async function handle(provider, voice, vision, req, res, pathname) {
   if (req.method === 'GET' && pathname === '/health') {
     return send(res, 200, {
       ok: true,
       provider: provider.name,
       model: provider.model,
       voice: voice ? voice.name : null,
+      // The desktop app needs this to know whether the screen-looking toggle
+      // can be offered at all.
+      vision: vision ? vision.name : null,
     });
   }
 
   if (req.method === 'POST' && (pathname === '/v1/summarize' || pathname === '/v1/chat' ||
                                 pathname === '/v1/speak' || pathname === '/v1/extract' ||
-                                pathname === '/v1/pattern')) {
+                                pathname === '/v1/pattern' || pathname === '/v1/vision')) {
     if (req.headers.authorization !== `Bearer ${config.GATEWAY_TOKEN}`) {
       return send(res, 401, { error: 'unauthorized' });
     }
@@ -194,6 +239,7 @@ async function handle(provider, voice, req, res, pathname) {
     if (pathname === '/v1/summarize') return handleSummarize(provider, body, res);
     if (pathname === '/v1/extract') return handleExtract(provider, body, res);
     if (pathname === '/v1/pattern') return handlePattern(provider, body, res);
+    if (pathname === '/v1/vision') return handleVision(vision, body, res);
     if (pathname === '/v1/speak') return handleSpeak(voice, body, res);
     return handleChat(provider, body, res);
   }
@@ -201,7 +247,7 @@ async function handle(provider, voice, req, res, pathname) {
   send(res, 404, { error: 'not found' });
 }
 
-function createServer(provider, voice = null) {
+function createServer(provider, voice = null, vision = null) {
   return http.createServer((req, res) => {
     const started = Date.now();
     const pathname = (req.url || '/').split('?')[0];
@@ -209,7 +255,7 @@ function createServer(provider, voice = null) {
       // PRIVACY: method, path, status, duration only. Never log bodies.
       console.log(`[gateway] ${req.method} ${pathname} ${res.statusCode} ${Date.now() - started}ms`);
     });
-    handle(provider, voice, req, res, pathname).catch((err) => {
+    handle(provider, voice, vision, req, res, pathname).catch((err) => {
       if (!res.headersSent) {
         send(res, 502, { error: (err && err.message) || 'internal error' });
       }
@@ -228,6 +274,23 @@ function hasAnthropicCredentials() {
     return fs.readdirSync(path.join(configDir, 'credentials')).length > 0;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Looking at a screenshot needs a model that can see, and the text provider
+ * usually cannot: DeepSeek's chat models are text-only. So vision is chosen
+ * SEPARATELY from text, and is simply unavailable when nothing can do it —
+ * rather than silently degrading into a confident guess about an image the
+ * model never received.
+ */
+function pickVision() {
+  if (!hasAnthropicCredentials()) return null;
+  try {
+    return createAnthropicProvider();
+  } catch (err) {
+    console.warn(`[gateway] vision unavailable (${err.message})`);
+    return null;
   }
 }
 
@@ -281,11 +344,13 @@ if (require.main === module) {
   loadEnv();
   const provider = pickProvider();
   const voice = pickVoice();
-  const server = createServer(provider, voice);
+  const vision = pickVision();
+  const server = createServer(provider, voice, vision);
   server.listen(config.GATEWAY_PORT, '127.0.0.1', () => {
     console.log(
       `[gateway] listening on http://127.0.0.1:${config.GATEWAY_PORT} ` +
-        `(provider=${provider.name}, model=${provider.model}, voice=${voice ? voice.name : 'none'})`
+        `(provider=${provider.name}, model=${provider.model}, ` +
+        `voice=${voice ? voice.name : 'none'}, vision=${vision ? vision.name : 'none'})`
     );
   });
 }

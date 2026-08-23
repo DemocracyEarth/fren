@@ -5,6 +5,7 @@ const listeners = new Set();
 
 const base = {
   observing: false,
+  canSeeScreen: false,   // a vision-capable model is configured
   panelOpen: false,
   gatewayOk: false,
 };

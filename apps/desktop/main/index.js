@@ -12,6 +12,7 @@ const { createSummarizer } = require('./summarizer');
 const { createPatternWatcher } = require('./patterns');
 const whisper = require('./whisper');
 const soul = require('./soul');
+const screenCapture = require('./screen');
 
 loadEnv();
 // The desktop process must never hold provider credentials — only the gateway
@@ -200,8 +201,12 @@ app.whenReady().then(() => {
 
   const checkHealth = async () => {
     try {
-      await gateway.health();
+      const health = await gateway.health();
       if (!state.get().gatewayOk) state.set({ gatewayOk: true });
+      // Whether the screen-looking button can be offered at all depends on a
+      // model that can actually see; DeepSeek's chat models cannot.
+      const canSee = !!(health && health.vision);
+      if (state.get().canSeeScreen !== canSee) state.set({ canSeeScreen: canSee });
     } catch {
       if (state.get().gatewayOk) state.set({ gatewayOk: false });
     }
@@ -337,6 +342,45 @@ app.whenReady().then(() => {
   ipcMain.handle('fren:openDataFolder', async () => {
     const err = await shell.openPath(app.getPath('userData'));
     return { ok: !err, error: err || null };
+  });
+
+  /**
+   * Look at the screen, once, because the user pressed the button.
+   *
+   * There is no standing permission here on purpose. Every capture is a
+   * separate deliberate act, the image is held in memory for the length of one
+   * request, and it is never written to disk — which keeps the promise that
+   * OBSERVED screenshots never leave the machine intact and separate.
+   *
+   * It also refuses while paused. Looking at the screen with the light off
+   * would be exactly the thing the light exists to rule out.
+   */
+  ipcMain.handle('fren:lookAtScreen', async (_e, text) => {
+    if (!state.get().observing) {
+      return { error: "I'm paused — my light is off, so I'm not looking at anything." };
+    }
+    const question = String(text ?? '').trim().slice(0, 800) || 'What am I looking at?';
+    state.beginWork();
+    try {
+      const shot = await screenCapture.captureOnce();
+      if (shot.error) return { error: shot.error };
+      const character = soul.readContext(app.getPath('userData'));
+      const { reply } = await gateway.vision({
+        question,
+        image: shot.image,
+        mediaType: shot.mediaType,
+        soul: character.soul,
+        userDoc: character.user,
+      });
+      // PRIVACY: never log the question, the reply, or anything about the image.
+      log('[screen] looked once, on request');
+      return { reply };
+    } catch (err) {
+      log(`[screen] look failed: ${err.message}`);
+      return { error: err.message };
+    } finally {
+      state.endWork();
+    }
   });
 
   ipcMain.handle('fren:quit', () => app.quit());

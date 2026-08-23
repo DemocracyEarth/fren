@@ -175,6 +175,44 @@ function buildChatRequest({ question, memories = [], observations = [], profile 
   return { system, messages: [{ role: 'user', content }] };
 }
 
+/**
+ * Looking at the screen itself, rather than at a timeline of window titles.
+ *
+ * This is opt-in and it is a genuinely different kind of seeing, so the prompt
+ * says so. Two rules matter more than anything about accuracy:
+ *
+ * A screenshot of someone's desktop contains whatever happened to be on it —
+ * a password manager, a private message, somebody else's name in an email. The
+ * model is told to answer the question and ignore the rest, and never to
+ * inventory what it saw.
+ *
+ * And it must not pretend this is normal. fren's ordinary knowledge comes from
+ * app names and window titles; this one image is a deliberate act the user
+ * asked for, and describing it as "I noticed" would misrepresent how fren
+ * usually works.
+ */
+function buildVisionRequest({ question, soul = '', userDoc = '', now = Date.now() } = {}) {
+  const character = String(soul || '').trim();
+  const about = String(userDoc || '').trim();
+  return {
+    system: [
+      character ? `Your character, as its owner wrote it:\n\n${character}\n\nFollow it.` : '',
+      about ? `What they told you about themselves:\n\n${about}` : '',
+      'You are fren. You are looking at ONE screenshot of the person\'s screen, ' +
+      'which they explicitly asked you to take. This is not how you normally see ' +
+      'things — you usually only know which application is in front and what its ' +
+      'window is called.',
+      'Answer their question from what is actually visible. Be concise.',
+      'Do NOT inventory the screen, and do not list what else is open. If something ' +
+      'private is visible — credentials, private messages, other people\'s names, ' +
+      'financial details — ignore it entirely rather than mentioning that you saw it.',
+      'If the answer is not visible in the image, say so plainly rather than guessing.',
+      `Current local time: ${clock(now)}`,
+    ].filter(Boolean).join('\n\n'),
+    messages: [{ role: 'user', content: question }],
+  };
+}
+
 const PATTERN_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -354,5 +392,6 @@ module.exports = {
   formatProfile,
   buildPatternRequest,
   buildExtractRequest,
+  buildVisionRequest,
   EXTRACT_SCHEMA,
 };
