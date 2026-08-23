@@ -62,8 +62,14 @@
         <div id="day-list"></div>
       </div>
 
+      <!-- The same merged control the panel header has: it states whether fren
+           is watching AND changes it. This window already knew the answer and
+           showed it as inert text, which meant seeing "watching" here and
+           having to go back to the orb to do anything about it. -->
       <div class="side-foot">
-        <span id="side-status"><i></i><span>paused</span></span>
+        <button id="side-status" type="button" role="switch" aria-checked="false">
+          <i></i><span>paused</span>
+        </button>
       </div>
     </nav>
 

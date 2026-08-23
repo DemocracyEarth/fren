@@ -138,10 +138,21 @@ html, body {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  font: inherit;
   font-size: 12px;
   font-weight: 600;
   color: var(--ink-soft);
+  cursor: pointer;
+  transition: background .15s var(--ease-soft), border-color .15s var(--ease-soft);
 }
+#side-status:hover { background: rgba(26, 23, 18, .06); border-color: rgba(26, 23, 18, .12); }
+#side-status:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+body[data-watching="1"] #side-status:hover { background: rgba(237, 138, 47, .12); }
 #side-status i {
   width: 7px; height: 7px;
   border-radius: 50%;

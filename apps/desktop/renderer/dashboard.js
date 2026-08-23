@@ -21,6 +21,7 @@ const els = {
   autoCount: document.getElementById('side-auto-count'),
   routineCount: document.getElementById('side-routine-count'),
   status: document.querySelector('#side-status span'),
+  statusBtn: document.getElementById('side-status'),
 };
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -985,8 +986,21 @@ for (const b of document.querySelectorAll('.side-item[data-section]')) {
 
   const paint = (state) => {
     document.body.dataset.watching = state && state.observing ? '1' : '0';
-    if (els.status) els.status.textContent = state && state.observing ? 'watching' : 'paused';
+    const on = !!(state && state.observing);
+    if (els.status) els.status.textContent = on ? 'watching' : 'paused';
+    if (els.statusBtn) {
+      els.statusBtn.setAttribute('aria-checked', on ? 'true' : 'false');
+      els.statusBtn.title = on ? 'fren is watching — click to pause'
+                               : 'fren is paused — click to start watching';
+      els.statusBtn.setAttribute('aria-label',
+        on ? 'Watching. Turn off to stop watching.' : 'Not watching. Turn on to start watching.');
+    }
   };
+  if (els.statusBtn) {
+    els.statusBtn.addEventListener('click', async () => {
+      try { paint(await window.fren.toggleObservation()); } catch { /* it stays as it was */ }
+    });
+  }
   window.fren.onStateChanged(paint);
   try { paint(await window.fren.getState()); } catch { /* leave it paused */ }
 
