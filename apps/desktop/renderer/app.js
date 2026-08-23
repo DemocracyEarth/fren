@@ -35,7 +35,10 @@ const els = {
   mic: document.getElementById('mic'),
   know: document.getElementById('know'),
   knowFiles: document.getElementById('know-files'),
-  knowBtn: document.getElementById('what-i-know'),
+  patterns: document.getElementById('patterns'),
+  patternsBody: document.getElementById('patterns-body'),
+  patternCount: document.getElementById('pattern-count'),
+  inputRow: document.getElementById('input-row'),
   look: document.getElementById('look'),
   openFolder: document.getElementById('open-folder'),
 };
@@ -947,80 +950,97 @@ async function showWhatIKnow() {
   els.knowFiles.appendChild(days);
 }
 
-async function toggleWhatIKnow() {
-  const showing = !els.know.hidden;
-  if (showing) {
-    els.know.hidden = true;
-    els.messages.hidden = false;
-    els.knowBtn.innerHTML = '&#9776;';
-    els.knowBtn.title = 'What fren has written about you';
-    return;
+const VIEWS = ['chat', 'patterns', 'know'];
+
+/** Switch panes. One place decides what is visible, so they cannot overlap. */
+async function showView(name) {
+  if (!VIEWS.includes(name)) return;
+  els.messages.hidden = name !== 'chat';
+  els.patterns.hidden = name !== 'patterns';
+  els.know.hidden = name !== 'know';
+  els.inputRow.hidden = name !== 'chat';
+  for (const t of document.querySelectorAll('.tab')) {
+    const on = t.dataset.view === name;
+    t.classList.toggle('on', on);
+    t.setAttribute('aria-selected', on ? 'true' : 'false');
   }
-  await showWhatIKnow();
-  els.know.hidden = false;
-  els.messages.hidden = true;
-  els.knowBtn.innerHTML = '&#8592;';
-  els.knowBtn.title = 'Back to the conversation';
+  if (name === 'patterns') await showPatterns();
+  if (name === 'know') await showWhatIKnow();
 }
 
-if (els.knowBtn) els.knowBtn.addEventListener('click', toggleWhatIKnow);
-if (els.openFolder) {
-  els.openFolder.addEventListener('click', async () => {
-    const r = await window.fren.openDataFolder();
-    if (r && !r.ok) surface('I could not open the folder: ' + r.error);
-  });
+for (const t of document.querySelectorAll('.tab')) {
+  t.addEventListener('click', () => showView(t.dataset.view));
 }
 
 /**
- * Look at the screen — once, because this button was pressed.
+ * What fren has noticed, as cards.
  *
- * There is no setting to leave on. Every capture is its own deliberate act,
- * which is a stronger guarantee than a toggle someone enabled last month and
- * has since forgotten about. The button only exists at all when a model that
- * can see is configured.
- *
- * fren's ORDINARY knowledge still comes from app names and window titles, and
- * observed screenshots still never leave the machine. This is a separate,
- * narrower thing, and it says so when it does it.
+ * The count is shown next to every one, because it is the entire justification
+ * for having interrupted: "you did this seven times" is an observation, while
+ * "you seem to do this" is a guess. Showing the evidence is also what makes a
+ * wrong one obviously wrong rather than merely annoying.
  */
-async function lookAtScreen() {
-  if (awaitingReply) return;
-  const question = els.input.value.trim() || 'What am I looking at?';
-  els.input.value = '';
-  addBubble('user', question);
-  // Say plainly that a screenshot is being sent, every time. Doing this
-  // quietly would be the wrong habit for this product to have.
-  const note = addBubble('fren', 'Taking one look at your screen…');
-  awaitingReply = true;
-  els.send.disabled = true;
-  els.look.disabled = true;
-  speaking = true;
-  setFace('focused');
+async function showPatterns() {
+  let list = [];
+  try { list = await window.fren.getSuggestions(); } catch { list = []; }
 
-  try {
-    const res = await window.fren.lookAtScreen(question);
-    note.remove();
-    speaking = false;
-    if (res && res.error) {
-      surface("I couldn't look: " + res.error);
-      setFace(emotionFor(state));
-      return;
+  els.patternsBody.textContent = '';
+  updatePatternCount(list.length);
+
+  if (!list.length) {
+    const blank = document.createElement('div');
+    blank.className = 'blank';
+    const strong = document.createElement('strong');
+    strong.textContent = 'Nothing yet';
+    const span = document.createElement('span');
+    span.textContent =
+      'I look across the last few hours every so often, for a sequence you ' +
+      'repeat. I would rather say nothing than guess, so this stays empty ' +
+      'until something is genuinely repeated.';
+    blank.append(strong, span);
+    els.patternsBody.appendChild(blank);
+    return;
+  }
+
+  for (const s of list) {
+    const card = document.createElement('div');
+    card.className = 'noticed';
+
+    const head = document.createElement('div');
+    head.className = 'noticed-head';
+    const b = document.createElement('b');
+    b.textContent = 'fren noticed';
+    head.appendChild(b);
+    if (s.ts) {
+      const time = document.createElement('time');
+      const d = new Date(s.ts);
+      time.dateTime = d.toISOString();
+      time.textContent = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) +
+        ' · ' + d.toTimeString().slice(0, 5);
+      head.appendChild(time);
     }
-    await speak((res && res.reply) || '(nothing came back)');
-  } catch (err) {
-    note.remove();
-    speaking = false;
-    surface("I couldn't look: " + (err && err.message ? err.message : err));
-    setFace(emotionFor(state));
-  } finally {
-    awaitingReply = false;
-    els.send.disabled = false;
-    els.look.disabled = false;
-    speaking = false;
+
+    const p = document.createElement('p');
+    p.textContent = s.message;
+    card.append(head, p);
+
+    if (s.pattern) {
+      const row = document.createElement('div');
+      row.className = 'pattern-row';
+      const label = document.createElement('span');
+      label.textContent = s.pattern;
+      row.appendChild(label);
+      card.appendChild(row);
+    }
+    els.patternsBody.appendChild(card);
   }
 }
 
-if (els.look) els.look.addEventListener('click', lookAtScreen);
+function updatePatternCount(n) {
+  if (!els.patternCount) return;
+  els.patternCount.textContent = String(n);
+  els.patternCount.hidden = !n;
+}
 
 els.toggle.addEventListener('click', () => window.fren.toggleObservation());
 els.quit.addEventListener('click', () => window.fren.quit());
@@ -1055,6 +1075,9 @@ function volunteersOutLoud() {
 let pendingSuggestion = null;
 
 async function onSuggestion({ message }) {
+  // Show it on the tab regardless of whether it is spoken: noticing is
+  // visible, interrupting is opt-in.
+  window.fren.getSuggestions().then((l) => updatePatternCount(l.length)).catch(() => {});
   if (!message || speaking || awaitingReply) { pendingSuggestion = message; return; }
   pendingSuggestion = message;
   mood.note('idea');
@@ -1128,6 +1151,8 @@ scheduleWander();
   els.orb.title = voiceReady
     ? 'Tap to wake · hold to talk · drag to move'
     : 'Tap to wake · drag to move';
+
+  window.fren.getSuggestions().then((l) => updatePatternCount(l.length)).catch(() => {});
 
   await runSetupIfNeeded();
 })();

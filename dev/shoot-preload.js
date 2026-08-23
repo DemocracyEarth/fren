@@ -10,6 +10,12 @@ const state = {
 };
 contextBridge.exposeInMainWorld('fren', {
   // Enough of the soul files to see the view rendered.
+  getSuggestions: async () => ([
+    { ts: Date.now() - 3600e3, pattern: 'export dashboard numbers into the weekly sheet',
+      message: 'You have exported the dashboard numbers into the weekly sheet seven times this week, always the same three columns.' },
+    { ts: Date.now() - 26 * 3600e3, pattern: 'generate the PDF report',
+      message: 'The PDF report gets rebuilt by hand most mornings, right after you check the campaign metrics.' },
+  ]),
   readSoul: async () => ({
     dir: '/Users/you/Library/Application Support/fren',
     files: [

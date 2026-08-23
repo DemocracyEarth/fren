@@ -49,7 +49,9 @@ function serveRenderer() {
 }
 
 const ORB_SIZE = { width: 150, height: 150 };
-const PANEL_SIZE = { width: 344, height: 578 };
+// Wider than it was: the old 344 left the conversation cramped against both
+// edges, and the design this is built to wants room to breathe.
+const PANEL_SIZE = { width: 384, height: 604 };
 const MARGIN = 24;
 
 let win = null;
@@ -388,6 +390,11 @@ app.whenReady().then(() => {
   // speakers. Unknown counts as audible: opening a panel nobody needed is a
   // smaller sin than opening one over someone's work every time fren talks.
   ipcMain.handle('fren:audioSilenced', () => audioOutput.isSilenced());
+
+  // What fren has noticed, newest first, for the Patterns view.
+  ipcMain.handle('fren:getSuggestions', () => {
+    try { return memory.getSuggestions().slice().reverse(); } catch { return []; }
+  });
 
   ipcMain.handle('fren:quit', () => app.quit());
 

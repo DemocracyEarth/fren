@@ -67,6 +67,12 @@ app.whenReady().then(async () => {
   await new Promise((r) => setTimeout(r, 1400));
   // Report which renderer actually took over, so a silent fallback to the SVG
   // face cannot masquerade as a successful 3D capture.
+  if (process.env.FREN_SHOT_VIEW) {
+    await win.webContents.executeJavaScript(
+      `document.querySelector('.tab[data-view="${process.env.FREN_SHOT_VIEW}"]').click()`);
+    await new Promise((r) => setTimeout(r, 900));
+  }
+
   if (process.env.FREN_SHOT_KNOW === '1') {
     await win.webContents.executeJavaScript("document.getElementById('what-i-know').click()");
     await new Promise((r) => setTimeout(r, 900));

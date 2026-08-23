@@ -30,20 +30,32 @@
         </svg>
         <span id="gateway-dot" title="thinking half"></span>
         <span class="spacer"></span>
-        <button id="what-i-know" class="icon" aria-label="What fren has written about you"
-                title="What fren has written about you">&#9776;</button>
         <button id="toggle-observe" class="ghost">wake up</button>
         <button id="quit" class="icon" title="Quit fren">&#215;</button>
       </header>
 
+      <!-- One row of tabs rather than buttons scattered through the header.
+           The reference design puts navigation on the left; at this width a
+           strip reads the same way and leaves the content its full span. -->
+      <nav id="tabs" role="tablist" aria-label="Views">
+        <button class="tab on" data-view="chat" role="tab" aria-selected="true">Talk</button>
+        <button class="tab" data-view="patterns" role="tab" aria-selected="false">
+          Patterns<span id="pattern-count" class="pill" hidden>0</span>
+        </button>
+        <button class="tab" data-view="know" role="tab" aria-selected="false">Memory</button>
+      </nav>
+
+      <section id="patterns" hidden aria-label="What fren has noticed">
+        <div id="patterns-body"></div>
+      </section>
+
       <section id="know" hidden aria-label="What fren has recorded about you">
         <p class="know-intro">
-          Everything fren holds about you, exactly as it is written on disk.
-          These are plain files — edit them and the changes take effect on your
-          next message.
+          Everything fren holds about you, exactly as written on disk. Plain
+          files — edit them and the change takes effect on your next message.
         </p>
         <div id="know-files"></div>
-        <button id="open-folder" class="ghost">open the folder</button>
+        <button id="open-folder" class="ghost wide">Open the folder</button>
       </section>
 
       <div id="messages" role="log" aria-live="polite" aria-label="Conversation with fren">

@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('fren', {
   openDataFolder: () => ipcRenderer.invoke('fren:openDataFolder'),
   lookAtScreen: (text) => ipcRenderer.invoke('fren:lookAtScreen', text),
   audioSilenced: () => ipcRenderer.invoke('fren:audioSilenced'),
+  getSuggestions: () => ipcRenderer.invoke('fren:getSuggestions'),
   dragStart: () => ipcRenderer.invoke('fren:dragStart'),
   dragEnd: () => ipcRenderer.invoke('fren:dragEnd'),
   onCursor: (cb) => ipcRenderer.on('fren:cursor', (_e, p) => cb(p)),

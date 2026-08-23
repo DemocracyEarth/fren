@@ -298,71 +298,6 @@ button { font-family: inherit; -webkit-app-region: no-drag; cursor: pointer; }
   50%      { box-shadow: 0 0 0 10px rgba(237, 138, 47, .10); }
 }
 
-/* ---------------------------------------------------------------- what I know
- * Showing someone what has been written about them is not a settings screen;
- * it is the product keeping its promise. So it shows the FILES, verbatim, and
- * offers a way out to a real editor rather than paraphrasing them.
- */
-#know {
-  flex: 1 1 auto;
-  overflow-y: auto;
-  padding: 14px 16px 18px;
-  background: var(--paper, #F2EDE4);
-}
-.know-intro {
-  margin: 0 0 14px;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--ink-soft, #6b6155);
-}
-.know-file { margin-bottom: 16px; }
-.know-file h3 {
-  margin: 0 0 2px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ink, #2a241d);
-}
-.know-file .know-why {
-  margin: 0 0 6px;
-  font-size: 12px;
-  color: var(--ink-soft, #6b6155);
-}
-.know-file pre {
-  margin: 0;
-  padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(0, 0, 0, 0.07);
-  border-radius: 10px;
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 220px;
-  overflow-y: auto;
-}
-.know-file pre.empty { color: var(--ink-soft, #8a8175); font-style: italic; }
-#know-days { font-size: 12px; color: var(--ink-soft, #6b6155); }
-#know-days button {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 5px 8px;
-  border: 0;
-  border-radius: 7px;
-  background: none;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-}
-#know-days button:hover { background: rgba(0, 0, 0, 0.05); }
-#open-folder { width: 100%; margin-top: 4px; }
-
-/* `hidden` loses to any display rule with more specificity, and #messages sets
- * display: flex — so switching views left the conversation showing through
- * underneath the files. */
-#messages[hidden],
-#know[hidden] { display: none !important; }
-
 /* The screen-look button. Sits next to the mic because it is the same kind of
  * thing — a capability you invoke deliberately, not one that runs on its own. */
 #look {
@@ -379,3 +314,198 @@ button { font-family: inherit; -webkit-app-region: no-drag; cursor: pointer; }
 }
 #look:hover:not(:disabled) { opacity: 1; background: #fff; }
 #look:disabled { opacity: 0.35; cursor: default; }
+
+/* ============================================================================
+ * The panel, rebuilt.
+ *
+ * The character was doing all the work and the surface around it looked like a
+ * form. What the reference design has that this did not is DEPTH and WARMTH:
+ * layered shadows rather than one flat drop, cards that sit on the surface
+ * rather than being drawn onto it, generous rounding, and enough space that
+ * nothing feels crowded against an edge.
+ *
+ * The palette is unchanged. This is spacing, elevation and type — which is
+ * usually what "make it feel better" actually means.
+ * ========================================================================= */
+
+#panel {
+  --pad: 16px;
+  --lift: 0 1px 2px rgba(24, 16, 6, 0.05),
+          0 6px 16px rgba(24, 16, 6, 0.07),
+          0 20px 48px rgba(24, 16, 6, 0.10);
+  border-radius: 22px;
+  box-shadow: var(--lift);
+  background: linear-gradient(180deg, var(--bone) 0%, var(--cream) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  overflow: hidden;
+}
+
+#panel-head {
+  padding: 13px var(--pad) 11px;
+  gap: 9px;
+  border-bottom: 1px solid rgba(26, 23, 18, 0.06);
+  background: rgba(255, 255, 255, 0.34);
+}
+
+/* ---- tabs ---------------------------------------------------------------
+ * Navigation as a strip rather than scattered header buttons. The active tab
+ * is carried by a filled pill, not an underline: at this size an underline is
+ * too quiet to find at a glance. */
+#tabs {
+  display: flex;
+  gap: 4px;
+  padding: 10px var(--pad) 0;
+  flex: 0 0 auto;
+}
+.tab {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background .18s var(--ease-soft), color .18s var(--ease-soft);
+}
+.tab:hover { background: rgba(26, 23, 18, 0.05); color: var(--ink); }
+.tab.on {
+  background: rgba(237, 138, 47, 0.14);
+  color: var(--orange-ink);
+}
+.pill {
+  min-width: 17px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--orange);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+/* ---- panes --------------------------------------------------------------- */
+#patterns, #know {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px var(--pad) 16px;
+}
+/* `hidden` loses to any element that sets its own display, and this panel sets
+ * display on nearly everything. Rather than chase them one at a time, hidden
+ * wins everywhere inside the panel. */
+#panel [hidden] { display: none !important; }
+
+/* ---- what fren noticed ---------------------------------------------------
+ * The card from the reference: a quiet label, the observation in the user's
+ * own terms, and the count that justifies raising it at all. */
+.noticed {
+  background: #fff;
+  border: 1px solid rgba(26, 23, 18, 0.07);
+  border-radius: 16px;
+  padding: 13px 14px;
+  margin-bottom: 10px;
+  box-shadow: 0 1px 2px rgba(24, 16, 6, 0.04), 0 4px 14px rgba(24, 16, 6, 0.05);
+}
+.noticed-head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin-bottom: 5px;
+}
+.noticed-head b { font-size: 12.5px; color: var(--orange-ink); font-weight: 700; }
+.noticed-head time { font-size: 11px; color: var(--ink-soft); margin-left: auto; }
+.noticed p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--ink); }
+.noticed .pattern-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(26, 23, 18, 0.06);
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.noticed .count {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(237, 138, 47, 0.13);
+  color: var(--orange-ink);
+  font-weight: 700;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+/* ---- empty states -------------------------------------------------------- */
+.blank {
+  text-align: center;
+  padding: 30px 18px;
+  color: var(--ink-soft);
+}
+.blank strong {
+  display: block;
+  font-size: 14px;
+  color: var(--ink);
+  margin-bottom: 5px;
+  font-weight: 600;
+}
+.blank span { font-size: 12.5px; line-height: 1.55; }
+
+/* ---- memory files -------------------------------------------------------- */
+.know-intro {
+  margin: 0 0 13px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+.know-file { margin-bottom: 14px; }
+.know-file h3 {
+  margin: 0 0 1px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+}
+.know-file .know-why { margin: 0 0 6px; font-size: 11.5px; color: var(--ink-soft); }
+.know-file pre {
+  margin: 0;
+  padding: 11px 12px;
+  background: #fff;
+  border: 1px solid rgba(26, 23, 18, 0.07);
+  border-radius: 13px;
+  box-shadow: 0 1px 2px rgba(24, 16, 6, 0.04);
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 190px;
+  overflow-y: auto;
+  color: var(--ink);
+}
+.know-file pre.empty { color: var(--ink-soft); font-style: italic; }
+#know-days button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  margin-bottom: 3px;
+  border: 1px solid rgba(26, 23, 18, 0.06);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.6);
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+#know-days button:hover { background: #fff; }
+.ghost.wide { width: 100%; margin-top: 6px; }
