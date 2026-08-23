@@ -25,7 +25,6 @@ const els = {
   panel: document.getElementById('panel'),
   gatewayDot: document.getElementById('gateway-dot'),
   watch: document.getElementById('watch'),
-  watchLabel: document.getElementById('watch-label'),
   watchSay: document.getElementById('watch-say'),
   dashDot: document.getElementById('dash-dot'),
   quit: document.getElementById('quit'),
@@ -1103,7 +1102,10 @@ function paintWatch() {
   // "Watching" while the visible word said "pause", so voice control matched
   // nothing. Hover now says the control is actionable; the tooltip says what
   // the action is.
-  els.watchLabel.textContent = on ? 'watching' : 'paused';
+  //
+  // The visible word itself is chosen in CSS from body[data-watching], which
+  // render() already sets. Both words live in the DOM at once, stacked in one
+  // grid cell, so the pill cannot change width when the state flips.
   els.watch.setAttribute('aria-checked', on ? 'true' : 'false');
   els.watch.setAttribute('aria-label',
     on ? 'Watching your screen. Turn off to stop.' : 'Not watching. Turn on to start.');

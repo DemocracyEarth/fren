@@ -14,20 +14,23 @@
     <section id="panel" hidden>
       <header id="panel-head">
         <span class="wordmark" role="img" aria-label="fren"></span>
+        <span class="spacer"></span>
+        <span id="gateway-dot" title="fren cannot reach its thinking half"></span>
         <!-- One control, not two. Whether fren is watching is the most
-             important fact in this window, and the thing you most often want
-             to change about it — so saying it and changing it are the same
-             button. -->
+             important fact in this window, and the thing you most often want to
+             change about it — so saying it and changing it are the same button.
+             It sits beside the Dashboard button rather than beside the logo:
+             these are the two things you actually press, and grouping them
+             leaves the left side as identity alone. -->
         <button id="watch" type="button" role="switch" aria-checked="false">
-          <span id="watch-dot" aria-hidden="true"></span><span id="watch-label">paused</span>
+          <span id="watch-dot" aria-hidden="true"></span><span id="watch-label"
+            ><span class="w-on">watching</span><span class="w-off">paused</span></span>
         </button>
         <!-- The light can change without this button being pressed: from the orb,
              or by main at launch. Announce it, or the fact that matters most in
              this window is the one a screen reader never hears. -->
         <span id="watch-say" class="sr-only" role="status" aria-live="polite"></span>
 
-        <span class="spacer"></span>
-        <span id="gateway-dot" title="fren cannot reach its thinking half"></span>
         <button id="open-dash" title="Open the dashboard">
           <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none"
                stroke="currentColor" stroke-width="2" stroke-linecap="round"

@@ -133,9 +133,22 @@ html, body {
               color .18s var(--ease-soft);
 }
 #watch:hover { background: rgba(26, 23, 18, .06); color: var(--ink); }
-/* The label has a fixed box so the pill does not resize when the state flips
- * and shove the buttons beside it sideways. "watching" is the wider word. */
-#watch-label { min-width: 52px; text-align: center; }
+/* Both words occupy the same grid cell, with the inactive one hidden rather
+ * than removed. The box is therefore always as wide as the wider of the two and
+ * the pill never changes size — on any font, on any platform.
+ *
+ * A fixed px width would do it only on this machine: measured here "watching"
+ * is 53.9px and "paused" 43.3px, but that gap is a property of the font, and
+ * ui-rounded is not what Windows or Linux will resolve. This has no number in
+ * it to be wrong. */
+#watch-label {
+  display: inline-grid;
+  justify-items: center;
+  align-items: center;
+}
+#watch-label > span { grid-area: 1 / 1; }
+body:not([data-watching="1"]) .w-on { visibility: hidden; }
+body[data-watching="1"] .w-off { visibility: hidden; }
 
 /* Announced, not shown. */
 .sr-only {
