@@ -151,7 +151,13 @@
       stop() {
         return new Promise((resolve, reject) => {
           if (!this.isRecording()) return resolve(null);
-          const tooShort = Date.now() - startedAt < 350;
+          // 350ms was set when a tap on the mic BUTTON started recording
+          // instantly, and it existed to throw away accidental clicks. Holding
+          // the orb already requires 320ms before recording begins, so the two
+          // thresholds stacked: you had to hold for two thirds of a second
+          // before a single word was kept. The gesture is the accident filter
+          // now; this only has to reject a genuine slip.
+          const tooShort = Date.now() - startedAt < 160;
           recorder.onstop = async () => {
             try {
               if (tooShort || !chunks.length) return resolve(null);
