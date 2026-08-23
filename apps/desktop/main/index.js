@@ -1035,9 +1035,11 @@ app.whenReady().then(() => {
    */
   ipcMain.handle('fren:collapse', () => {
     setPanelOpen(true);
-    recenter();                                   // and make sure it is on screen
+    // destroy(), not close(): close() runs the handler that asks whether you
+    // meant to quit fren, and collapsing is not that question.
     if (dash && !dash.isDestroyed()) dash.destroy();
-    if (win && !win.isDestroyed()) win.showInactive();
+    recenter();          // shows the window, and makes sure it is on screen
+    if (win && !win.isDestroyed()) win.focus();
     return true;
   });
 

@@ -25,14 +25,15 @@
            not a single navigation item was visible without scrolling, and
            Settings was 301px down. Navigation is fixed now and only history
            scrolls. -->
-      <!-- First, and where the window opens. The conversation is the thing you
-           came to read; the days are what fren saw while you were not talking
-           to it. -->
-      <div class="side-group">
+      <!-- Chat, today and yesterday are one thing: what has been going on. The
+           conversation leads it because it is what the window opens on, and the
+           days are what fren saw while you were not talking to it. -->
+      <div class="side-group" id="activity">
+        <div class="side-label">Activity</div>
         <button class="side-item" data-section="chat"><span>Chat</span></button>
+        <!-- Today and yesterday land here, under the same heading. -->
+        <div id="day-quick"></div>
       </div>
-
-      <div class="side-group" id="day-quick"></div>
 
       <div class="side-group">
         <div class="side-label">What fren noticed</div>

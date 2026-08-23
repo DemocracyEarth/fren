@@ -732,11 +732,41 @@ function paintPanel() {
   els.panel.hidden = !state.panelOpen;
 }
 
+/**
+ * Fill the panel with what has already been said.
+ *
+ * The panel's transcript used to be pure DOM: it started empty every launch and
+ * knew nothing about the conversation stored on disk. That was survivable while
+ * it was the only view, and stopped being survivable the moment the big window
+ * showed the same conversation — reading it there, collapsing back, and finding
+ * an empty panel makes it look as though the transcript was lost.
+ *
+ * Only ever fills an EMPTY panel, so it cannot duplicate what is already on
+ * screen or fight a conversation in progress.
+ */
+async function loadPanelHistory() {
+  // Gated on the panel being EMPTY rather than on a once-only flag. A flag
+  // would fill the panel on the first open and never again, so typing in the
+  // big window and collapsing back would still land on a stale transcript.
+  if (setup) return;
+  if (els.messages.querySelector('.bubble')) return;
+  let msgs = [];
+  try { msgs = await window.fren.messages(); } catch { return; }
+  if (!msgs.length) return;
+  // The panel is a glance, not an archive — the big window is where you read
+  // the whole thing back.
+  for (const m of msgs.slice(-12)) {
+    addBubble(m.role === 'fren' ? 'fren' : 'user', m.text);
+  }
+  scrollDown();
+}
+
 async function setPanel(open) {
   if (panelBusy) return;
   panelBusy = true;
   try {
     if (open) {
+      await loadPanelHistory();
       await window.fren.setPanelOpen(true);   // make room, invisibly
       state.panelOpen = true;
       els.panel.hidden = false;

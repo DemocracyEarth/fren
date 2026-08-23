@@ -818,8 +818,16 @@ body[data-watching="1"] #side-status { color: var(--orange-ink); }
  */
 #collapse {
   position: absolute;
-  top: 0;
-  right: 0;
+  /* Level with the title, not at the very top. #titlebar is a FIXED drag strip
+     across the top 38px at z-index 5, so a button at top:0 sits underneath it
+     and the clicks go to the strip. */
+  top: 40px;
+  right: 34px;
+  z-index: 6;
+  /* #main-head is itself a drag region, and a drag region swallows mouse
+     events — the same thing that keeps the orb's halo from being clickable.
+     Without this the button is decorative. */
+  -webkit-app-region: no-drag;
   display: inline-flex;
   align-items: center;
   gap: 6px;
