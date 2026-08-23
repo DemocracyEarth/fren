@@ -56,6 +56,7 @@ class Orb {
     this.speechLevel = null;
     this.blinkPhase = -1;
     this.blinkQueue = 0;
+    this.listenLevel = null;
     this.nextBlink = 2 + Math.random() * 3;
     this.wobbleAmt = 0;
     this.squashAmt = 0;
@@ -246,6 +247,26 @@ class Orb {
     this._wake();
   }
 
+  /**
+   * Show that the microphone is open, and that it is hearing something.
+   *
+   * Pass a level 0..1 to modulate the glow with the voice; pass null to stop.
+   * The level is what makes this unmistakable: a state change alone could be
+   * anything, but a face that brightens when you speak is obviously listening
+   * to YOU.
+   */
+  setListening(level) {
+    const on = level !== null && level !== undefined;
+    if (on !== (this.listenLevel !== null && this.listenLevel !== undefined)) {
+      const tone = TONE[on ? 'hearing' : (EXPRESSIONS[this.emotion] || EXPRESSIONS.calm).tone] || TONE.base;
+      this.toneTo.setHex(tone.color);
+      this.matTo.rough = tone.rough;
+      this.matTo.sheen = tone.sheen;
+    }
+    this.listenLevel = on ? clamp(level, 0, 1) : null;
+    this._wake();
+  }
+
   /** Drive the mouth from real audio amplitude, 0..1. */
   setSpeechLevel(v) {
     this.speechLevel = v === null ? null : clamp(v, 0, 1);
@@ -287,6 +308,7 @@ class Orb {
 
   _atRest() {
     if (this.blinkPhase >= 0 || this.talkPhase >= 0 || this.speechLevel !== null) return false;
+    if (this.listenLevel !== null) return false;
     if (Math.abs(this.wobbleAmt) > 0.001 || Math.abs(this.squashAmt) > 0.001) return false;
     if (Math.abs(this.nodAmt) > 0.001 || Math.abs(this.shakeAmt) > 0.001) return false;
     if (Math.abs(this.gaze.x - this.gazeTarget.x) > 0.002) return false;
@@ -367,6 +389,17 @@ class Orb {
     this.material.color.copy(DRAINED).lerp(this.toneNow, Math.min(1, this.p.lit * 1.05));
     this.material.roughness = this.matNow.rough;
     this.material.sheen = this.matNow.sheen * this.p.lit;
+
+    // While listening, the face's own light tracks the voice. A floor keeps it
+    // visibly lit through the pauses between words, so silence does not read
+    // as the microphone having closed.
+    if (this.listenLevel !== null) {
+      this.material.emissiveIntensity = 1.45 + 0.30 + this.listenLevel * 1.5;
+      this.orb.scale.setScalar(1 + this.listenLevel * 0.016);
+    } else if (this.material.emissiveIntensity !== 1.45) {
+      this.material.emissiveIntensity = 1.45;
+      this.orb.scale.setScalar(1);
+    }
 
     // Impulses ring out like something soft.
     this.wobbleAmt *= Math.pow(0.06, dt);

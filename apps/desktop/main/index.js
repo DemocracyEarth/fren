@@ -13,6 +13,7 @@ const { createPatternWatcher } = require('./patterns');
 const whisper = require('./whisper');
 const soul = require('./soul');
 const screenCapture = require('./screen');
+const audioOutput = require('./audio-output');
 
 loadEnv();
 // The desktop process must never hold provider credentials — only the gateway
@@ -382,6 +383,11 @@ app.whenReady().then(() => {
       state.endWork();
     }
   });
+
+  // Speaking with the panel shut only works if anything comes out of the
+  // speakers. Unknown counts as audible: opening a panel nobody needed is a
+  // smaller sin than opening one over someone's work every time fren talks.
+  ipcMain.handle('fren:audioSilenced', () => audioOutput.isSilenced());
 
   ipcMain.handle('fren:quit', () => app.quit());
 

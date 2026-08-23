@@ -221,6 +221,15 @@ You can talk over it. Holding the orb while fren is replying cuts the reply
 short and starts listening, and anything you say while it is still thinking is
 answered next rather than discarded.
 
+**While it is listening you can tell.** A short tone marks the microphone
+opening and another marks it closing, and the orb turns brighter and glossier
+and pulses with your voice — the level comes from the live input, so it is
+visibly hearing *you* rather than just showing a state.
+
+**If your machine is muted**, fren opens the chat panel instead of talking to an
+empty room. It asks the system before it speaks; where that cannot be asked, it
+assumes you can hear it rather than popping a panel you did not need.
+
 The first time you run fren it wakes up, says hello, and asks five short
 questions — your name, what you are working on, how it should talk to you,
 whether it should speak up or stay quiet, and what would actually be useful.

@@ -422,6 +422,14 @@
      * match the voice instead of miming to a sine wave. Pass null to fall
      * back to the synthetic pattern.
      */
+    /**
+     * The 3D renderer brightens with your voice while listening. This one has
+     * no equivalent, but the method must exist: app.js calls it on every
+     * recording, and a missing method here would throw on the fallback path
+     * that exists precisely for machines where things go wrong.
+     */
+    setListening() { /* no visual equivalent in the SVG renderer */ }
+
     setSpeechLevel(v) {
       this.speechLevel = v === null || v === undefined ? null : clamp(v, 0, 1);
       this._wake();

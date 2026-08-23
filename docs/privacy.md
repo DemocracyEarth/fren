@@ -41,6 +41,11 @@ What happens to that audio matters more than how it is captured:
 | The transcript | Sent to your model provider exactly like a message you typed |
 | The audio itself | **Never leaves the machine. Never stored. Never sent to any API.** |
 
+While the microphone is open fren is conspicuous about it: a tone when it
+opens, a tone when it closes, and a face that brightens and pulses with the
+level of your voice. That level is metered from the live input and used for
+nothing else — it never leaves the renderer, and it is not recorded.
+
 This is why fren uses local whisper rather than a cloud speech API: a cloud
 API would mean streaming your room — and anyone else in it — to a third party.
 If `whisper.cpp` is not installed the mic button is disabled and says so; voice

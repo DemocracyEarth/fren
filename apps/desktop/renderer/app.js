@@ -243,7 +243,17 @@ async function speak(text) {
     const res = await window.fren.speak(text);
     if (res && res.audio) audio = res.audio;
   } catch { /* stay quiet rather than fail the reply */ }
-  spokeAloud = !!audio;
+  // Audio coming back is not the same as audio being heard. A muted machine
+  // plays it perfectly and silently, so ask the system rather than assume.
+  let audible = !!audio;
+  if (audible) {
+    try { audible = !(await window.fren.audioSilenced()); } catch { /* assume audible */ }
+  }
+  spokeAloud = audible;
+  if (!audible && !state.panelOpen) {
+    // Nothing will be heard, so the words have to be readable instead.
+    await setPanel(true);
+  }
 
   face.startTalking();
   const spoken = audio ? playVoice(audio).catch(() => false) : null;
@@ -697,6 +707,33 @@ els.orb.addEventListener('mouseleave', () => {
  * audio is transcribed by whisper on this machine, and the transcript goes
  * through the same path as anything you type.
  */
+/**
+ * Two short tones: rising when the microphone opens, falling when it closes.
+ *
+ * Synthesised rather than shipped as files — it is four lines of Web Audio, and
+ * the project has no build step to bundle assets through. Quiet on purpose:
+ * this is a confirmation, not an alert, and it will be heard many times a day.
+ */
+function blip(up) {
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const t = ctx.currentTime;
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(up ? 620 : 480, t);
+    osc.frequency.exponentialRampToValueAtTime(up ? 880 : 340, t + 0.09);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.09, t + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + 0.15);
+    osc.onended = () => { try { ctx.close(); } catch { /* already closed */ } };
+  } catch { /* a missing tone is not worth failing a recording over */ }
+}
+
 let wantRecording = false;
 
 /**
@@ -743,12 +780,15 @@ async function startTalking() {
   }
   wantRecording = true;
   try {
-    await mic.start();
+    // The face brightens with the level, so it is visibly hearing YOU rather
+    // than merely having changed state.
+    await mic.start((level) => face.setListening(level));
     vlog('startTalking:recording');
     // Opening the microphone is asynchronous, and the button can be released
     // before it finishes. Without this check the recorder would start with
     // nobody holding it and keep listening until the next press.
-    if (!wantRecording) { mic.cancel(); setFace(emotionFor(state)); return; }
+    if (!wantRecording) { mic.cancel(); face.setListening(null); setFace(emotionFor(state)); return; }
+    blip(true);
     els.mic.classList.add('recording');
     // The face IS the feedback when talking from the orb -- there may be no
     // panel open to show anything else.
@@ -756,6 +796,7 @@ async function startTalking() {
     face.pulse('nod');
   } catch (err) {
     els.mic.classList.remove('recording');
+    face.setListening(null);
     surface('I could not open the microphone: ' + (err && err.message ? err.message : err));
     setFace(emotionFor(state));
   }
@@ -772,12 +813,15 @@ async function stopTalkingAndSend() {
   // draining.
   if (stopping) return;
   if (!mic || !mic.isRecording()) {
+    face.setListening(null);
     // Only worth reporting when a recording was expected. Otherwise this is an
     // ordinary release and the log fills up with it.
     if (expected) vlog('stop:nothing-recording');
     return;
   }
   stopping = true;
+  blip(false);
+  face.setListening(null);
   els.mic.classList.remove('recording');
   setFace('thinking');
   let wav = null;

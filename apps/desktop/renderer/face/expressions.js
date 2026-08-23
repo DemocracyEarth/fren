@@ -32,6 +32,11 @@ export const TONE = {
   blue:    { color: 0x7a8798, rough: 0.42, sheen: 0.26 },   // down, cooled off
   red:     { color: 0xe04a24, rough: 0.30, sheen: 0.45 },   // cross
   grey:    { color: 0x6d6d73, rough: 0.54, sheen: 0.08 },   // asleep, no colour left
+  // Listening. Brighter and glossier than anything else in the set, so "the
+  // microphone is open" is never mistaken for an ordinary mood. It stays inside
+  // the orange family on purpose — a red recording light would collide with
+  // `annoyed`, and this has to be unambiguous at a glance.
+  hearing: { color: 0xffc85a, rough: 0.14, sheen: 0.95 },
 };
 
 const E = (tone, lidTop, eyeScale, mouthW, mouthOpen, mouthCurve, extra) =>

@@ -66,6 +66,15 @@
     let recorder = null;
     let chunks = [];
     let startedAt = 0;
+    let meterCtx = null;
+    let meterRaf = 0;
+
+    function stopMeter() {
+      if (meterRaf) cancelAnimationFrame(meterRaf);
+      meterRaf = 0;
+      if (meterCtx) { try { meterCtx.close(); } catch { /* already gone */ } }
+      meterCtx = null;
+    }
 
     /**
      * Give the microphone back to the OS. Called after EVERY recording, not
@@ -78,6 +87,7 @@
      * leave the indicator on all day and make that promise false.
      */
     function releaseStream() {
+      stopMeter();
       if (stream) stream.getTracks().forEach((t) => t.stop());
       stream = null;
     }
@@ -99,7 +109,7 @@
         return !!recorder && recorder.state === 'recording';
       },
 
-      async start() {
+      async start(onLevel = null) {
         await this.warmUp();
         if (this.isRecording()) return;
         chunks = [];
@@ -107,6 +117,31 @@
         recorder = new MediaRecorder(stream);
         recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
         recorder.start();
+
+        // Meter the live input, so the orb can show that it is hearing YOU
+        // rather than merely that it entered a state. A signal that responds to
+        // your own voice cannot be mistaken for a decoration.
+        if (onLevel && typeof AudioContext !== 'undefined') {
+          try {
+            meterCtx = new AudioContext();
+            const src = meterCtx.createMediaStreamSource(stream);
+            const analyser = meterCtx.createAnalyser();
+            analyser.fftSize = 512;
+            src.connect(analyser);            // to the analyser only: never to
+                                              // the speakers, or you would hear
+                                              // yourself echoed back
+            const buf = new Uint8Array(analyser.frequencyBinCount);
+            const pump = () => {
+              if (!meterCtx) return;
+              analyser.getByteTimeDomainData(buf);
+              let sum = 0;
+              for (const v of buf) { const d = (v - 128) / 128; sum += d * d; }
+              onLevel(Math.min(1, Math.sqrt(sum / buf.length) * 3.4));
+              meterRaf = requestAnimationFrame(pump);
+            };
+            pump();
+          } catch { stopMeter(); }
+        }
       },
 
       /**
