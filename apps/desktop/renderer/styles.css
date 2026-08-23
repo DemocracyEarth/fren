@@ -36,6 +36,11 @@ html, body {
 }
 
 #orb {
+  /* Explicitly in the grid's single cell, alongside the recording ring.
+     Without this the ring — which IS explicitly placed — took cell 1/1 first,
+     and auto-placement pushed the character into a second row, 190px below the
+     bottom of a fixed-height zone. Only the top of its head was visible. */
+  grid-area: 1 / 1;
   width: calc(123px * var(--orb-scale, 1));
   height: calc(123px * var(--orb-scale, 1));  /* leaves a drag ring around it */
   padding: 0;

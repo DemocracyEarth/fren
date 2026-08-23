@@ -233,6 +233,10 @@ function createWindow() {
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   win.loadURL(`${SCHEME}://app/index.html`);
   positionWindow(orbSize());
+  const b = win.getBounds();
+  const { workArea, bounds: full, scaleFactor } = screen.getPrimaryDisplay();
+  log(`[window] orb ${b.x},${b.y} ${b.width}x${b.height} | work ${workArea.x},${workArea.y} ` +
+      `${workArea.width}x${workArea.height} | display ${full.width}x${full.height} @${scaleFactor}x`);
 }
 
 function orbCenter() {
@@ -455,6 +459,28 @@ app.whenReady().then(() => {
     startObserving();
   } else {
     log('[state] starting paused, as set');
+  }
+
+  /**
+   * Screens come and go, and fren must not go with them.
+   *
+   * Clamping on drag only covers fren moving. A display can move instead:
+   * unplug the monitor fren was parked on, change the arrangement, or alter
+   * the scale, and a window that was perfectly placed is suddenly nowhere —
+   * with no title bar to drag it back by. macOS usually rehomes ordinary
+   * windows; an always-on-top frameless one is not reliably ordinary.
+   */
+  for (const ev of ['display-removed', 'display-added', 'display-metrics-changed']) {
+    screen.on(ev, () => {
+      // After the layout settles, not during it.
+      setTimeout(() => {
+        if (!win || win.isDestroyed()) return;
+        const before = win.getBounds();
+        recenter();
+        const after = win.getBounds();
+        if (before.x !== after.x || before.y !== after.y) log(`[window] ${ev}: moved fren back`);
+      }, 400);
+    });
   }
 
   state.subscribe((s) => {
@@ -1246,6 +1272,12 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  // FIRST, before anything is torn down. Quitting closes the dashboard too, and
+  // that window's close handler asks whether you meant to quit — so without
+  // this, Cmd+Q ran this teardown, stopped every timer, closed the database,
+  // and was then blocked by a dialog asking a question already answered.
+  // Choosing "Cancel" there left fren running on a closed database.
+  quitting = true;
   if (gazeTimer) clearInterval(gazeTimer);
   if (drag) clearInterval(drag.timer);
   if (observer) observer.stop();

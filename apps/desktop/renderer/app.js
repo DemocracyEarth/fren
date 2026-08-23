@@ -306,8 +306,15 @@ async function speak(text) {
     setTimeout(step, 90);
 
     async function finish() {
-      cutReplyShort = null;
+      // Disarmed only once the VOICE has finished, not once the text has. The
+      // typing animation ends long before a spoken reply does, and clearing
+      // this at the top left a window — often several seconds — where fren was
+      // still talking, `speaking` was still true, and there was no longer
+      // anything to interrupt. Clicking the orb in that window fell through to
+      // "busy thinking", shook, and did nothing: exactly the moment you most
+      // want to cut in.
       if (spoken) await spoken;     // let the voice finish before settling
+      cutReplyShort = null;
       bubble.textContent = text;
       face.stopTalking();
       // Settle through a reaction rather than snapping back — and not the
@@ -901,8 +908,15 @@ for (const [el, ev] of [[els.orb, 'mousedown'], [els.input, 'keydown'], [els.sen
   if (el) el.addEventListener(ev, () => { userActed = true; }, { once: true, capture: true });
 }
 
+// macOS delivers ctrl+click as button 0 with ctrlKey set, AND fires
+// contextmenu for it. Without this clause the same gesture asked for the menu
+// and opened the microphone: mousedown armed the press, the contextmenu handler
+// bailed because a press was in progress, and the release started recording.
+const CTRL_CLICK_IS_RIGHT_CLICK = navigator.platform.toUpperCase().includes('MAC');
+
 els.orb.addEventListener('mousedown', (e) => {
   if (e.button !== 0) return;
+  if (CTRL_CLICK_IS_RIGHT_CLICK && e.ctrlKey) return;   // that is a right-click
   pressing = true;
   dragging = false;
   pressAt = { x: e.screenX, y: e.screenY };
@@ -917,7 +931,10 @@ window.addEventListener('mousemove', (e) => {
   window.fren.dragStart();
 });
 
-window.addEventListener('mouseup', async () => {
+window.addEventListener('mouseup', async (e) => {
+  // Only the left button ends a left-button gesture. Releasing the right button
+  // during a press would otherwise consume it and start a recording.
+  if (e.button !== 0) return;
   if (!pressing) return;
   pressing = false;
   if (dragging) {
@@ -1025,8 +1042,10 @@ els.orb.addEventListener('wheel', (e) => {
  */
 els.orb.addEventListener('contextmenu', async (e) => {
   e.preventDefault();
-  // A right-click during a left-button gesture is an accident, not a request.
-  if (pressing) return;
+  // A right-click during a genuine left-button DRAG is an accident. A press
+  // that has not moved is not — on macOS a ctrl+click arrives as one.
+  if (dragging) return;
+  pressing = false;
   react('click');
   await setPanel(!state.panelOpen);
 });
