@@ -768,6 +768,7 @@ els.orb.addEventListener('mousedown', (e) => {
   dragging = false;
   talkingFromOrb = false;
   pressAt = { x: e.screenX, y: e.screenY };
+  shakeDetector.reset();
   holdTimer = setTimeout(() => {
     holdTimer = null;
     if (!pressing || dragging) return;
@@ -805,9 +806,26 @@ window.addEventListener('mousemove', (e) => {
 const shakeDetector = window.FrenShake.createShakeDetector();
 
 window.addEventListener('mousemove', (e) => {
-  if (!dragging) return;
+  // Also while the microphone is open, which is the case that matters. The
+  // slop test measures distance from the PRESS POINT, so pressing, settling for
+  // a third of a second and then shaking never trips it: the hold timer fires
+  // first, `talkingFromOrb` latches, and the drag handler above bails on it
+  // forever. The result was a shake that produced no wobble and mailed the
+  // recording of it to the model on release. Grab-hesitate-shake is a perfectly
+  // natural way to do this, so a shake has to be able to override a hold.
+  if (!pressing || (!dragging && !talkingFromOrb)) return;
   const hit = shakeDetector.feed(e.screenX, e.screenY, Date.now());
-  if (hit && face && face.shake) {
+  if (!hit) return;
+
+  if (talkingFromOrb) {
+    // Three deliberate reversals is not somebody talking. Drop what was
+    // captured — it is the sound of a shake — and carry on as a drag.
+    talkingFromOrb = false;
+    abandonTalk();
+    dragging = true;
+    window.fren.dragStart();
+  }
+  if (face && face.shake) {
     face.shake(hit.power);
     react('shake');
   }
@@ -1021,6 +1039,33 @@ async function startTalking() {
 }
 
 let stopping = false;
+
+/**
+ * Stop recording and throw the audio away.
+ *
+ * The only caller is a shake that arrived while the microphone was open. There
+ * was no way to end a recording without transcribing it before, because until
+ * now every recording was one somebody meant to make.
+ *
+ * It is dropped rather than sent, and dropped locally: the bytes never reach
+ * the transcriber, so audio nobody intended to record does not leave the
+ * machine on its way to being discarded.
+ */
+async function abandonTalk() {
+  wantRecording = false;
+  if (stopping) return;
+  if (!mic || !mic.isRecording()) { face.setListening(null); return; }
+  stopping = true;
+  blip(false);
+  face.setListening(null);
+  els.mic.classList.remove('recording');
+  try {
+    await mic.stop();
+  } catch { /* there is nothing to keep either way */ } finally {
+    stopping = false;
+  }
+  vlog('talk:abandoned-for-shake');
+}
 
 async function stopTalkingAndSend() {
   // Read it before clearing it, or the check below can never be true.
