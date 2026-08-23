@@ -84,6 +84,12 @@ function serveRenderer() {
  * point of the character — is lost. Above double it stops being a thing in the
  * corner of your screen and becomes something you have to work around.
  */
+// Where macOS puts the dashboard's close/minimise/zoom buttons, in window
+// coordinates. Shared with dashboard.css, which lines the Collapse button up
+// with them — see --traffic-centre there.
+const TRAFFIC_LIGHT_Y = 18;
+const TRAFFIC_LIGHT_H = 12;     // macOS draws them 12px tall
+
 const ORB_BASE = 150;
 const ORB_ZONE_BASE = 144;      // the drag halo, from styles.css
 const SCALE_MIN = 0.65;
@@ -982,7 +988,20 @@ app.whenReady().then(() => {
       minHeight: 520,
       title: 'fren',
       backgroundColor: '#F2EDE4',
-      titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+      // 'hidden' rather than 'hiddenInset', because trafficLightPosition only
+      // applies to 'hidden' — under 'hiddenInset' macOS keeps its own inset and
+      // the position below is quietly ignored, which would leave the Collapse
+      // button aligned to a number nothing else uses.
+      titleBarStyle: process.platform === 'darwin' ? 'hidden' : 'default',
+      // Pinned rather than left to the default, so the stylesheet can line up
+      // with it. "Align this button with those buttons" is not something you
+      // can eyeball across two coordinate systems; setting it makes the answer
+      // one number both sides read. The buttons are 12px tall from
+      // TRAFFIC_LIGHT_Y, so their centre is +6 — see --traffic-centre in
+      // dashboard.css.
+      ...(process.platform === 'darwin'
+        ? { trafficLightPosition: { x: 18, y: TRAFFIC_LIGHT_Y } }
+        : {}),
       webPreferences: {
         preload: path.join(__dirname, '..', 'preload.js'),
         contextIsolation: true,

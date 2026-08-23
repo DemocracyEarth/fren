@@ -8,6 +8,14 @@
  * Same palette, same character. Only the size of the gesture changes.
  */
 
+:root {
+  /* Where macOS draws this window's close/minimise/zoom buttons.
+     Pinned in main/index.js as TRAFFIC_LIGHT_Y = 18, and they are 12px tall, so
+     their centre is 24. Both sides read one number rather than each guessing at
+     the other's coordinate system. */
+  --traffic-centre: 24px;
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -817,12 +825,17 @@ body[data-watching="1"] #side-status { color: var(--orange-ink); }
  * two directions rather than two unrelated buttons.
  */
 #collapse {
-  position: absolute;
-  /* Level with the title, not at the very top. #titlebar is a FIXED drag strip
-     across the top 38px at z-index 5, so a button at top:0 sits underneath it
-     and the clicks go to the strip. */
-  top: 40px;
-  right: 34px;
+  /* FIXED, not absolute: it lines up with the window's own buttons, which are
+     drawn in window coordinates and do not care where #main-head begins. */
+  position: fixed;
+  /* Centred on the traffic lights across the window, so the two read as one
+     row of controls at the two ends of the title bar. Translating by half its
+     own height keeps that true if the button's padding or type ever changes. */
+  top: var(--traffic-centre);
+  transform: translateY(-50%);
+  right: 20px;
+  /* Above #titlebar, which is a fixed drag strip over the top 38px at z-index
+     5 — a button underneath it gets none of the clicks. */
   z-index: 6;
   /* #main-head is itself a drag region, and a drag region swallows mouse
      events — the same thing that keeps the orb's halo from being clickable.
