@@ -235,7 +235,7 @@ class Orb {
     Object.assign(this.target, opts.override || {});
     this.target.tone = preset.tone;
 
-    const tone = TONE[preset.tone] || TONE.base;
+    const tone = this.tone(preset.tone);
     this.toneTo.setHex(tone.color);
     this.matTo.rough = tone.rough;
     this.matTo.sheen = tone.sheen;
@@ -296,6 +296,38 @@ class Orb {
     // Capped, or a hard trackpad flick spins it into a blur that reads as a
     // glitch rather than as a ball.
     this.rollVel = Math.max(-26, Math.min(26, this.rollVel));
+    this._wake();
+  }
+
+  /**
+   * The palette in force — the chosen one if there is one, else the original.
+   *
+   * Resolved per lookup rather than copied at construction, so a colour change
+   * reaches an orb that already exists. There is only ever one orb, and it is
+   * built before the setting has been read.
+   */
+  tone(name) {
+    const set = this.tones || TONE;
+    return set[name] || set.base || TONE.base;
+  }
+
+  /**
+   * Wear a different colour.
+   *
+   * Only the identity family moves; sad, cross and asleep are meanings and
+   * palette.js leaves them alone. The current tone is re-applied immediately
+   * rather than waiting for the next expression change, or fren would sit in
+   * its old colour until something happened to it.
+   */
+  setPalette(hex) {
+    const P = (typeof window !== 'undefined') && window.FrenPalette;
+    if (!P) return;
+    this.tones = P.tonesFrom(hex);
+    this.material.sheenColor.setHex(P.sheenColorFrom(hex));
+    const tone = this.tone(this.target.tone || 'base');
+    this.toneTo.setHex(tone.color);
+    this.matTo.rough = tone.rough;
+    this.matTo.sheen = tone.sheen;
     this._wake();
   }
 

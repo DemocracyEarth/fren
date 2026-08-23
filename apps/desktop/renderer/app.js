@@ -1476,6 +1476,19 @@ scheduleWander();
 
   window.fren.onSuggestion(onSuggestion);
   window.fren.onCurious(onCurious);
+  // Wear whatever colour was chosen. Before anything is drawn, so fren never
+  // appears in the default and then changes.
+  const wearColour = (hex) => {
+    if (face && face.setPalette) face.setPalette(hex);
+  };
+  try {
+    const chosen = await window.fren.getOrbColour();
+    if (chosen) wearColour(chosen);
+  } catch { /* the original colour is fine */ }
+  // The setting lives in the dashboard, the orb lives here, so a change
+  // arrives as a message rather than being read again.
+  window.fren.onOrbColour(wearColour);
+
   // Restore the size fren was left at. Before the greeting, so it is already
   // the right size the first time it moves.
   try {

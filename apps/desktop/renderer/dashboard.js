@@ -12,6 +12,8 @@
  */
 const els = {
   dayList: document.getElementById('day-list'),
+  dayQuick: document.getElementById('day-quick'),
+  history: document.getElementById('history'),
   title: document.getElementById('title'),
   subtitle: document.getElementById('subtitle'),
   content: document.getElementById('content'),
@@ -19,6 +21,7 @@ const els = {
   autoCount: document.getElementById('side-auto-count'),
   routineCount: document.getElementById('side-routine-count'),
   status: document.querySelector('#side-status span'),
+  statusBtn: document.getElementById('side-status'),
 };
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -60,25 +63,46 @@ function blank(headline, detail) {
 let current = { kind: 'day', key: todayKey() };
 
 // ------------------------------------------------------------------ days --
+function dayButton(d) {
+  const b = el('button', 'side-item');
+  b.dataset.day = d.day;
+  b.append(el('span', null, dayLabel(d.day)));
+  if (d.memories) b.append(el('span', 'sub', String(d.memories)));
+  b.addEventListener('click', () => showDay(d.day));
+  return b;
+}
+
 async function loadSidebar() {
   let days = [];
   try { days = await window.fren.days(); } catch { days = [] }
 
   // Today is always offered, even before anything has been recorded in it.
-  const keys = days.map((d) => d.day);
-  if (!keys.includes(todayKey())) {
+  if (!days.some((d) => d.day === todayKey())) {
     days.unshift({ day: todayKey(), memories: 0 });
   }
 
-  els.dayList.textContent = '';
-  for (const d of days.slice(0, 14)) {
-    const b = el('button', 'side-item');
-    b.dataset.day = d.day;
-    b.append(el('span', null, dayLabel(d.day)));
-    if (d.memories) b.append(el('span', 'sub', String(d.memories)));
-    b.addEventListener('click', () => showDay(d.day));
-    els.dayList.appendChild(b);
+  // Today and yesterday are pinned above the sections, because they are what
+  // this window is opened for and they must not move as history accumulates.
+  const y = new Date();
+  y.setDate(y.getDate() - 1);
+  const yKey = `${y.getFullYear()}-${pad(y.getMonth() + 1)}-${pad(y.getDate())}`;
+  const pinned = new Set([todayKey(), yKey]);
+
+  els.dayQuick.textContent = '';
+  for (const key of [todayKey(), yKey]) {
+    const found = days.find((d) => d.day === key);
+    // Yesterday only appears if something happened in it; today always does.
+    if (found) els.dayQuick.appendChild(dayButton(found));
+    else if (key === todayKey()) els.dayQuick.appendChild(dayButton({ day: key, memories: 0 }));
   }
+
+  // Everything older, all of it. This used to render days.slice(0, 14) while
+  // fetching sixty, so anything past a fortnight simply could not be reached.
+  const earlier = days.filter((d) => !pinned.has(d.day));
+  els.dayList.textContent = '';
+  for (const d of earlier) els.dayList.appendChild(dayButton(d));
+  if (els.history) els.history.hidden = earlier.length === 0;
+
   markActive();
 }
 
@@ -531,6 +555,64 @@ async function suggestions() {
  * cannot inspect is not a companion, and paraphrasing its own notes back would
  * defeat the point of keeping them in Markdown where you can edit them.
  */
+/**
+ * How the files are shown, remembered between visits.
+ *
+ * Reading is the common case, so the rendered view leads. But these files are
+ * meant to be EDITED, and editing them means knowing where the blank lines and
+ * the exact characters are — so the source is one click away and the choice
+ * sticks. Defaulting to source would show most people a wall of hashes; hiding
+ * source would break the promise that you can see exactly what is written.
+ */
+let mdView = 'read';
+try { mdView = localStorage.getItem('frenMdView') === 'source' ? 'source' : 'read'; } catch { /* fine */ }
+
+function fileCard(name, title, text) {
+  const card = el('div', 'card');
+  const head = el('div', 'card-head');
+  head.append(el('b', null, name), el('time', null, title));
+
+  const toggle = el('div', 'view-toggle');
+  const body = el('div', 'file-body');
+
+  const paint = () => {
+    body.textContent = '';
+    const src = String(text || '').trim();
+    if (!src) {
+      const empty = el('pre', 'muted', 'Nothing written yet.');
+      body.appendChild(empty);
+      return;
+    }
+    if (mdView === 'read') {
+      body.appendChild(window.FrenMarkdown.render(src));
+    } else {
+      body.appendChild(el('pre', null, src));
+    }
+    for (const b of toggle.children) b.classList.toggle('on', b.dataset.view === mdView);
+  };
+
+  for (const [view, label] of [['read', 'Reading'], ['source', 'Source']]) {
+    const b = el('button', 'view-btn', label);
+    b.type = 'button';
+    b.dataset.view = view;
+    b.addEventListener('click', () => {
+      mdView = view;
+      try { localStorage.setItem('frenMdView', view); } catch { /* not worth failing over */ }
+      // Every card follows, so the two never disagree about which view is on.
+      for (const other of document.querySelectorAll('.card .file-body')) {
+        if (other._repaint) other._repaint();
+      }
+    });
+    toggle.appendChild(b);
+  }
+
+  body._repaint = paint;
+  head.appendChild(toggle);
+  card.append(head, body);
+  paint();
+  return card;
+}
+
 async function showMemory() {
   current = { kind: 'memory' };
   markActive();
@@ -550,16 +632,7 @@ async function showMemory() {
   els.subtitle.textContent =
     'Plain files on disk. Edit them and the change takes effect on your next message.';
 
-  for (const f of data.files) {
-    const card = el('div', 'card');
-    const head = el('div', 'card-head');
-    head.append(el('b', null, f.name), el('time', null, f.title));
-    card.appendChild(head);
-    const pre = el('pre', null, f.text.trim() || 'Nothing written yet.');
-    if (!f.text.trim()) pre.classList.add('muted');
-    card.appendChild(pre);
-    els.content.appendChild(card);
-  }
+  for (const f of data.files) els.content.appendChild(fileCard(f.name, f.title, f.text));
 
   // Listed rather than dumped: there is one per day, and they are the only
   // thing here that fren wrote by itself.
@@ -576,8 +649,8 @@ async function showMemory() {
     b.type = 'button';
     b.addEventListener('click', async () => {
       const text = await window.fren.readLog(log.name);
-      const pre = el('pre', null, text || 'Empty.');
-      b.replaceWith(pre);
+      // A day's log gets the same two views as everything else here.
+      b.replaceWith(fileCard(log.name, 'what fren observed', text || ''));
     });
     logs.appendChild(b);
   }
@@ -698,6 +771,74 @@ function fieldRow(id, title, detail, value, placeholder, options, onSave) {
  * SOUL.md: that file is read by the model, and neither of these is a matter of
  * interpretation. They are switches, and they should look like switches.
  */
+const hex6 = (n) => '#' + Number(n).toString(16).padStart(6, '0');
+
+/**
+ * What colour fren is.
+ *
+ * Swatches show the actual base tone, so what you click is what you get. The
+ * free picker is offered because six is not everyone's six — but it clamps,
+ * and the note says why rather than silently correcting the choice: an orb
+ * drained of colour would be indistinguishable from a sleeping one, and asleep
+ * is how this app says it has stopped watching.
+ */
+async function colourPicker() {
+  const P = window.FrenPalette;
+  const wrap = el('div', 'setting-block');
+  wrap.append(el('strong', null, 'What colour fren is'));
+
+  let current = null;
+  try { current = await window.fren.getOrbColour(); } catch { /* default */ }
+  const active = current || P.DEFAULT_HEX;
+
+  const row = el('div', 'swatches');
+  const custom = el('input');
+
+  const mark = (hex) => {
+    for (const s of row.children) s.classList.toggle('on', Number(s.dataset.hex) === Number(hex));
+    custom.value = hex6(P.usable(hex));
+  };
+
+  const choose = async (hex) => {
+    const usable = P.usable(hex);
+    mark(usable);
+    try { await window.fren.setOrbColour(usable); } catch { /* it stays as it was */ }
+  };
+
+  for (const preset of P.PRESETS) {
+    const tones = P.tonesFrom(preset.hex);
+    const b = el('button', 'swatch');
+    b.type = 'button';
+    b.dataset.hex = String(preset.hex);
+    b.title = preset.name + (preset.note ? ' — ' + preset.note : '');
+    // The dot is the tone the orb will actually wear, lit the way it is lit.
+    const dot = el('span', 'swatch-dot');
+    dot.style.background =
+      `radial-gradient(circle at 34% 30%, ${hex6(tones.excited.color)}, ${hex6(tones.base.color)} 62%)`;
+    b.append(dot, el('span', 'swatch-name', preset.name));
+    b.addEventListener('click', () => choose(preset.hex));
+    row.appendChild(b);
+  }
+  wrap.appendChild(row);
+
+  const customRow = el('label', 'custom-colour');
+  custom.type = 'color';
+  custom.addEventListener('change', () => {
+    const n = parseInt(custom.value.replace('#', ''), 16);
+    if (Number.isFinite(n)) choose(n);
+  });
+  customRow.append(custom, el('span', null, 'or pick your own'));
+  wrap.appendChild(customRow);
+
+  wrap.appendChild(el('p', 'caveat',
+    'Very pale or very washed-out colours are nudged back into range. fren says it has '
+    + 'stopped watching by draining its colour away, so an orb that already looked drained '
+    + 'would have nothing left to say it with.'));
+
+  mark(active);
+  return wrap;
+}
+
 async function showSettings() {
   current = { kind: 'settings' };
   markActive();
@@ -730,6 +871,8 @@ async function showSettings() {
       return !!(res && res.volunteer);
     },
   ));
+
+  els.content.appendChild(await colourPicker());
 
   if (!profile) {
     els.content.appendChild(el('p', 'caveat',
@@ -843,8 +986,21 @@ for (const b of document.querySelectorAll('.side-item[data-section]')) {
 
   const paint = (state) => {
     document.body.dataset.watching = state && state.observing ? '1' : '0';
-    if (els.status) els.status.textContent = state && state.observing ? 'watching' : 'paused';
+    const on = !!(state && state.observing);
+    if (els.status) els.status.textContent = on ? 'watching' : 'paused';
+    if (els.statusBtn) {
+      els.statusBtn.setAttribute('aria-checked', on ? 'true' : 'false');
+      els.statusBtn.title = on ? 'fren is watching — click to pause'
+                               : 'fren is paused — click to start watching';
+      els.statusBtn.setAttribute('aria-label',
+        on ? 'Watching. Turn off to stop watching.' : 'Not watching. Turn on to start watching.');
+    }
   };
+  if (els.statusBtn) {
+    els.statusBtn.addEventListener('click', async () => {
+      try { paint(await window.fren.toggleObservation()); } catch { /* it stays as it was */ }
+    });
+  }
   window.fren.onStateChanged(paint);
   try { paint(await window.fren.getState()); } catch { /* leave it paused */ }
 
