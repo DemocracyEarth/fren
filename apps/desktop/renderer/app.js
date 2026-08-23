@@ -786,8 +786,36 @@ window.addEventListener('mousemove', (e) => {
   window.fren.dragStart();
 });
 
+/**
+ * Shaking fren.
+ *
+ * A shake is a drag — moving past DRAG_SLOP_PX already sets `dragging` and
+ * cancels the hold timer, so shaking can never open the microphone, and letting
+ * go afterwards counts as a drag rather than a tap. Nothing new had to be
+ * guarded; the existing disambiguation already covers it.
+ *
+ * The detection itself lives in face/shake.js so it can be tested against
+ * synthetic gestures. What matters is not that a shake is recognised but that
+ * carrying the orb across the desk, sweeping it in an arc, and holding it with
+ * an unsteady hand are all NOT.
+ *
+ * Screen coordinates, so the window chasing the cursor during the drag cannot
+ * feed back into the signal.
+ */
+const shakeDetector = window.FrenShake.createShakeDetector();
+
+window.addEventListener('mousemove', (e) => {
+  if (!dragging) return;
+  const hit = shakeDetector.feed(e.screenX, e.screenY, Date.now());
+  if (hit && face && face.shake) {
+    face.shake(hit.power);
+    react('shake');
+  }
+});
+
 window.addEventListener('mouseup', async () => {
   if (!pressing) return;
+  shakeDetector.reset();
   pressing = false;
   cancelHold();
   if (talkingFromOrb) {
