@@ -747,3 +747,60 @@ body[data-watching="1"] #side-status { color: var(--orange-ink); }
   cursor: pointer;
 }
 .setting-block .caveat { margin-top: 12px; max-width: 52ch; }
+
+/* --- the conversation --------------------------------------------------- */
+
+.chat-log { max-width: 720px; }
+
+/* A date only where the date changes. A timestamp on every line is noise; a
+   transcript with no dates at all is unreadable a week later. */
+.chat-day {
+  margin: 22px 0 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.chat-day:first-child { margin-top: 4px; }
+
+/*
+ * Both sides get the same treatment, unlike the panel.
+ *
+ * In a 384px strip what fren says has to be the loudest thing on screen, so
+ * your own words recede into a small grey bubble. This is a wide window being
+ * read back later, where the question is usually "what did I ask?" — so the two
+ * sides are equals here and only the label tells them apart.
+ */
+.said {
+  padding: 11px 14px 12px;
+  border-radius: 12px;
+  margin-bottom: 8px;
+  border: 1px solid rgba(26, 23, 18, 0.08);
+}
+.said-you { background: transparent; }
+.said-fren { background: rgba(255, 255, 255, 0.55); }
+
+.said-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+.said-head b {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+.said-you .said-head b { color: var(--ink-soft); }
+.said-fren .said-head b { color: var(--orange-ink); }
+.said-head time { font-size: 11px; color: var(--ink-soft); opacity: .8; }
+
+.said p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  -webkit-user-select: text;
+  user-select: text;
+}

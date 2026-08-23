@@ -980,7 +980,83 @@ async function showProviderSettings() {
   els.content.appendChild(note);
 }
 
+// ------------------------------------------------------------------ chat --
+
+/** "14:03" for today, "Sun 21 Aug, 14:03" for anything older. */
+function whenSaid(ts) {
+  const d = new Date(ts);
+  const time = hhmm(ts);
+  const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return key === todayKey() ? time : `${dayLabel(key)}, ${time}`;
+}
+
+/**
+ * The conversation, with room to read it.
+ *
+ * Deliberately not a copy of the panel's bubbles. That is a 384px strip where
+ * what fren says has to be the loudest thing on screen; this is a wide window
+ * being read back, so both sides get the same treatment and the timestamps
+ * earn their place — a transcript you are reading later is mostly a question
+ * about when.
+ */
+async function showChat() {
+  current = { kind: 'chat' };
+  markActive();
+  els.title.textContent = 'Chat';
+  els.content.textContent = '';
+
+  let msgs = [];
+  try { msgs = await window.fren.messages(); } catch { msgs = []; }
+
+  if (!msgs.length) {
+    els.subtitle.textContent = '';
+    els.content.appendChild(blank(
+      'Nothing said yet',
+      'Click fren to talk to it. Whatever you say, and what it says back, will be here.'
+    ));
+    return;
+  }
+
+  els.subtitle.textContent = msgs.length === 1
+    ? 'One thing said so far.'
+    : `${msgs.length} messages. Kept for as long as the observations they are about.`;
+
+  const log = el('div', 'chat-log');
+  let lastDay = null;
+  for (const m of msgs) {
+    const d = new Date(m.ts);
+    const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    if (key !== lastDay) {
+      lastDay = key;
+      log.appendChild(el('div', 'chat-day', dayLabel(key)));
+    }
+    const row = el('div', `said said-${m.role === 'fren' ? 'fren' : 'you'}`);
+    const head = el('div', 'said-head');
+    head.append(el('b', null, m.role === 'fren' ? 'fren' : 'you'),
+                el('time', null, hhmm(m.ts)));
+    row.append(head, el('p', null, m.text));
+    log.appendChild(row);
+  }
+  els.content.appendChild(log);
+
+  const forget = el('button', 'wide-btn', 'Forget this conversation');
+  forget.type = 'button';
+  forget.addEventListener('click', async () => {
+    // No confirm dialog: this is the destructive direction people are ENTITLED
+    // to take without being argued with, and the whole point of writing the
+    // transcript down is that it can also be un-written.
+    forget.disabled = true;
+    forget.textContent = 'Forgetting…';
+    try { await window.fren.clearMessages(); } catch { /* it stays */ }
+    showChat();
+  });
+  els.content.appendChild(forget);
+  // Reading a transcript starts at the end, where the last thing said is.
+  els.content.scrollTop = els.content.scrollHeight;
+}
+
 const SECTIONS = {
+  chat: showChat,
   patterns: showPatterns,
   automations: showAutomations,
   routines: showRoutines,
@@ -1031,5 +1107,7 @@ for (const b of document.querySelectorAll('.side-item[data-section]')) {
   await loadSidebar();
 
   await refreshCounts();
-  await showDay(todayKey());
+  // The conversation is what the window is for. Days are still one click away,
+  // and pinned at the top of the sidebar.
+  await showChat();
 })();

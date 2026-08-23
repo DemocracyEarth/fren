@@ -92,6 +92,25 @@ CREATE TABLE IF NOT EXISTS suggestions (
   -- decides. Nothing here is ever executed.
   draft TEXT
 );
+
+-- What was actually said, either way round.
+--
+-- New, and the most sensitive thing in this file: until now the conversation
+-- lived only in the panel's DOM and was gone when you closed it. It is written
+-- down so it can be read back in the dashboard, which means everything you say
+-- to fren is now on disk.
+--
+-- It is pruned on the same clock as observations. A transcript that outlives
+-- what it was about is a worse trade than one that expires with it.
+CREATE TABLE IF NOT EXISTS messages (
+  id INTEGER PRIMARY KEY,
+  ts INTEGER NOT NULL,
+  -- 'you' or 'fren'. Not 'user'/'assistant': this is a conversation, not a
+  -- transcript for a model, and it is read by a person.
+  role TEXT NOT NULL,
+  text TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages (ts);
 `;
 
 function rowToObservation(row) {
@@ -247,6 +266,47 @@ function openMemory(dbPath) {
       }));
     },
 
+    /**
+     * Write down one thing that was said.
+     *
+     * Empty text is dropped rather than stored: a blank row is not a message,
+     * and the transcript is read by a person.
+     */
+    addMessage({ ts = Date.now(), role, text }) {
+      const body = String(text ?? '').trim();
+      if (!body) return null;
+      const who = role === 'fren' ? 'fren' : 'you';
+      const { lastInsertRowid } = db
+        .prepare('INSERT INTO messages (ts, role, text) VALUES (?, ?, ?)')
+        .run(Number(ts) || Date.now(), who, body.slice(0, 8000));
+      return Number(lastInsertRowid);
+    },
+
+    /**
+     * The conversation, oldest first.
+     *
+     * Newest N rows, then re-sorted — the same shape getRecentMemories uses,
+     * because "the last fifty things said" has to be the last fifty, and then
+     * read in the order they were said.
+     */
+    getMessages({ limit = 200, sinceMs } = {}) {
+      const rows = db
+        .prepare(
+          `SELECT * FROM (
+             SELECT * FROM messages WHERE ts >= ?
+             ORDER BY ts DESC, id DESC LIMIT ?
+           ) ORDER BY ts ASC, id ASC`
+        )
+        .all(sinceMs ?? 0, limit);
+      return rows.map((r) => ({ id: r.id, ts: r.ts, role: r.role, text: r.text }));
+    },
+
+    /** Forget the whole conversation, without touching anything else. */
+    clearMessages() {
+      const { changes } = db.prepare('DELETE FROM messages').run();
+      return Number(changes);
+    },
+
     addSuggestion({ ts, message, pattern }) {
       const { lastInsertRowid } = db
         .prepare('INSERT INTO suggestions (ts, message, pattern) VALUES (?, ?, ?)')
@@ -314,7 +374,15 @@ function openMemory(dbPath) {
         for (const row of excess) screenshotPathsToDelete.push(row.screenshot_path);
       }
 
-      return { deletedObservations, screenshotPathsToDelete };
+      // The conversation expires on the same clock as what it was about.
+      // Keeping a transcript longer than the observations it discusses would
+      // leave the most sensitive thing here as the longest-lived.
+      const { changes: msgChanges } = db
+        .prepare('DELETE FROM messages WHERE ts < ?')
+        .run(cutoff);
+      const deletedMessages = Number(msgChanges);
+
+      return { deletedObservations, deletedMessages, screenshotPathsToDelete };
     },
 
     /**

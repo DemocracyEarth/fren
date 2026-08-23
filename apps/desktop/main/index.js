@@ -970,6 +970,10 @@ app.whenReady().then(() => {
    */
   /** Open the dashboard, or bring the one that exists to the front. */
   function openDashboard() {
+    // One conversation at a time. The dashboard shows the same transcript in a
+    // window with room for it, so leaving the little panel open behind it gives
+    // you two views of one thing and a question about which is the real one.
+    if (state.get().panelOpen) setPanelOpen(false);
     if (dash && !dash.isDestroyed()) { dash.show(); dash.focus(); return true; }
     dash = new BrowserWindow({
       width: 1040,
@@ -1021,6 +1025,20 @@ app.whenReady().then(() => {
   }
 
   ipcMain.handle('fren:openDashboard', () => openDashboard());
+
+  ipcMain.handle('fren:messages', () => {
+    try { return memory.getMessages({ limit: 300 }); } catch { return []; }
+  });
+
+  ipcMain.handle('fren:clearMessages', () => {
+    try {
+      const n = memory.clearMessages();
+      log(`[chat] transcript cleared (${n} messages)`);
+      return { cleared: n };
+    } catch (err) {
+      return { cleared: 0, error: err.message };
+    }
+  });
 
   ipcMain.handle('fren:days', () => {
     try { return memory.getActiveDays(60); } catch { return []; }
@@ -1250,6 +1268,16 @@ app.whenReady().then(() => {
         question, memories, observations, profile,
         soul: character.soul, userDoc: character.user,
       });
+      // Written down here rather than in the renderer, because this is the one
+      // place BOTH halves of an exchange are visible — and because the panel
+      // also shows things that are not conversation: errors, the setup
+      // interview, the greeting. Those stay out of the transcript.
+      try {
+        memory.addMessage({ role: 'you', text: question });
+        memory.addMessage({ role: 'fren', text: reply });
+      } catch (err) {
+        log(`[chat] could not write the transcript: ${err.message}`);
+      }
       return { reply };
     } catch (err) {
       log(`[chat] failed: ${err.message}`);

@@ -265,7 +265,8 @@ Everything is local, under Electron's userData folder:
 ├── MEMORY.md        # durable facts worth keeping
 ├── memory/
 │   └── 2026-08-22.md    # what fren observed that day
-├── fren.db          # SQLite: observations, memories, suggestions, settings
+├── fren.db          # SQLite: observations, memories, suggestions, settings,
+│                   #         and the conversation
 └── (screenshots)    # JPEG files, max width 1280px
 ```
 
@@ -294,6 +295,7 @@ it along with everything else, and fren will introduce itself again next time.
 | Raw observations (app, title, timestamp) | 7 days, then pruned automatically |
 | Screenshots | Newest 200 kept, older ones deleted automatically |
 | Memories (semantic summaries) | Kept until you delete the data folder |
+| **The conversation** | **7 days, on the same clock as observations** |
 
 Pruning runs on its own timer inside the desktop app, every couple of minutes
 for as long as fren is running — it does not depend on observation being on,
@@ -341,6 +343,44 @@ a left click records now rather than pausing. The
 light goes out, the eyes close, everything stops. There is no partial state and
 no background trickle while paused. Hovering the orb always says which of the
 two it currently is.
+
+## The conversation is now written down
+
+This changed, and it is the most sensitive thing in this document, so it gets
+its own section rather than a line in a table.
+
+**What changed.** Until recently the conversation existed only inside the chat
+panel. Closing the panel lost it; nothing was ever written to disk. It is now
+stored in `fren.db`, so that it can be read back in the big window — everything
+you say to fren, and everything it says to you, in plain text in a local SQLite
+file.
+
+**Why.** A companion you cannot re-read is a companion you cannot check. The
+whole argument of this document is that you can see what fren knows; a
+conversation that evaporated was the one part you could not.
+
+**What is NOT stored.** Only the exchange itself: what you asked and what fren
+answered. Written where both halves are visible, in the main process, which
+means the things that merely *appear* in the panel stay out of it — error
+notices, the first-run interview (your answers to that already live in
+`settings`), and the greeting, which is generated fresh each time and is not
+something you said.
+
+**It expires.** Seven days, pruned on the same timer as observations. A
+transcript that outlived the observations it discusses would leave the most
+sensitive thing here as the longest-lived, which is the wrong way round.
+
+**You can drop it at any time**, without touching anything else: the Chat
+section of the big window has *Forget this conversation*, and it does exactly
+that and nothing more. There is no confirmation dialog, because this is the
+direction you are entitled to take without being argued with.
+
+**Is this a change in kind?** Honestly, partly. fren already kept window titles,
+screenshots and daily observation logs — arguably more revealing than a chat
+log. But those are things fren *saw*, and this is a thing you *said*, which
+people reasonably feel differently about. If you would rather it were not kept,
+the button above is the answer, and deleting the data folder still removes
+everything.
 
 ## How to delete everything
 

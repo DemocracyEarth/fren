@@ -1328,9 +1328,13 @@ function paintWatch() {
   }
 }
 
-// The panel is for talking; the dashboard is for reading back properly. With
+// The panel is for talking; the big window is for reading back properly. With
 // the tabs gone this is the only way through, so it is a real button rather
 // than a link tucked in a corner.
+//
+// "Expand" rather than "Dashboard": it is the same conversation with room to
+// read it, and main closes this panel as the other window opens — so it reads
+// as one thing growing rather than a second thing appearing.
 const dashBtn = document.getElementById('open-dash');
 if (dashBtn) {
   dashBtn.addEventListener('click', () => {
