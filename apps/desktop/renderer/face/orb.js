@@ -28,6 +28,27 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 const TAU = Math.PI * 2;
 
+/**
+ * Recording, said by the whole character.
+ *
+ * This replaced a ring drawn around the orb. The ring was the wrong idea for a
+ * reason worth keeping written down: anything drawn OUTSIDE the sphere has to
+ * be aimed at it, and the sphere moves — it tracks the pointer and idles with a
+ * bob — so the ring was either chasing it every frame or sitting slightly off,
+ * and even when it was concentric to a quarter of a pixel it still read as low,
+ * because a face's optical centre is not its geometric one.
+ *
+ * The orb pulsing is immune to all of that. There is nothing to align: the
+ * indicator IS the character.
+ *
+ * Slow — slower than a heartbeat — because this runs for as long as the
+ * microphone is open and anything faster becomes an alarm.
+ */
+const REC_HZ = 0.62;
+// Scratch colour for the recording pulse's upper end, refilled from the CHOSEN
+// palette every frame so a re-coloured fren pulses in its own colour.
+const _recHigh = new THREE.Color();
+
 
 /** Parameters that cross-fade when the expression changes. */
 const EASED = ['lit', 'lidTop', 'eyeScale', 'eyeAsym', 'mouthW', 'mouthOpen', 'mouthCurve', 'mouthWave'];
@@ -326,7 +347,11 @@ class Orb {
   setListening(level) {
     const on = level !== null && level !== undefined;
     if (on !== (this.listenLevel !== null && this.listenLevel !== undefined)) {
-      const tone = TONE[on ? 'hearing' : (EXPRESSIONS[this.emotion] || EXPRESSIONS.calm).tone] || TONE.base;
+      // this.tone(), not the static TONE: fren's colour is chosen by its owner
+      // and every tone has to come from the chosen palette. Reading the module
+      // constant here meant a teal fren turned the default gold the moment it
+      // started listening.
+      const tone = this.tone(on ? 'hearing' : (EXPRESSIONS[this.emotion] || EXPRESSIONS.calm).tone);
       this.toneTo.setHex(tone.color);
       this.matTo.rough = tone.rough;
       this.matTo.sheen = tone.sheen;
@@ -470,29 +495,21 @@ class Orb {
     if (this.listenLevel !== null && !this.reduced) {
       const beat = 0.5 - 0.5 * Math.cos(this.t * TAU * REC_HZ);
 
-      // IN sRGB, explicitly. THREE.Color stores linear-sRGB, so getHSL and
-      // setHSL without a colour space hand you linear values — a drained grey
-      // reads as lightness 0.08 rather than the 0.32 it looks like, and a
-      // modest-sounding "+0.055 lightness" is then a huge visible jump. The
-      // first version of this pulse was written in linear by accident and lit
-      // a paused orb up like a lamp.
-      this.material.color.getHSL(_hsl, THREE.SRGBColorSpace);
-
-      // The hue is TAKEN, not blended: a drained orb is a blue-grey and
-      // saturating that gives a purple orb. Saturation is the pulse — which is
-      // the point, since saturation is not brightness, and brightness is what
-      // would make a paused fren look awake.
+      // Straight between the two warm ends, REPLACING the drained colour above
+      // rather than modifying it. Two consequences, both deliberate.
       //
-      // The floor is below the orb's own saturation so there is somewhere to
-      // swing FROM. A lit orange is already fully saturated: without pulling it
-      // down first there is no room above it and the pulse would be invisible
-      // exactly where the orb is most colourful.
-      this.material.color.setHSL(
-        REC_HUE,
-        Math.min(1, _hsl.s * 0.45 + beat * 0.58),
-        Math.min(0.64, _hsl.l + beat * 0.075),
-        THREE.SRGBColorSpace,
-      );
+      // The pulse is a hue travel between two live colours instead of a drain
+      // toward grey and back. An orb that goes grey for half of every cycle
+      // does not read as listening; it reads as flickering out.
+      //
+      // And it is not scaled by `lit`, so a PAUSED fren is warm while the
+      // microphone is open. That is the honest signal: a drained orb quietly
+      // recording is the thing this app must never be. Watching and listening
+      // stay tellable apart by the eyes, which do not open here — eyes shut and
+      // pulsing is listening, eyes open and steady is watching.
+      // Both ends from the chosen palette, so a teal fren pulses teal.
+      const set = this.tones || TONE;
+      this.material.color.setHex(set.base.color).lerp(_recHigh.setHex(set.hearing.color), beat);
     }
     this.material.roughness = this.matNow.rough;
     this.material.sheen = this.matNow.sheen * this.p.lit;
@@ -560,26 +577,7 @@ class Orb {
 
 const DRAINED = new THREE.Color(0x46464a);
 
-/**
- * Recording, said by the whole character.
- *
- * This replaced a ring drawn around the orb. The ring was the wrong idea for a
- * reason worth keeping written down: anything drawn OUTSIDE the sphere has to
- * be aimed at it, and the sphere moves — it tracks the pointer and idles with a
- * bob — so the ring was either chasing it every frame or sitting slightly off,
- * and even when it was concentric to a quarter of a pixel it still read as low,
- * because a face's optical centre is not its geometric one.
- *
- * The orb pulsing is immune to all of that. There is nothing to align: the
- * indicator IS the character.
- *
- * Slow — slower than a heartbeat — because this runs for as long as the
- * microphone is open and anything faster becomes an alarm.
- */
-const REC_HZ = 0.62;
-const _hsl = { h: 0, s: 0, l: 0 };
-// The hearing tone's hue, in sRGB — the colour a recording orb travels to.
-const REC_HUE = new THREE.Color(TONE.hearing.color).getHSL(_hsl, THREE.SRGBColorSpace).h;
+
 
 // Replace the SVG renderer only once we know WebGL actually works here. If it
 // does not, face.js stays in place and nothing downstream notices.
