@@ -114,7 +114,7 @@ let firstRender = true;
 function render(next) {
   const was = state;
   state = next;
-  els.panel.hidden = !state.panelOpen;
+  paintPanel();
   els.gatewayDot.classList.toggle('down', !state.gatewayOk);
   els.gatewayDot.title = state.gatewayOk ? 'connected' : 'gateway unreachable';
   // The most important fact in the window, in words. The orb says it too, but
@@ -669,11 +669,83 @@ async function sendMessage(text) {
   }
 }
 
+/**
+ * Showing and hiding the conversation.
+ *
+ * The order matters in opposite directions, which is the whole reason this is
+ * not two lines. The window is transparent, so resizing it is invisible — what
+ * you see is the panel scaling out of the orb. So:
+ *
+ *   opening — grow the window FIRST (nothing to see), then play the animation
+ *             inside the space that now exists.
+ *   closing — play the animation FIRST, then shrink. Shrinking first would
+ *             clip the panel mid-fold, which is exactly what it used to do:
+ *             there was no exit at all, it simply vanished.
+ *
+ * While a transition is running it owns the panel's visibility, so render()
+ * stands back — otherwise a state broadcast arriving mid-animation snaps the
+ * panel away and the fold never finishes.
+ */
+const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+let panelBusy = false;
+
+/** Resolves when the named animation ends, or immediately if it cannot run. */
+function played(el, className, fallbackMs) {
+  el.classList.add(className);
+  if (REDUCED.matches) {
+    // The stylesheet disables every animation here, so animationend never
+    // comes. Waiting for it would hang the panel shut.
+    el.classList.remove(className);
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      el.removeEventListener('animationend', onEnd);
+      el.classList.remove(className);
+      resolve();
+    };
+    // Only the panel's own animation counts — the staggered children fire this
+    // too, and the last child would otherwise decide when we are finished.
+    const onEnd = (e) => { if (e.target === el) finish(); };
+    el.addEventListener('animationend', onEnd);
+    // A belt-and-braces deadline. If the animation is dropped for any reason
+    // the panel must still end up in the right state.
+    setTimeout(finish, fallbackMs);
+  });
+}
+
+/** Put the panel where the state says, unless a transition is mid-flight. */
+function paintPanel() {
+  if (panelBusy) return;
+  els.panel.hidden = !state.panelOpen;
+}
+
 async function setPanel(open) {
-  await window.fren.setPanelOpen(open);       // main resizes the window first
-  state.panelOpen = open;
-  els.panel.hidden = !open;
-  if (open) els.input.focus();
+  if (panelBusy) return;
+  panelBusy = true;
+  try {
+    if (open) {
+      await window.fren.setPanelOpen(true);   // make room, invisibly
+      state.panelOpen = true;
+      els.panel.hidden = false;
+      els.input.focus();
+      // A small physical beat from the character itself, so the orb looks like
+      // the thing the panel came out of rather than a bystander.
+      face.pulse('squash');
+      await played(els.panel, 'opening', 500);
+    } else {
+      await played(els.panel, 'closing', 320);
+      els.panel.hidden = true;
+      state.panelOpen = false;
+      await window.fren.setPanelOpen(false);  // and only now take the room back
+    }
+  } finally {
+    panelBusy = false;
+  }
 }
 
 /**
@@ -768,6 +840,7 @@ els.orb.addEventListener('mousedown', (e) => {
   dragging = false;
   talkingFromOrb = false;
   pressAt = { x: e.screenX, y: e.screenY };
+  shakeDetector.reset();
   holdTimer = setTimeout(() => {
     holdTimer = null;
     if (!pressing || dragging) return;
@@ -805,9 +878,26 @@ window.addEventListener('mousemove', (e) => {
 const shakeDetector = window.FrenShake.createShakeDetector();
 
 window.addEventListener('mousemove', (e) => {
-  if (!dragging) return;
+  // Also while the microphone is open, which is the case that matters. The
+  // slop test measures distance from the PRESS POINT, so pressing, settling for
+  // a third of a second and then shaking never trips it: the hold timer fires
+  // first, `talkingFromOrb` latches, and the drag handler above bails on it
+  // forever. The result was a shake that produced no wobble and mailed the
+  // recording of it to the model on release. Grab-hesitate-shake is a perfectly
+  // natural way to do this, so a shake has to be able to override a hold.
+  if (!pressing || (!dragging && !talkingFromOrb)) return;
   const hit = shakeDetector.feed(e.screenX, e.screenY, Date.now());
-  if (hit && face && face.shake) {
+  if (!hit) return;
+
+  if (talkingFromOrb) {
+    // Three deliberate reversals is not somebody talking. Drop what was
+    // captured — it is the sound of a shake — and carry on as a drag.
+    talkingFromOrb = false;
+    abandonTalk();
+    dragging = true;
+    window.fren.dragStart();
+  }
+  if (face && face.shake) {
     face.shake(hit.power);
     react('shake');
   }
@@ -1021,6 +1111,33 @@ async function startTalking() {
 }
 
 let stopping = false;
+
+/**
+ * Stop recording and throw the audio away.
+ *
+ * The only caller is a shake that arrived while the microphone was open. There
+ * was no way to end a recording without transcribing it before, because until
+ * now every recording was one somebody meant to make.
+ *
+ * It is dropped rather than sent, and dropped locally: the bytes never reach
+ * the transcriber, so audio nobody intended to record does not leave the
+ * machine on its way to being discarded.
+ */
+async function abandonTalk() {
+  wantRecording = false;
+  if (stopping) return;
+  if (!mic || !mic.isRecording()) { face.setListening(null); return; }
+  stopping = true;
+  blip(false);
+  face.setListening(null);
+  els.mic.classList.remove('recording');
+  try {
+    await mic.stop();
+  } catch { /* there is nothing to keep either way */ } finally {
+    stopping = false;
+  }
+  vlog('talk:abandoned-for-shake');
+}
 
 async function stopTalkingAndSend() {
   // Read it before clearing it, or the check below can never be true.

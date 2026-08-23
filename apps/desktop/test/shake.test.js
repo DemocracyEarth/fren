@@ -76,6 +76,44 @@ test('a full circle never fires', () => {
   assert.equal(play(circle).length, 0, 'a circle is not a shake');
 });
 
+test('circles never fire, at any size or speed', () => {
+  // A review argued that updating the reference direction on every sample is
+  // what lets circles through, and proposed a fixed axis instead. It is the
+  // other way round: an updating reference turns WITH the curve so the turn is
+  // never sharp, while a fixed axis would see a reversal every half-lap. Swept
+  // here across the whole plausible range rather than argued about.
+  for (const radius of [40, 90, 200]) {
+    for (const msPerLap of [250, 400, 700, 1200]) {
+      const n = Math.round(msPerLap / 16);
+      const lap = [];
+      for (let i = 0; i <= n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        lap.push([Math.cos(a) * radius, Math.sin(a) * radius]);
+      }
+      const three = [...lap, ...lap, ...lap];   // sustained circling
+      assert.equal(play(three, { stepMs: 16 }).length, 0,
+        `circle r=${radius} at ${msPerLap}ms/lap must not fire`);
+    }
+  }
+});
+
+test('a figure-eight never fires', () => {
+  const pts = [];
+  for (let i = 0; i <= 180; i++) {
+    const a = (i / 180) * Math.PI * 4;
+    pts.push([Math.sin(a) * 120, Math.sin(2 * a) * 60]);
+  }
+  assert.equal(play([...pts, ...pts], { stepMs: 16 }).length, 0);
+});
+
+test('one fast flick and back never fires', () => {
+  const pts = [[0, 0]];
+  let x = 0;
+  for (let i = 0; i < 6; i++) { x += 40; pts.push([x, 0]); }
+  for (let i = 0; i < 6; i++) { x -= 40; pts.push([x, 0]); }
+  assert.equal(play(pts, { stepMs: 8 }).length, 0, 'one there-and-back is not a shake');
+});
+
 test('a tremor never fires', () => {
   // Reverses constantly but travels nowhere. This one actually fired while the
   // swing was measured as path length: enough tiny oscillations summed past the
