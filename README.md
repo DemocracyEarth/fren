@@ -184,8 +184,16 @@ Only this, and only via the local gateway:
 **Looking at your screen** is opt-in per use: press the eye button next to the
 message box and fren sends one screenshot to answer that one question. There is
 no setting to leave on, it announces itself before sending, it refuses while
-paused, and the image is never written to disk. It needs an `ANTHROPIC_API_KEY`,
-because DeepSeek's chat models cannot see images.
+paused, and the image is never written to disk.
+
+It needs a model that can see, and DeepSeek's chat models cannot. Vision is
+picked **separately** from text, so this adds a capability without changing
+which model answers your chat. Any OpenAI-compatible vision endpoint works —
+set `FREN_VISION_API_KEY` (and optionally `FREN_VISION_BASE_URL` and
+`FREN_VISION_MODEL`) and point it wherever you like. It defaults to Alibaba's
+`qwen-vl-plus`, which is roughly a fifth the price of the cheapest Claude for
+this kind of work. An `ANTHROPIC_API_KEY` is used as a fallback if you already
+have one.
 
 What **never** leaves your machine:
 

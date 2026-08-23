@@ -8,6 +8,7 @@ const path = require('node:path');
 const { config, loadEnv } = require('../../packages/shared');
 const intelligence = require('../../packages/intelligence');
 const { createAnthropicProvider } = require('./providers/anthropic');
+const { createOpenAIVisionProvider } = require('./providers/openai-vision');
 const { createDeepSeekProvider } = require('./providers/deepseek');
 const { createMockProvider } = require('./providers/mock');
 const { createElevenLabsProvider } = require('./providers/elevenlabs');
@@ -162,18 +163,23 @@ async function handleVision(vision, body, res) {
     soul: typeof body.soul === 'string' ? body.soul : '',
     userDoc: typeof body.userDoc === 'string' ? body.userDoc : '',
   });
-  // The image rides alongside the question in the same turn.
-  request.messages = [{
-    role: 'user',
-    content: [
-      { type: 'image', source: { type: 'base64', media_type: body.mediaType || 'image/jpeg', data: image } },
-      { type: 'text', text: question },
-    ],
-  }];
 
-  const reply = await callProvider(vision, request, res);
-  if (reply === null) return;
-  send(res, 200, { reply: String(reply || '').trim() });
+  // Each provider builds its own wire format: OpenAI and Anthropic disagree
+  // about how an image rides in a message, and the gateway should not have to
+  // know which one it is holding.
+  try {
+    const reply = await vision.see({
+      system: request.system,
+      question,
+      image,
+      mediaType: body.mediaType || 'image/jpeg',
+    });
+    send(res, 200, { reply: String(reply || '').trim() });
+  } catch (err) {
+    // PRIVACY: never log the question or anything about the image.
+    console.warn(`[gateway] vision failed (${err.message})`);
+    send(res, 502, { error: (err && err.message) || 'vision provider error' });
+  }
 }
 
 async function handleChat(provider, body, res) {
@@ -285,6 +291,17 @@ function hasAnthropicCredentials() {
  * model never received.
  */
 function pickVision() {
+  // Any OpenAI-compatible vision endpoint wins, because this is the cheap
+  // option: describing a screenshot is not work worth paying frontier prices
+  // for, and Qwen-VL or GLM-4V do it for a fraction of Claude. Anthropic is the
+  // fallback for anyone who already has a key and would rather not add another.
+  if (process.env.FREN_VISION_API_KEY) {
+    try {
+      return createOpenAIVisionProvider();
+    } catch (err) {
+      console.warn(`[gateway] configured vision provider unavailable (${err.message})`);
+    }
+  }
   if (!hasAnthropicCredentials()) return null;
   try {
     return createAnthropicProvider();

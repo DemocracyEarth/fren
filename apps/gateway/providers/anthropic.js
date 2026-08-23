@@ -26,6 +26,26 @@ function createAnthropicProvider() {
         .map((block) => block.text)
         .join('');
     },
+
+    /** Answer a question about one image, in Anthropic's message shape. */
+    async see({ system, question, image, mediaType = 'image/jpeg', maxTokens = 600 }) {
+      const response = await client.messages.create({
+        model,
+        max_tokens: maxTokens,
+        system,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: image } },
+            { type: 'text', text: question },
+          ],
+        }],
+      });
+      return response.content
+        .filter((block) => block.type === 'text')
+        .map((block) => block.text)
+        .join('');
+    },
   };
 }
 
