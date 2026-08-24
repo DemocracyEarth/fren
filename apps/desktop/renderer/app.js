@@ -1031,6 +1031,36 @@ els.orb.addEventListener('mousedown', (e) => {
   pressing = true;
   dragging = false;
   pressAt = { x: e.screenX, y: e.screenY };
+  shakeDetector.reset();
+});
+
+/**
+ * Shaking fren.
+ *
+ * A shake is a drag that keeps changing its mind: swing one way, swing back,
+ * again. So it is detected on direction REVERSALS rather than on speed —
+ * carrying the orb across a large screen is fast too, and a speed test would
+ * set it wobbling every time anyone moved it.
+ *
+ * The detection is in face/shake.js so it can be tested against synthetic
+ * gestures. What matters is not that a shake is recognised but that carrying
+ * the orb somewhere, sweeping it in an arc, or holding it with an unsteady hand
+ * are all NOT — twelve of its fifteen tests assert something must not fire.
+ *
+ * Screen coordinates, so the window chasing the cursor during the drag cannot
+ * feed back into the signal. And nothing to guard against on the recording
+ * side any more: a drag never starts one, because mouseup checks `dragging`
+ * before it toggles.
+ */
+const shakeDetector = window.FrenShake.createShakeDetector();
+
+window.addEventListener('mousemove', (e) => {
+  if (!dragging) return;
+  const hit = shakeDetector.feed(e.screenX, e.screenY, Date.now());
+  if (hit && face && face.shake) {
+    face.shake(hit.power);
+    react('shake');
+  }
 });
 
 window.addEventListener('mousemove', (e) => {
@@ -1053,6 +1083,7 @@ window.addEventListener('mouseup', async (e) => {
     // recording — this is the only thing standing between "moved fren" and
     // "opened the microphone without meaning to".
     dragging = false;
+    shakeDetector.reset();
     await window.fren.dragEnd();
     return;
   }
