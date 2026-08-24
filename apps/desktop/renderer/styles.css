@@ -36,6 +36,8 @@ html, body {
 }
 
 #orb {
+  /* The cast shadow below is positioned against this. */
+  position: relative;
   width: calc(123px * var(--orb-scale, 1));
   height: calc(123px * var(--orb-scale, 1));  /* leaves a drag ring around it */
   padding: 0;
@@ -45,9 +47,61 @@ html, body {
   cursor: pointer;
   transition: transform .25s var(--ease-out);
 }
+/*
+ * The pool the orb floats above.
+ *
+ * DETACHED, and that is the whole point. A drop-shadow traces the alpha, so it
+ * is welded to the silhouette however soft it gets — which reads as an object
+ * SITTING in its own shadow. A separate ellipse below the sphere, with clear
+ * ground between them, is what a shadow does when the thing casting it is not
+ * touching anything.
+ *
+ * Sized in PERCENTAGES of the orb, so it follows scroll-to-resize without being
+ * told; only the blur and the gap need --orb-scale, since neither can be a
+ * percentage.
+ *
+ * Deliberately does NOT track the sphere's gaze or its idle bob. A shadow moves
+ * less than the thing above it, so an orb drifting over a shadow that stays put
+ * reads as floating — one that drags its shadow along reads as sliding.
+ */
+#orb::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: calc(-4px * var(--orb-scale, 1));
+  width: 62%;
+  height: 13%;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  /* 0.40 rather than 0.30: at true size the lighter one is present but barely
+     legible, and a shadow you have to look for is not doing the job. Compared
+     at 1x, magnified, against the window's own clipping bounds. */
+  background: rgba(40, 22, 6, 0.40);
+  filter: blur(calc(10px * var(--orb-scale, 1)));
+  pointer-events: none;
+  z-index: -1;                   /* under the sphere, never over it */
+}
+
 #orb:active { transform: scale(.94); }
 
 .fren-face { display: block; overflow: visible; }
+
+/*
+ * A faint cast, and nothing more — the weight is in the pool above.
+ *
+ * This was lost entirely when the recording ring was removed: the block sat
+ * inside the slice that was cut, so the orb has had no shadow at all since.
+ * What comes back is much lighter than what went, because the job changed. It
+ * only has to separate the silhouette from a pale desktop; the sense of height
+ * comes from the detached ellipse, not from tracing the edge harder.
+ *
+ * Nothing at zero blur, which was the earlier mistake — a hard shadow at zero
+ * blur IS an outline, and on a light background it looked like one.
+ */
+#orb canvas,
+#orb .fren-face {
+  filter: drop-shadow(0 3px 7px rgba(60, 32, 8, 0.11));
+}
 
 /*
  * Recording, on the fallback renderer.
