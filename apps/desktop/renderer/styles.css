@@ -20,7 +20,10 @@ html, body {
   justify-content: flex-end;
   align-items: flex-end;
   gap: 8px;
-  padding: 4px;
+  /* Extra room along the bottom, and nothing in it. The window is taller than
+     the character by exactly this much so the shadow beneath has somewhere to
+     fade out — SHADOW_ROOM in main/index.js, which grows the window to match. */
+  padding: 4px 4px calc(4px + 20px * var(--orb-scale, 1));
 }
 
 /* ---------------------------------------------------------------- the orb */

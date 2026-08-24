@@ -99,12 +99,32 @@ const trafficCentre = () => TRAFFIC_LIGHT_Y + TRAFFIC_LIGHT_H / 2;
 
 const ORB_BASE = 150;
 const ORB_ZONE_BASE = 144;      // the drag halo, from styles.css
+/**
+ * Room under the character for its shadow to finish.
+ *
+ * The window clips: anything drawn past its edge simply is not on screen. The
+ * orb used to sit 14.5px from the bottom edge, and a CSS blur(10px) paints to
+ * about 15px past its own box — sigma is half the radius and a Gaussian is only
+ * spent by three sigma — so the shadow was cut off along a straight line.
+ *
+ * Measuring the box and calling it fitted was the mistake. The box fitted; the
+ * blur is not the box.
+ */
+const SHADOW_ROOM = 20;
 const SCALE_MIN = 0.65;
 const SCALE_MAX = 2.0;
 let orbScale = 1;
 
 const clampScale = (s) => Math.min(SCALE_MAX, Math.max(SCALE_MIN, Number(s) || 1));
-const orbSize = () => {
+// The window is taller than the character by SHADOW_ROOM, which is empty
+// transparent space beneath it for the shadow to fade out in.
+const shadowRoom = () => Math.round(SHADOW_ROOM * orbScale);
+const orbSize = () => ({
+  width: Math.round(ORB_BASE * orbScale),
+  height: Math.round(ORB_BASE * orbScale) + shadowRoom(),
+});
+/** The character's own box, without the shadow's room. What must stay visible. */
+const characterSize = () => {
   const n = Math.round(ORB_BASE * orbScale);
   return { width: n, height: n };
 };
@@ -112,7 +132,7 @@ const orbSize = () => {
 // taller window — otherwise growing it would push the conversation off the top.
 const panelSize = () => ({
   width: PANEL_BASE.width,
-  height: PANEL_BASE.height + Math.round(ORB_ZONE_BASE * orbScale),
+  height: PANEL_BASE.height + Math.round(ORB_ZONE_BASE * orbScale) + shadowRoom(),
 });
 
 // Wider than it was: the old 344 left the conversation cramped against both
@@ -162,14 +182,19 @@ const log = (...args) => console.log(...args);
  * got lost.
  */
 function clampToScreen(bounds) {
-  const orb = orbSize();
+  // The CHARACTER, not the window. The window's lower strip is transparent room
+  // for the shadow, and insisting that stays on screen would stop fren being
+  // parked against the bottom edge.
+  const orb = characterSize();
   // Nearest to the ORB, not to the window: with the panel open the window's
   // own centre can be on a different display from the character.
   const { workArea } = screen.getDisplayNearestPoint({
     x: Math.round(bounds.x + bounds.width - orb.width / 2),
-    y: Math.round(bounds.y + bounds.height - orb.height / 2),
+    y: Math.round(bounds.y + bounds.height - shadowRoom() - orb.height / 2),
   });
-  return clampInto(bounds, orb, workArea);
+  return clampInto(
+    { ...bounds, height: bounds.height - shadowRoom() }, orb, workArea
+  );
 }
 
 /** Put fren somewhere it can be seen, wherever it has got to. */
@@ -187,9 +212,12 @@ function recenter() {
 function positionWindow(size) {
   // Anchor to the bottom-right corner of the primary display's work area.
   const { workArea } = screen.getPrimaryDisplay();
+  // MARGIN is the gap from the CHARACTER to the screen edge, not from the
+  // window — the window now hangs lower than the orb by the shadow's room, and
+  // measuring from its edge would push fren visibly up the screen.
   win.setBounds({
     x: workArea.x + workArea.width - size.width - MARGIN,
-    y: workArea.y + workArea.height - size.height - MARGIN,
+    y: workArea.y + workArea.height - size.height - MARGIN + shadowRoom(),
     ...size,
   });
 }
@@ -254,8 +282,13 @@ function createWindow() {
 
 function orbCenter() {
   const b = win.getBounds();
-  const { width, height } = orbSize();
-  return { x: b.x + b.width - width / 2, y: b.y + b.height - height / 2 };
+  // The CHARACTER's centre, so the gaze tracks the pointer relative to the face
+  // rather than to a window that now hangs lower than the face does.
+  const { width, height } = characterSize();
+  return {
+    x: b.x + b.width - width / 2,
+    y: b.y + b.height - shadowRoom() - height / 2,
+  };
 }
 
 /**
