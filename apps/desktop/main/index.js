@@ -85,10 +85,16 @@ function serveRenderer() {
  * corner of your screen and becomes something you have to work around.
  */
 // Where macOS puts the dashboard's close/minimise/zoom buttons, in window
-// coordinates. Shared with dashboard.css, which lines the Collapse button up
-// with them — see --traffic-centre there.
-const TRAFFIC_LIGHT_Y = 18;
+// coordinates.
+//
+// THE ONLY PLACE THIS NUMBER LIVES. The stylesheet used to carry its own copy
+// of the resulting centre, which meant moving the buttons up was two edits and
+// forgetting the second left the Collapse button pointing at where they used to
+// be. The page is handed the computed centre on its URL instead, so there is
+// nothing to keep in step.
+const TRAFFIC_LIGHT_Y = 13;
 const TRAFFIC_LIGHT_H = 12;     // macOS draws them 12px tall
+const trafficCentre = () => TRAFFIC_LIGHT_Y + TRAFFIC_LIGHT_H / 2;
 
 const ORB_BASE = 150;
 const ORB_ZONE_BASE = 144;      // the drag halo, from styles.css
@@ -1008,7 +1014,9 @@ app.whenReady().then(() => {
         nodeIntegration: false,
       },
     });
-    dash.loadURL(`${SCHEME}://app/dashboard.html`);
+    // The traffic-light centre rides along, so the stylesheet never has to
+    // guess at it or keep a second copy in step.
+    dash.loadURL(`${SCHEME}://app/dashboard.html?tl=${trafficCentre()}`);
 
     /**
      * Closing the dashboard asks whether that means closing fren.

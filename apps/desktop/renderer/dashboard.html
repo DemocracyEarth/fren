@@ -100,6 +100,18 @@
     </main>
   </div>
 
+  <!-- Before anything paints: main knows where macOS drew this window's own
+       buttons, and the Collapse button lines up with them. Inline and first, so
+       there is no frame where it sits at the fallback position. -->
+  <script>
+    (() => {
+      const tl = new URLSearchParams(location.search).get('tl');
+      const n = Number(tl);
+      if (Number.isFinite(n) && n > 0 && n < 200) {
+        document.documentElement.style.setProperty('--traffic-centre', n + 'px');
+      }
+    })();
+  </script>
   <script src="face/palette.js"></script>
   <script src="markdown.js"></script>
   <script src="dashboard.js"></script>

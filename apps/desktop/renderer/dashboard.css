@@ -9,11 +9,14 @@
  */
 
 :root {
-  /* Where macOS draws this window's close/minimise/zoom buttons.
-     Pinned in main/index.js as TRAFFIC_LIGHT_Y = 18, and they are 12px tall, so
-     their centre is 24. Both sides read one number rather than each guessing at
-     the other's coordinate system. */
-  --traffic-centre: 24px;
+  /* Where macOS draws this window's close/minimise/zoom buttons, so the
+     Collapse button can sit level with them.
+     
+     Set for real on the root element before first paint, from the ?tl= main
+     puts on the URL — main owns the position and computes the centre, and this
+     is only the fallback for opening the page outside Electron. Do not tune it
+     here: TRAFFIC_LIGHT_Y in main/index.js is the number that moves them. */
+  --traffic-centre: 19px;
 }
 
 * { box-sizing: border-box; }
