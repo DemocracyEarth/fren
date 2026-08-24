@@ -19,10 +19,36 @@ test('the default colour reproduces the original palette exactly', () => {
   // palette that was tuned by hand, byte for byte.
   const t = P.tonesFrom(P.DEFAULT_HEX);
   assert.equal(hx(t.base.color), '#ff8a00');
-  assert.equal(hx(t.warm.color), '#ffa51f');
-  assert.equal(hx(t.excited.color), '#ffb92e');
+  // warm and excited moved when the moods were pulled back onto the base hue:
+  // they were #ffa51f and #ffb92e, drifting toward yellow and colliding with
+  // the listening tone. Same lightness as before, no hue shift.
+  assert.equal(hx(t.warm.color), '#ff981f');
+  assert.equal(hx(t.excited.color), '#ff9f2e');
   assert.equal(hx(t.hearing.color), '#ffc85a');
   assert.equal(hx(P.sheenColorFrom(P.DEFAULT_HEX)), '#ffc06a');
+});
+
+test('no mood wears the listening colour', () => {
+  // The reason this exists: excited was +7.434 degrees of hue and hearing
+  // +7.529 — the same colour to a tenth of a degree. Tolerable while listening
+  // was a state you glanced at; not once the orb began PULSING toward it, when
+  // an excited fren and a listening fren became the same yellow.
+  //
+  // Listening has to mean exactly one thing, at every colour fren can wear.
+  for (const preset of [...P.PRESETS, { name: 'a custom teal', hex: 0x11a8a8 },
+                        { name: 'a custom pink', hex: 0xff2fa0 }]) {
+    const t = P.tonesFrom(preset.hex);
+    const hue = (c) => P.toHsl(c).h;
+    const listening = hue(t.hearing.color);
+    for (const mood of ['base', 'warm', 'excited']) {
+      const gap = Math.abs(hue(t[mood].color) - listening);
+      assert.ok(gap >= 5,
+        `${preset.name}: ${mood} is ${gap.toFixed(1)}deg from the listening tone`);
+    }
+    // And the moods agree with each other, so only brightness tells them apart.
+    assert.ok(Math.abs(hue(t.warm.color) - hue(t.base.color)) < 0.5, `${preset.name}: warm drifted`);
+    assert.ok(Math.abs(hue(t.excited.color) - hue(t.base.color)) < 0.5, `${preset.name}: excited drifted`);
+  }
 });
 
 test('the mood relationships survive a change of colour', () => {

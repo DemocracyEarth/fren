@@ -8,6 +8,30 @@
  * Same palette, same character. Only the size of the gesture changes.
  */
 
+:root {
+  /* Where macOS draws this window's close/minimise/zoom buttons, so the
+     Collapse button can sit level with them.
+     
+     Set for real on the root element before first paint, from the ?tl= main
+     puts on the URL — main owns the position and computes the centre, and this
+     is only the fallback for opening the page outside Electron. Do not tune it
+     here: TRAFFIC_LIGHT_Y in main/index.js is the number that moves them. */
+  --traffic-centre: 19px;
+  /* How far the window's own buttons are tucked in from their edge. Collapse
+     mirrors it on the other side, so both ends of the title bar are inset the
+     same. Also set from the URL before first paint; TRAFFIC_LIGHT_X in
+     main/index.js is the number that moves it. */
+  --chrome-inset: 18px;
+
+  /* Collapse does not sit exactly level with the window buttons — it is nudged
+     out toward the corner and down. Written as an offset FROM the chrome rather
+     than as absolute coordinates, so it still follows if the traffic lights are
+     ever moved, and so the two numbers read as the deliberate adjustment they
+     are instead of disappearing into a pair of magic pixel values. */
+  --collapse-out: 8px;    /* further toward the right edge */
+  --collapse-down: 6px;   /* lower than the window buttons */
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -747,3 +771,157 @@ body[data-watching="1"] #side-status { color: var(--orange-ink); }
   cursor: pointer;
 }
 .setting-block .caveat { margin-top: 12px; max-width: 52ch; }
+
+/* --- the conversation --------------------------------------------------- */
+
+.chat-log { max-width: 720px; }
+
+/* A date only where the date changes. A timestamp on every line is noise; a
+   transcript with no dates at all is unreadable a week later. */
+.chat-day {
+  margin: 22px 0 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.chat-day:first-child { margin-top: 4px; }
+
+/*
+ * Both sides get the same treatment, unlike the panel.
+ *
+ * In a 384px strip what fren says has to be the loudest thing on screen, so
+ * your own words recede into a small grey bubble. This is a wide window being
+ * read back later, where the question is usually "what did I ask?" — so the two
+ * sides are equals here and only the label tells them apart.
+ */
+.said {
+  padding: 11px 14px 12px;
+  border-radius: 12px;
+  margin-bottom: 8px;
+  border: 1px solid rgba(26, 23, 18, 0.08);
+}
+.said-you { background: transparent; }
+.said-fren { background: rgba(255, 255, 255, 0.55); }
+
+.said-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+.said-head b {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+.said-you .said-head b { color: var(--ink-soft); }
+.said-fren .said-head b { color: var(--orange-ink); }
+.said-head time { font-size: 11px; color: var(--ink-soft); opacity: .8; }
+
+.said p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* --- writing back ------------------------------------------------------- */
+
+#main-head { position: relative; }
+
+/*
+ * Collapse: the inverse of the panel's Expand.
+ *
+ * Top-right of the window, where a "make this smaller" control belongs, and
+ * deliberately the same shape as the Expand button it undoes — one control with
+ * two directions rather than two unrelated buttons.
+ */
+#collapse {
+  /* FIXED, not absolute: it lines up with the window's own buttons, which are
+     drawn in window coordinates and do not care where #main-head begins. */
+  position: fixed;
+  /* Centred on the traffic lights across the window, so the two read as one
+     row of controls at the two ends of the title bar. Translating by half its
+     own height keeps that true if the button's padding or type ever changes. */
+  top: calc(var(--traffic-centre) + var(--collapse-down));
+  transform: translateY(-50%);
+  /* The window buttons' inset on the opposite edge, then out toward the corner. */
+  right: calc(var(--chrome-inset, 18px) - var(--collapse-out));
+  /* Above #titlebar, which is a fixed drag strip over the top 38px at z-index
+     5 — a button underneath it gets none of the clicks. */
+  z-index: 6;
+  /* #main-head is itself a drag region, and a drag region swallows mouse
+     events — the same thing that keeps the orb's halo from being clickable.
+     Without this the button is decorative. */
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px 6px 10px;
+  border: 1px solid rgba(26, 23, 18, .14);
+  border-radius: 999px;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background .18s var(--ease-soft), color .18s var(--ease-soft),
+              border-color .18s var(--ease-soft);
+}
+#collapse:hover { background: rgba(26, 23, 18, .06); color: var(--ink); }
+#collapse svg { flex: none; }
+
+/* The composer, sized for a window rather than a strip. */
+.chat-write {
+  display: flex;
+  gap: 9px;
+  align-items: flex-end;
+  max-width: 720px;
+  margin-top: 18px;
+}
+.chat-write textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  max-height: 180px;
+  resize: none;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(26, 23, 18, 0.12);
+  background: #fff;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+  outline: none;
+  box-shadow: 0 1px 2px rgba(24, 16, 6, 0.03);
+  transition: border-color .18s var(--ease-soft), box-shadow .18s var(--ease-soft);
+}
+.chat-write textarea::placeholder { color: #A79C89; }
+.chat-write textarea:focus {
+  border-color: rgba(var(--accent-rgb), 0.55);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.13);
+}
+.chat-write button {
+  flex: 0 0 auto;
+  height: 44px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--accent-solid);
+  color: var(--on-accent);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.chat-write button:disabled { opacity: .45; cursor: default; }
+.chat-write button:hover:not(:disabled) { filter: brightness(1.06); }
+
+/* fren composing a reply, in the transcript's own voice. */
+.said.thinking p { color: var(--ink-soft); font-style: italic; }

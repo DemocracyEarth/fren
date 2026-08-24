@@ -25,7 +25,15 @@
            not a single navigation item was visible without scrolling, and
            Settings was 301px down. Navigation is fixed now and only history
            scrolls. -->
-      <div class="side-group" id="day-quick"></div>
+      <!-- Chat, today and yesterday are one thing: what has been going on. The
+           conversation leads it because it is what the window opens on, and the
+           days are what fren saw while you were not talking to it. -->
+      <div class="side-group" id="activity">
+        <div class="side-label">Activity</div>
+        <button class="side-item" data-section="chat"><span>Chat</span></button>
+        <!-- Today and yesterday land here, under the same heading. -->
+        <div id="day-quick"></div>
+      </div>
 
       <div class="side-group">
         <div class="side-label">What fren noticed</div>
@@ -77,11 +85,37 @@
       <header id="main-head">
         <h1 id="title">Today</h1>
         <p id="subtitle"></p>
+        <!-- The inverse of the panel's Expand: back to the orb, with the
+             conversation still open beside it. -->
+        <button id="collapse" type="button" title="Back to the orb">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round"
+               stroke-linejoin="round">
+            <path d="M10 4v6H4M4 10l7-7M14 20v-6h6M20 14l-7 7"/>
+          </svg>
+          <span>Collapse</span>
+        </button>
       </header>
       <div id="content"></div>
     </main>
   </div>
 
+  <!-- Before anything paints: main knows where macOS drew this window's own
+       buttons, and the Collapse button lines up with them. Inline and first, so
+       there is no frame where it sits at the fallback position. -->
+  <script>
+    (() => {
+      const q = new URLSearchParams(location.search);
+      const set = (param, prop) => {
+        const n = Number(q.get(param));
+        if (Number.isFinite(n) && n > 0 && n < 200) {
+          document.documentElement.style.setProperty(prop, n + 'px');
+        }
+      };
+      set('tl', '--traffic-centre');   // vertical centre of the window buttons
+      set('ti', '--chrome-inset');     // how far they are tucked in from the edge
+    })();
+  </script>
   <script src="face/palette.js"></script>
   <script src="markdown.js"></script>
   <script src="dashboard.js"></script>

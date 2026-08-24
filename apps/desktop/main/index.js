@@ -84,6 +84,19 @@ function serveRenderer() {
  * point of the character — is lost. Above double it stops being a thing in the
  * corner of your screen and becomes something you have to work around.
  */
+// Where macOS puts the dashboard's close/minimise/zoom buttons, in window
+// coordinates.
+//
+// THE ONLY PLACE THIS NUMBER LIVES. The stylesheet used to carry its own copy
+// of the resulting centre, which meant moving the buttons up was two edits and
+// forgetting the second left the Collapse button pointing at where they used to
+// be. The page is handed the computed centre on its URL instead, so there is
+// nothing to keep in step.
+const TRAFFIC_LIGHT_Y = 13;
+const TRAFFIC_LIGHT_X = 18;     // inset from the left edge
+const TRAFFIC_LIGHT_H = 12;     // macOS draws them 12px tall
+const trafficCentre = () => TRAFFIC_LIGHT_Y + TRAFFIC_LIGHT_H / 2;
+
 const ORB_BASE = 150;
 const ORB_ZONE_BASE = 144;      // the drag halo, from styles.css
 const SCALE_MIN = 0.65;
@@ -970,6 +983,10 @@ app.whenReady().then(() => {
    */
   /** Open the dashboard, or bring the one that exists to the front. */
   function openDashboard() {
+    // One conversation at a time. The dashboard shows the same transcript in a
+    // window with room for it, so leaving the little panel open behind it gives
+    // you two views of one thing and a question about which is the real one.
+    if (state.get().panelOpen) setPanelOpen(false);
     if (dash && !dash.isDestroyed()) { dash.show(); dash.focus(); return true; }
     dash = new BrowserWindow({
       width: 1040,
@@ -978,14 +995,35 @@ app.whenReady().then(() => {
       minHeight: 520,
       title: 'fren',
       backgroundColor: '#F2EDE4',
-      titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+      // 'hidden' rather than 'hiddenInset', because trafficLightPosition only
+      // applies to 'hidden' — under 'hiddenInset' macOS keeps its own inset and
+      // the position below is quietly ignored, which would leave the Collapse
+      // button aligned to a number nothing else uses.
+      titleBarStyle: process.platform === 'darwin' ? 'hidden' : 'default',
+      // Pinned rather than left to the default, so the stylesheet can line up
+      // with it. "Align this button with those buttons" is not something you
+      // can eyeball across two coordinate systems; setting it makes the answer
+      // one number both sides read. The buttons are 12px tall from
+      // TRAFFIC_LIGHT_Y, so their centre is +6 — see --traffic-centre in
+      // dashboard.css.
+      ...(process.platform === 'darwin'
+        ? { trafficLightPosition: { x: TRAFFIC_LIGHT_X, y: TRAFFIC_LIGHT_Y } }
+        : {}),
       webPreferences: {
         preload: path.join(__dirname, '..', 'preload.js'),
         contextIsolation: true,
         nodeIntegration: false,
       },
     });
-    dash.loadURL(`${SCHEME}://app/dashboard.html`);
+    // The traffic-light centre rides along, so the stylesheet never has to
+    // guess at it or keep a second copy in step.
+    // Both numbers ride along: where the window's own buttons sit vertically,
+    // and how far they are tucked in from their edge. Collapse mirrors the
+    // second on the other side, so the two ends of the title bar are inset the
+    // same amount by construction rather than by a matching pair of guesses.
+    dash.loadURL(
+      `${SCHEME}://app/dashboard.html?tl=${trafficCentre()}&ti=${TRAFFIC_LIGHT_X}`
+    );
 
     /**
      * Closing the dashboard asks whether that means closing fren.
@@ -1021,6 +1059,52 @@ app.whenReady().then(() => {
   }
 
   ipcMain.handle('fren:openDashboard', () => openDashboard());
+
+  /**
+   * Back to the orb, with the conversation still open beside it.
+   *
+   * The exact inverse of Expand, and it has to do both halves: opening the
+   * panel without closing the big window would leave the two views of one
+   * conversation that Expand exists to avoid.
+   */
+  ipcMain.handle('fren:collapse', () => {
+    setPanelOpen(true);
+    // destroy(), not close(): close() runs the handler that asks whether you
+    // meant to quit fren, and collapsing is not that question.
+    if (dash && !dash.isDestroyed()) dash.destroy();
+    recenter();          // shows the window, and makes sure it is on screen
+    if (win && !win.isDestroyed()) win.focus();
+    return true;
+  });
+
+  /**
+   * Write one line of the conversation down.
+   *
+   * Everything persisted goes through here, so "what is stored" is one function
+   * rather than a grep — and a failure to write never fails the conversation
+   * itself.
+   */
+  function remember(role, text) {
+    try {
+      memory.addMessage({ role, text });
+    } catch (err) {
+      log(`[chat] could not write the transcript: ${err.message}`);
+    }
+  }
+
+  ipcMain.handle('fren:messages', () => {
+    try { return memory.getMessages({ limit: 300 }); } catch { return []; }
+  });
+
+  ipcMain.handle('fren:clearMessages', () => {
+    try {
+      const n = memory.clearMessages();
+      log(`[chat] transcript cleared (${n} messages)`);
+      return { cleared: n };
+    } catch (err) {
+      return { cleared: 0, error: err.message };
+    }
+  });
 
   ipcMain.handle('fren:days', () => {
     try { return memory.getActiveDays(60); } catch { return []; }
@@ -1235,6 +1319,11 @@ app.whenReady().then(() => {
     const question = String(text ?? '').trim().slice(0, 2000);
     if (!question) return { reply: '…' };
     lastChatAt = Date.now();
+    // BEFORE the model is asked, not after. What you said happened whether or
+    // not the gateway answers, and both writes used to sit past the await — so
+    // an outage threw to the catch and silently dropped the question from the
+    // transcript, which is the one failure a transcript exists to prevent.
+    remember('you', question);
     state.beginWork();
     try {
       const eightHoursAgo = Date.now() - 8 * 60 * 60 * 1000;
@@ -1250,6 +1339,7 @@ app.whenReady().then(() => {
         question, memories, observations, profile,
         soul: character.soul, userDoc: character.user,
       });
+      remember('fren', reply);
       return { reply };
     } catch (err) {
       log(`[chat] failed: ${err.message}`);

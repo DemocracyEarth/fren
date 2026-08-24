@@ -980,13 +980,170 @@ async function showProviderSettings() {
   els.content.appendChild(note);
 }
 
+// ------------------------------------------------------------------ chat --
+
+/** "14:03" for today, "Sun 21 Aug, 14:03" for anything older. */
+function whenSaid(ts) {
+  const d = new Date(ts);
+  const time = hhmm(ts);
+  const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return key === todayKey() ? time : `${dayLabel(key)}, ${time}`;
+}
+
+/** One line of the transcript. */
+function saidRow(role, text, ts) {
+  const who = role === 'fren' ? 'fren' : 'you';
+  const row = el('div', `said said-${who}`);
+  const head = el('div', 'said-head');
+  head.append(el('b', null, who), el('time', null, hhmm(ts)));
+  row.append(head, el('p', null, text));
+  return row;
+}
+
+/**
+ * The conversation, with room to read it.
+ *
+ * Deliberately not a copy of the panel's bubbles. That is a 384px strip where
+ * what fren says has to be the loudest thing on screen; this is a wide window
+ * being read back, so both sides get the same treatment and the timestamps
+ * earn their place — a transcript you are reading later is mostly a question
+ * about when.
+ */
+async function showChat() {
+  current = { kind: 'chat' };
+  markActive();
+  els.title.textContent = 'Chat';
+  els.content.textContent = '';
+
+  let msgs = [];
+  try { msgs = await window.fren.messages(); } catch { msgs = []; }
+
+  if (!msgs.length) {
+    els.subtitle.textContent = '';
+    els.content.appendChild(blank(
+      'Nothing said yet',
+      'Click fren to talk to it. Whatever you say, and what it says back, will be here.'
+    ));
+    return;
+  }
+
+  els.subtitle.textContent = msgs.length === 1
+    ? 'One thing said so far.'
+    : `${msgs.length} messages. Kept for as long as the observations they are about.`;
+
+  const log = el('div', 'chat-log');
+  let lastDay = null;
+  for (const m of msgs) {
+    const d = new Date(m.ts);
+    const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    if (key !== lastDay) {
+      lastDay = key;
+      log.appendChild(el('div', 'chat-day', dayLabel(key)));
+    }
+    log.appendChild(saidRow(m.role, m.text, m.ts));
+  }
+  els.content.appendChild(log);
+
+  // --- write back ---------------------------------------------------------
+  //
+  // The same conversation, typed instead of spoken. It goes through the very
+  // same fren:chat the panel uses, so it is stored the same way and reaches the
+  // model with the same context — this is a second door into one room, not a
+  // second room.
+  //
+  // No voice here, deliberately. Talking is what the orb is for; this window is
+  // for reading and writing, and a reply read aloud over someone's shoulder
+  // while they are reading it is the wrong half of the character.
+  const write = el('div', 'chat-write');
+  const box = document.createElement('textarea');
+  box.rows = 1;
+  box.placeholder = 'Say something to fren…';
+  const send = el('button', null, 'Send');
+  send.type = 'button';
+  write.append(box, send);
+  els.content.appendChild(write);
+
+  // Grow with the text, up to the cap the stylesheet sets.
+  const fit = () => {
+    box.style.height = 'auto';
+    box.style.height = Math.min(180, box.scrollHeight) + 'px';
+  };
+  box.addEventListener('input', fit);
+
+  let sending = false;
+  async function submit() {
+    const text = box.value.trim();
+    if (!text || sending) return;
+    sending = true;
+    send.disabled = true;
+    box.value = '';
+    fit();
+
+    // Show it immediately. Waiting for the round trip to display your own words
+    // makes the window feel broken on a slow model.
+    log.appendChild(saidRow('you', text, Date.now()));
+    const pending = saidRow('fren', 'thinking…', Date.now());
+    pending.classList.add('thinking');
+    log.appendChild(pending);
+    els.content.scrollTop = els.content.scrollHeight;
+
+    let reply = '';
+    try {
+      const res = await window.fren.chat(text);
+      reply = (res && res.reply) || '';
+    } catch (err) {
+      reply = 'I could not reach my thinking half. ' + (err && err.message ? err.message : '');
+    }
+    pending.classList.remove('thinking');
+    const p = pending.querySelector('p');
+    p.textContent = reply || '…';
+    els.content.scrollTop = els.content.scrollHeight;
+    sending = false;
+    send.disabled = false;
+    box.focus();
+  }
+
+  send.addEventListener('click', submit);
+  box.addEventListener('keydown', (e) => {
+    // Enter sends, shift+Enter is a new line — the expectation everywhere else
+    // a message is typed.
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+  });
+
+  const forget = el('button', 'wide-btn', 'Forget this conversation');
+  forget.type = 'button';
+  forget.addEventListener('click', async () => {
+    // No confirm dialog: this is the destructive direction people are ENTITLED
+    // to take without being argued with, and the whole point of writing the
+    // transcript down is that it can also be un-written.
+    forget.disabled = true;
+    forget.textContent = 'Forgetting…';
+    try { await window.fren.clearMessages(); } catch { /* it stays */ }
+    showChat();
+  });
+  els.content.appendChild(forget);
+  // Reading a transcript starts at the end, where the last thing said is.
+  els.content.scrollTop = els.content.scrollHeight;
+}
+
 const SECTIONS = {
+  chat: showChat,
   patterns: showPatterns,
   automations: showAutomations,
   routines: showRoutines,
   memory: showMemory,
   settings: showSettings,
 };
+// Back to the orb. Main does both halves — opens the panel, closes this window
+// — because doing only one would leave the two views of one conversation that
+// Expand exists to avoid.
+const collapseBtn = document.getElementById('collapse');
+if (collapseBtn) {
+  collapseBtn.addEventListener('click', () => {
+    window.fren.collapse().catch(() => {});
+  });
+}
+
 for (const b of document.querySelectorAll('.side-item[data-section]')) {
   b.addEventListener('click', () => SECTIONS[b.dataset.section]());
 }
@@ -1031,5 +1188,7 @@ for (const b of document.querySelectorAll('.side-item[data-section]')) {
   await loadSidebar();
 
   await refreshCounts();
-  await showDay(todayKey());
+  // The conversation is what the window is for. Days are still one click away,
+  // and pinned at the top of the sidebar.
+  await showChat();
 })();

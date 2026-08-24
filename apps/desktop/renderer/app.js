@@ -732,11 +732,41 @@ function paintPanel() {
   els.panel.hidden = !state.panelOpen;
 }
 
+/**
+ * Fill the panel with what has already been said.
+ *
+ * The panel's transcript used to be pure DOM: it started empty every launch and
+ * knew nothing about the conversation stored on disk. That was survivable while
+ * it was the only view, and stopped being survivable the moment the big window
+ * showed the same conversation — reading it there, collapsing back, and finding
+ * an empty panel makes it look as though the transcript was lost.
+ *
+ * Only ever fills an EMPTY panel, so it cannot duplicate what is already on
+ * screen or fight a conversation in progress.
+ */
+async function loadPanelHistory() {
+  // Gated on the panel being EMPTY rather than on a once-only flag. A flag
+  // would fill the panel on the first open and never again, so typing in the
+  // big window and collapsing back would still land on a stale transcript.
+  if (setup) return;
+  if (els.messages.querySelector('.bubble')) return;
+  let msgs = [];
+  try { msgs = await window.fren.messages(); } catch { return; }
+  if (!msgs.length) return;
+  // The panel is a glance, not an archive — the big window is where you read
+  // the whole thing back.
+  for (const m of msgs.slice(-12)) {
+    addBubble(m.role === 'fren' ? 'fren' : 'user', m.text);
+  }
+  scrollDown();
+}
+
 async function setPanel(open) {
   if (panelBusy) return;
   panelBusy = true;
   try {
     if (open) {
+      await loadPanelHistory();
       await window.fren.setPanelOpen(true);   // make room, invisibly
       state.panelOpen = true;
       els.panel.hidden = false;
@@ -856,6 +886,84 @@ function disarmRecordingCap() {
 }
 
 /**
+ * Saying "I'm listening" when nothing is being said.
+ *
+ * Click-to-record has one weakness press-and-hold did not: holding a button
+ * tells you it is working, and a click leaves you looking at an orb wondering
+ * whether it heard you. So if a recording begins and nothing arrives, fren says
+ * so out loud.
+ *
+ * THE TRAP: fren speaking into an open microphone records its own voice and
+ * transcribes it straight back. So the silence is not talked over — the
+ * recording is dropped first, then fren speaks, then a fresh recording starts.
+ * Nothing is lost, because what is being dropped is by definition silence.
+ *
+ * Only for recordings the ORB started. Holding the mic button in the panel
+ * already tells you it is listening: your finger is on it.
+ */
+const SPEECH_LEVEL = 0.09;        // above this, someone is talking
+const NUDGE_AFTER_MS = 3800;      // silence before fren speaks up
+const GIVE_UP_AFTER_MS = 15000;   // more silence after that, and it stops
+
+const NUDGES = [
+  "I'm listening.",
+  "Go ahead, I'm listening.",
+  "I'm here — go on.",
+  "Still listening.",
+];
+
+let heardSomething = false;
+let silenceTimer = null;
+let nudged = false;
+
+function disarmSilence() {
+  clearTimeout(silenceTimer);
+  silenceTimer = null;
+}
+
+function armSilence(ms) {
+  disarmSilence();
+  silenceTimer = setTimeout(() => {
+    silenceTimer = null;
+    if (!wantRecording || heardSomething) return;
+    if (nudged) return giveUpListening();
+    nudged = true;
+    nudgeStillListening();
+  }, ms);
+}
+
+/** Drop a recording without transcribing it. Only ever used on silence. */
+async function dropRecording() {
+  wantRecording = false;
+  disarmSilence();
+  listening(null);
+  if (mic && mic.isRecording()) {
+    try { await mic.stop(); } catch { /* nothing worth keeping either way */ }
+  }
+  blip(false);
+  els.mic.classList.remove('recording');
+}
+
+async function nudgeStillListening() {
+  vlog('silence:nudging');
+  await dropRecording();
+  await speak(NUDGES[Math.floor(Math.random() * NUDGES.length)]);
+  // Pick the microphone straight back up, so the answer to "are you there?" is
+  // somewhere they can just talk into.
+  if (!recordingFromOrb) return;
+  await startTalking();
+  if (!wantRecording) recordingFromOrb = false;
+}
+
+/** Nudged once and still nothing: close the microphone rather than sit open. */
+async function giveUpListening() {
+  vlog('silence:giving-up');
+  recordingFromOrb = false;
+  await dropRecording();
+  setFace(emotionFor(state));
+}
+
+/**
  * One click starts it, the next stops it and sends.
  *
  * Ordered so the orb is never dead. A click has to do SOMETHING, and with no
@@ -879,6 +987,9 @@ async function toggleRecording() {
   }
 
   recordingFromOrb = true;
+  // A fresh click is a fresh chance to be nudged. Without this, one silent
+  // recording would spend the nudge for the rest of the session.
+  nudged = false;
   await startTalking();
   // startTalking bails on its own for several reasons — still thinking about
   // the last thing, no microphone, permission refused. Believe whether a
@@ -1137,7 +1248,8 @@ function listening(level) {
   if (on && !wantRecording) return;
   face.setListening(level);
   document.body.dataset.recording = on ? '1' : '0';
-  if (!on) disarmRecordingCap();
+  if (on && level >= SPEECH_LEVEL) heardSomething = true;
+  if (!on) { disarmRecordingCap(); disarmSilence(); }
 }
 
 async function startTalking() {
@@ -1166,11 +1278,16 @@ async function startTalking() {
     return;
   }
   wantRecording = true;
+  heardSomething = false;
   try {
     // The face brightens with the level, so it is visibly hearing YOU rather
     // than merely having changed state.
     await mic.start((level) => listening(level));
     armRecordingCap();
+    // Only the orb needs this: holding the panel's mic button is its own
+    // reassurance, and being told "I'm listening" while you hold it down would
+    // be fren answering a question nobody asked.
+    if (recordingFromOrb) armSilence(nudged ? GIVE_UP_AFTER_MS : NUDGE_AFTER_MS);
     vlog('startTalking:recording');
     // Opening the microphone is asynchronous, and the button can be released
     // before it finishes. Without this check the recorder would start with
@@ -1197,6 +1314,7 @@ async function stopTalkingAndSend() {
   // panel's mic button can end one the orb started; without this the next
   // click on the orb would try to stop a recording that is already over.
   recordingFromOrb = false;
+  disarmSilence();
   // Read it before clearing it, or the check below can never be true.
   const expected = wantRecording;
   wantRecording = false;
@@ -1328,9 +1446,13 @@ function paintWatch() {
   }
 }
 
-// The panel is for talking; the dashboard is for reading back properly. With
+// The panel is for talking; the big window is for reading back properly. With
 // the tabs gone this is the only way through, so it is a real button rather
 // than a link tucked in a corner.
+//
+// "Expand" rather than "Dashboard": it is the same conversation with room to
+// read it, and main closes this panel as the other window opens — so it reads
+// as one thing growing rather than a second thing appearing.
 const dashBtn = document.getElementById('open-dash');
 if (dashBtn) {
   dashBtn.addEventListener('click', () => {

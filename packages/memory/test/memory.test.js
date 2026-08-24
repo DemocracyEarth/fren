@@ -261,3 +261,93 @@ test('getScreenshotsBetween returns only observations that actually have one', (
   assert.equal(got[0].screenshotPath, '/tmp/a.jpg');
   mem.close();
 });
+
+// --- the conversation -------------------------------------------------------
+//
+// The most sensitive thing in the database, and the newest. Until recently the
+// chat lived only in the panel's DOM; it is written down now so it can be read
+// back in the big window.
+
+test('a message round-trips, and a blank one is not a message', () => {
+  const mem = openMemory(tempDb());
+  mem.addMessage({ role: 'you', text: 'what have I been up to?' });
+  mem.addMessage({ role: 'fren', text: 'Mostly Figma.' });
+  assert.equal(mem.addMessage({ role: 'you', text: '   ' }), null);
+  const got = mem.getMessages();
+  assert.equal(got.length, 2);
+  assert.deepEqual(got.map((m) => m.role), ['you', 'fren']);
+  assert.equal(got[0].text, 'what have I been up to?');
+  mem.close();
+});
+
+test('an unknown role is recorded as yours, never as fren', () => {
+  // Fail toward attributing speech to the person, not to the character. A line
+  // wrongly labelled "fren" is fren appearing to have said something it did not.
+  const mem = openMemory(tempDb());
+  mem.addMessage({ role: 'assistant', text: 'hello' });
+  mem.addMessage({ role: undefined, text: 'hello again' });
+  assert.deepEqual(mem.getMessages().map((m) => m.role), ['you', 'you']);
+  mem.close();
+});
+
+test('the conversation is read back oldest first', () => {
+  const mem = openMemory(tempDb());
+  const now = Date.now();
+  mem.addMessage({ ts: now - 3000, role: 'you', text: 'first' });
+  mem.addMessage({ ts: now - 2000, role: 'fren', text: 'second' });
+  mem.addMessage({ ts: now - 1000, role: 'you', text: 'third' });
+  assert.deepEqual(mem.getMessages().map((m) => m.text), ['first', 'second', 'third']);
+  mem.close();
+});
+
+test('a limit keeps the LATEST messages, still in order', () => {
+  const mem = openMemory(tempDb());
+  const now = Date.now();
+  for (let i = 0; i < 10; i++) mem.addMessage({ ts: now + i, role: 'you', text: `m${i}` });
+  const got = mem.getMessages({ limit: 3 });
+  assert.deepEqual(got.map((m) => m.text), ['m7', 'm8', 'm9']);
+  mem.close();
+});
+
+test('the conversation expires with the observations it is about', () => {
+  const mem = openMemory(tempDb());
+  const now = Date.now();
+  mem.addMessage({ ts: now - 40 * 86400000, role: 'you', text: 'long ago' });
+  mem.addMessage({ ts: now, role: 'you', text: 'today' });
+  const r = mem.cleanup({ retentionDays: 30, maxScreenshots: 100 });
+  assert.equal(r.deletedMessages, 1);
+  assert.deepEqual(mem.getMessages().map((m) => m.text), ['today']);
+  mem.close();
+});
+
+test('forgetting the conversation removes the bytes, not just the rows', () => {
+  // DELETE alone is not forgetting: the rows leave the table but the text stays
+  // legible inside the database file and its -wal sibling. The button says
+  // "Forget" and the privacy document says the bytes go, so this is the test
+  // that keeps that true.
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'fren-forget-'));
+  const file = path.join(dir, 'forget.db');
+  const mem = openMemory(file);
+  const secret = 'XYZZY-A-VERY-DISTINCTIVE-CONFESSION';
+  mem.addMessage({ role: 'you', text: secret });
+  assert.equal(mem.clearMessages(), 1);
+  mem.close();
+
+  const still = fs.readdirSync(dir)
+    .filter((n) => fs.readFileSync(path.join(dir, n)).includes(secret));
+  assert.deepEqual(still, [], `text survived in: ${still.join(', ')}`);
+});
+
+test('forgetting the conversation leaves everything else alone', () => {
+  const mem = openMemory(tempDb());
+  mem.addObservation({ ts: Date.now(), activeApp: 'Figma', windowTitle: 'a file' });
+  mem.addMessage({ role: 'you', text: 'something' });
+  mem.setSetting('profile', { name: 'Sam' });
+  mem.clearMessages();
+  assert.equal(mem.getMessages().length, 0);
+  assert.equal(mem.getRecentObservations({ limit: 10 }).length, 1, 'observations survive');
+  assert.equal(mem.getSetting('profile').name, 'Sam', 'settings survive');
+  mem.close();
+});
