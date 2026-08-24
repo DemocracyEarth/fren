@@ -93,6 +93,7 @@ function serveRenderer() {
 // be. The page is handed the computed centre on its URL instead, so there is
 // nothing to keep in step.
 const TRAFFIC_LIGHT_Y = 13;
+const TRAFFIC_LIGHT_X = 18;     // inset from the left edge
 const TRAFFIC_LIGHT_H = 12;     // macOS draws them 12px tall
 const trafficCentre = () => TRAFFIC_LIGHT_Y + TRAFFIC_LIGHT_H / 2;
 
@@ -1006,7 +1007,7 @@ app.whenReady().then(() => {
       // TRAFFIC_LIGHT_Y, so their centre is +6 — see --traffic-centre in
       // dashboard.css.
       ...(process.platform === 'darwin'
-        ? { trafficLightPosition: { x: 18, y: TRAFFIC_LIGHT_Y } }
+        ? { trafficLightPosition: { x: TRAFFIC_LIGHT_X, y: TRAFFIC_LIGHT_Y } }
         : {}),
       webPreferences: {
         preload: path.join(__dirname, '..', 'preload.js'),
@@ -1016,7 +1017,13 @@ app.whenReady().then(() => {
     });
     // The traffic-light centre rides along, so the stylesheet never has to
     // guess at it or keep a second copy in step.
-    dash.loadURL(`${SCHEME}://app/dashboard.html?tl=${trafficCentre()}`);
+    // Both numbers ride along: where the window's own buttons sit vertically,
+    // and how far they are tucked in from their edge. Collapse mirrors the
+    // second on the other side, so the two ends of the title bar are inset the
+    // same amount by construction rather than by a matching pair of guesses.
+    dash.loadURL(
+      `${SCHEME}://app/dashboard.html?tl=${trafficCentre()}&ti=${TRAFFIC_LIGHT_X}`
+    );
 
     /**
      * Closing the dashboard asks whether that means closing fren.

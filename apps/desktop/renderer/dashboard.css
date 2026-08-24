@@ -17,6 +17,11 @@
      is only the fallback for opening the page outside Electron. Do not tune it
      here: TRAFFIC_LIGHT_Y in main/index.js is the number that moves them. */
   --traffic-centre: 19px;
+  /* How far the window's own buttons are tucked in from their edge. Collapse
+     mirrors it on the other side, so both ends of the title bar are inset the
+     same. Also set from the URL before first paint; TRAFFIC_LIGHT_X in
+     main/index.js is the number that moves it. */
+  --chrome-inset: 18px;
 }
 
 * { box-sizing: border-box; }
@@ -836,7 +841,8 @@ body[data-watching="1"] #side-status { color: var(--orange-ink); }
      own height keeps that true if the button's padding or type ever changes. */
   top: var(--traffic-centre);
   transform: translateY(-50%);
-  right: 20px;
+  /* Mirrors the window buttons' own inset on the opposite edge. */
+  right: var(--chrome-inset, 18px);
   /* Above #titlebar, which is a fixed drag strip over the top 38px at z-index
      5 — a button underneath it gets none of the clicks. */
   z-index: 6;
