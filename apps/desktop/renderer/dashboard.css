@@ -22,6 +22,14 @@
      same. Also set from the URL before first paint; TRAFFIC_LIGHT_X in
      main/index.js is the number that moves it. */
   --chrome-inset: 18px;
+
+  /* Collapse does not sit exactly level with the window buttons — it is nudged
+     out toward the corner and down. Written as an offset FROM the chrome rather
+     than as absolute coordinates, so it still follows if the traffic lights are
+     ever moved, and so the two numbers read as the deliberate adjustment they
+     are instead of disappearing into a pair of magic pixel values. */
+  --collapse-out: 8px;    /* further toward the right edge */
+  --collapse-down: 6px;   /* lower than the window buttons */
 }
 
 * { box-sizing: border-box; }
@@ -839,10 +847,10 @@ body[data-watching="1"] #side-status { color: var(--orange-ink); }
   /* Centred on the traffic lights across the window, so the two read as one
      row of controls at the two ends of the title bar. Translating by half its
      own height keeps that true if the button's padding or type ever changes. */
-  top: var(--traffic-centre);
+  top: calc(var(--traffic-centre) + var(--collapse-down));
   transform: translateY(-50%);
-  /* Mirrors the window buttons' own inset on the opposite edge. */
-  right: var(--chrome-inset, 18px);
+  /* The window buttons' inset on the opposite edge, then out toward the corner. */
+  right: calc(var(--chrome-inset, 18px) - var(--collapse-out));
   /* Above #titlebar, which is a fixed drag strip over the top 38px at z-index
      5 — a button underneath it gets none of the clicks. */
   z-index: 6;
