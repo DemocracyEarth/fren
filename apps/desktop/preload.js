@@ -4,6 +4,8 @@ contextBridge.exposeInMainWorld('fren', {
   toggleObservation: () => ipcRenderer.invoke('fren:toggleObservation'),
   chat: (text) => ipcRenderer.invoke('fren:chat', text),
   setPanelOpen: (open) => ipcRenderer.invoke('fren:setPanelOpen', open),
+  // Which corner the panel WOULD open into, without opening it.
+  aimPanel: () => ipcRenderer.invoke('fren:aimPanel'),
   quit: () => ipcRenderer.invoke('fren:quit'),
   getProfile: () => ipcRenderer.invoke('fren:getProfile'),
   setProfile: (p) => ipcRenderer.invoke('fren:setProfile', p),

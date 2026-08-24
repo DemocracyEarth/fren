@@ -10,6 +10,7 @@ const base = {
   // Which side of the orb the panel grows from. Main decides it from the room
   // on screen; the renderer flips the stage to match.
   panelBelow: false,
+  panelSide: 'left',
   gatewayOk: false,
 };
 

@@ -8,7 +8,8 @@ if (!window.fren && location.protocol !== 'file:') {
     getState: async () => ({ observing: false, mascot: 'sleeping', panelOpen: false, gatewayOk: false }),
     toggleObservation: async () => {},
     chat: async () => ({ reply: 'Running outside Electron, so this is a canned reply.' }),
-    setPanelOpen: async () => {},
+    setPanelOpen: async () => ({ side: 'left', drop: false }),
+    aimPanel: async () => ({ side: 'left', drop: false }),
     quit: async () => {},
     dragStart: async () => {},
     dragEnd: async () => ({ moved: false }),
@@ -123,6 +124,7 @@ function render(next) {
   // Which way the panel grows. Main works it out from the room around the orb;
   // this only has to lay it out that way.
   document.body.dataset.panelBelow = state.panelBelow ? '1' : '0';
+  document.body.dataset.panelSide = state.panelSide === 'right' ? 'right' : 'left';
   paintWatch();
   // Offered only when a model that can see is configured, and only while the
   // light is on: looking at the screen while paused is precisely what the light
@@ -774,14 +776,50 @@ async function loadPanelHistory() {
   scrollDown();
 }
 
+/**
+ * Wait until the browser has actually put a frame on the screen.
+ *
+ * One rAF only gets you into the frame that is being built; the callback of a
+ * second one runs after that frame has been handed to the compositor. Both the
+ * open and the close path need this, because both change the window's size, and
+ * a window that changes size before its contents have been redrawn shows the
+ * old contents at the new size for a moment.
+ */
+const painted = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+/** Lay the stage out for the corner the panel is going to open into. */
+function faceCorner(how) {
+  if (!how) return;
+  document.body.dataset.panelBelow = how.drop ? '1' : '0';
+  document.body.dataset.panelSide = how.side === 'right' ? 'right' : 'left';
+}
+
 async function setPanel(open) {
   if (panelBusy) return;
   panelBusy = true;
   try {
     if (open) {
       await loadPanelHistory();
-      await window.fren.setPanelOpen(true);   // make room, invisibly
+      // Turn to face the corner BEFORE the window grows into it. While the
+      // window is still orb-sized this costs nothing to look at; after it has
+      // grown, the same change moves the orb the height of the whole panel.
+      // Usually it is already facing the right way and this is free.
+      const aim = await window.fren.aimPanel();
+      if (aim.drop !== (document.body.dataset.panelBelow === '1') ||
+          aim.side !== document.body.dataset.panelSide) {
+        faceCorner(aim);
+        await painted();
+      }
+      // The corner comes back from the answer rather than from the state push
+      // that follows it — the push arrives a hop later, and the panel is
+      // revealed before then.
+      faceCorner(await window.fren.setPanelOpen(true));
       state.panelOpen = true;
+      // The window is now panel-sized but still holds only the orb. Letting
+      // that paint means the surface is the right size BEFORE anything appears
+      // on it, so the panel unfolds onto a settled window instead of arriving
+      // with one frame of the old, smaller one behind it.
+      await painted();
       els.panel.hidden = false;
       els.input.focus();
       // A beat from the character itself, so the orb reads as the thing the
@@ -802,6 +840,14 @@ async function setPanel(open) {
       els.panel.hidden = true;
       els.panel.classList.remove('closing');
       state.panelOpen = false;
+      // A frame with the panel gone but the window still large. The orb does
+      // not move when the panel is hidden — the stage pins it to the same
+      // corner either way — so this paints exactly what the small window is
+      // about to contain. Shrinking first instead means the window is 172px
+      // tall while the surface behind it is still the 626px one with the
+      // conversation on it, and what shows through is the top of that: the
+      // panel where the orb should be.
+      await painted();
       await window.fren.setPanelOpen(false);  // and only now take the room back
     }
   } finally {

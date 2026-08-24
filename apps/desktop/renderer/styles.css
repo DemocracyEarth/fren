@@ -131,12 +131,17 @@ body[data-recording="1"] #orb .fren-face {
 
   /* It unfolds out of the orb and folds back into it.
    *
-   * The orb sits at the bottom-right of this window and the panel stacks above
-   * it, so bottom-right is where the panel is physically hinged — scaling from
-   * anywhere else would read as a dialog appearing rather than as fren opening
-   * up. The window itself resizes instantly and invisibly (it is transparent);
-   * everything you actually see happens here. */
-  transform-origin: 100% 100%;
+   * Wherever the orb is in this window, that corner is where the panel is
+   * physically hinged — scaling from anywhere else would read as a dialog
+   * appearing rather than as fren opening up. There are four such corners now,
+   * so the hinge and the direction it leans are variables and the corner sets
+   * their signs. The window itself resizes instantly and invisibly (it is
+   * transparent); everything you actually see happens here. */
+  --hinge-x: 100%;    /* the orb's corner, which the panel scales out of */
+  --hinge-y: 100%;
+  --lean-x: 10px;     /* and the direction of the orb, which it leans from */
+  --lean-y: 26px;
+  transform-origin: var(--hinge-x) var(--hinge-y);
   will-change: transform, opacity;
 }
 #panel[hidden] { display: none; }
@@ -153,33 +158,35 @@ body[data-recording="1"] #orb .fren-face {
  * keeps reading order and focus order the way they were.
  */
 body[data-panel-below="1"] #stage { flex-direction: column-reverse; }
-/* Coming out of the character means coming DOWN now, so the panel arrives from
-   above and leaves upward. Same curves, mirrored. */
-body[data-panel-below="1"] #panel.opening { animation-name: panel-in-below; }
-body[data-panel-below="1"] #panel.closing { animation-name: panel-out-below; }
+/* Coming out of the character means coming DOWN now: hinged on the panel's top
+   edge, leaning up toward the orb. */
+body[data-panel-below="1"] #panel { --hinge-y: 0%; --lean-y: -26px; }
 
-@keyframes panel-in-below {
-  from { opacity: 0; transform: translate(10px, -26px) scale(.82); }
-  72%  { opacity: 1; transform: translate(0, 3px) scale(1.012); }
-  to   { opacity: 1; transform: none; }
-}
-@keyframes panel-out-below {
-  from { opacity: 1; transform: none; }
-  to   { opacity: 0; transform: translate(8px, -18px) scale(.88); }
-}
+/*
+ * The panel to the RIGHT of the orb instead of the left.
+ *
+ * For an orb parked against the left edge of the screen there is no room to the
+ * left to grow into, so the window extends the other way and the orb moves to
+ * its left edge. flex-start on the cross axis; the DOM does not move here
+ * either.
+ */
+body[data-panel-side="right"] #stage { align-items: flex-start; }
+body[data-panel-side="right"] #panel { --hinge-x: 0%; --lean-x: -10px; }
 
 @keyframes panel-in {
   /* Overshoot slightly at 72% so it settles rather than stops — the same
-     softness the character itself has. */
-  from { opacity: 0; transform: translate(10px, 26px) scale(.82); }
-  72%  { opacity: 1; transform: translate(0, -3px) scale(1.012); }
+     softness the character itself has. The lean is signed by the corner, so
+     one pair of keyframes covers all four of them. */
+  from { opacity: 0; transform: translate(var(--lean-x), var(--lean-y)) scale(.82); }
+  72%  { opacity: 1; transform: translate(0, calc(var(--lean-y) * -0.115)) scale(1.012); }
   to   { opacity: 1; transform: none; }
 }
 @keyframes panel-out {
   /* Quicker than it arrived. Waiting to leave feels like lag; arriving slowly
      feels considered. */
   from { opacity: 1; transform: none; }
-  to   { opacity: 0; transform: translate(8px, 18px) scale(.88); }
+  to   { opacity: 0;
+         transform: translate(calc(var(--lean-x) * 0.8), calc(var(--lean-y) * 0.7)) scale(.88); }
 }
 
 /* The pieces arrive just after the box does, so it reads as unfolding rather

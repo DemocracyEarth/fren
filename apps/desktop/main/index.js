@@ -12,7 +12,10 @@ const { createSummarizer } = require('./summarizer');
 const { createPatternWatcher } = require('./patterns');
 const { createCuriosityWatcher } = require('./curiosity');
 const { wakeOnLaunchFrom } = require('./wake');
-const { clampInto, offsetInWindow } = require('./place');
+const {
+  clampInto, offsetInWindow, windowFor, chooseSide,
+  CHARACTER_BASE, STAGE_PAD, SHADOW_ROOM,
+} = require('./place');
 const providerSettings = require('./settings');
 const { createRoutineRunner, nextRunAt, isDue } = require('./routines');
 const executor = require('./executor');
@@ -97,26 +100,15 @@ const TRAFFIC_LIGHT_X = 18;     // inset from the left edge
 const TRAFFIC_LIGHT_H = 12;     // macOS draws them 12px tall
 const trafficCentre = () => TRAFFIC_LIGHT_Y + TRAFFIC_LIGHT_H / 2;
 
-const ORB_BASE = 150;
-const ORB_ZONE_BASE = 144;      // the drag halo, from styles.css
-/**
- * Room around the character for its shadow to finish.
- *
- * The window clips: anything drawn past its edge simply is not on screen. A CSS
- * blur(r) paints about 1.5r past its own box — sigma is half the radius and a
- * Gaussian is only spent by three sigma — so a shadow with nowhere to fade ends
- * along a straight line instead.
- *
- * Down AND right, because the shadow falls away from the key light, which sits
- * up and to the left of the sphere (orb.js: key.position -2.2, 4.2, 3.0).
+/*
+ * CHARACTER_BASE, STAGE_PAD and SHADOW_ROOM come from place.js, which is where
+ * the arithmetic that uses them lives. They are the stylesheet's numbers, and
+ * place.test.js reads styles.css to check they still are.
  */
-const SHADOW_ROOM = 22;
-// #stage's own padding, from styles.css. Needed here because main has to know
-// exactly where inside the window the character is drawn.
-const STAGE_PAD = 4;
-// Which side of the orb the panel grows from. Whichever it is, the ORB does not
-// move — that is the whole point of tracking it.
-let panelBelow = false;
+// Which corner of the orb the panel grows from, and how big it is allowed to be
+// there. Whichever corner it is, the ORB does not move — that is the whole
+// point of tracking this rather than just clamping the window afterwards.
+let panelHow = { side: 'left', drop: false };
 const SCALE_MIN = 0.65;
 const SCALE_MAX = 2.0;
 let orbScale = 1;
@@ -125,13 +117,26 @@ const clampScale = (s) => Math.min(SCALE_MAX, Math.max(SCALE_MIN, Number(s) || 1
 // The window is taller than the character by SHADOW_ROOM, which is empty
 // transparent space beneath it for the shadow to fade out in.
 const shadowRoom = () => Math.round(SHADOW_ROOM * orbScale);
-const orbSize = () => ({
-  width: Math.round(ORB_BASE * orbScale) + shadowRoom(),
-  height: Math.round(ORB_BASE * orbScale) + shadowRoom(),
-});
+/**
+ * The window with nothing in it but the character.
+ *
+ * Exactly the stage's padding around the character's box, which makes
+ * offsetInWindow come out at STAGE_PAD in EVERY corner: a closed orb sits in
+ * the same place whichever way the panel was going to open. That is worth the
+ * two pixels it costs, because it means closing the panel cannot move the orb
+ * however the corner happens to be bookkept.
+ *
+ * It used to be the character plus the shadow's room and nothing else, which
+ * was 2px short of what the stage needs — so the halo overflowed the window on
+ * every closed frame, and the two corners disagreed by 2 * STAGE_PAD.
+ */
+const orbSize = () => {
+  const n = Math.round(CHARACTER_BASE * orbScale) + 2 * STAGE_PAD + shadowRoom();
+  return { width: n, height: n };
+};
 /** The character's own box, without the shadow's room. What must stay visible. */
 const characterSize = () => {
-  const n = Math.round(ORB_BASE * orbScale);
+  const n = Math.round(CHARACTER_BASE * orbScale);
   return { width: n, height: n };
 };
 // The orb sits under the panel in the same window, so a bigger orb needs a
@@ -141,7 +146,7 @@ const panelSize = () => ({
   // with the panel open. The stage pads it back out, so the panel's own visible
   // width is unchanged.
   width: PANEL_BASE.width + shadowRoom(),
-  height: PANEL_BASE.height + Math.round(ORB_ZONE_BASE * orbScale) + shadowRoom(),
+  height: PANEL_BASE.height + Math.round(CHARACTER_BASE * orbScale) + shadowRoom(),
   // The panel keeps its own width; only the orb's strip needs the extra.
 });
 
@@ -196,7 +201,7 @@ function clampToScreen(bounds) {
   // the shadow, and may carry the panel above OR below — insisting all of that
   // stays on screen would stop fren being parked against an edge at all.
   const orb = characterSize();
-  const off = characterOffset(bounds, panelBelow);
+  const off = characterOffset(bounds, panelHow);
   // Nearest to the ORB, not to the window: with the panel open the window's own
   // centre can be on a different display from the character.
   const { workArea } = screen.getDisplayNearestPoint({
@@ -229,11 +234,18 @@ function positionWindow(size) {
   // Anchor to the bottom-right corner of the primary display's work area.
   const { workArea } = screen.getPrimaryDisplay();
   // MARGIN is the gap from the CHARACTER to the screen edge, not from the
-  // window — the window now hangs lower than the orb by the shadow's room, and
-  // measuring from its edge would push fren visibly up the screen.
+  // window — the window hangs past the orb by the shadow's room AND the stage's
+  // padding, and measuring from its edge pushes fren up and left of where the
+  // margin says. Said once, in windowFor, rather than derived again here: the
+  // hand-written version forgot the padding and was 4px out in both axes.
+  const ch = characterSize();
+  const rect = {
+    ...ch,
+    x: workArea.x + workArea.width - MARGIN - ch.width,
+    y: workArea.y + workArea.height - MARGIN - ch.height,
+  };
   win.setBounds({
-    x: workArea.x + workArea.width - size.width - MARGIN + shadowRoom(),
-    y: workArea.y + workArea.height - size.height - MARGIN + shadowRoom(),
+    ...windowFor(rect, size, ch, STAGE_PAD, shadowRoom(), panelHow),
     ...size,
   });
 }
@@ -253,14 +265,14 @@ function positionWindow(size) {
  * grows from: the orb is at the BOTTOM when the panel is above it, and at the
  * TOP when the panel is below.
  */
-function characterOffset(size, below) {
-  return offsetInWindow(size, characterSize(), STAGE_PAD, shadowRoom(), below);
+function characterOffset(size, how) {
+  return offsetInWindow(size, characterSize(), STAGE_PAD, shadowRoom(), how);
 }
 
 /** The character's rectangle on screen, right now. */
 function characterRect() {
   const b = win.getBounds();
-  const off = characterOffset({ width: b.width, height: b.height }, panelBelow);
+  const off = characterOffset({ width: b.width, height: b.height }, panelHow);
   return { ...characterSize(), x: b.x + off.x, y: b.y + off.y };
 }
 
@@ -278,31 +290,63 @@ function characterRect() {
  * that. No clamp afterwards: clamping is for a character that has been dragged
  * somewhere silly, not for one that has not moved at all.
  */
-function setPanelOpen(open) {
-  const before = characterRect();
-  const size = open ? panelSize() : orbSize();
+/**
+ * Build the window around a character that is not allowed to move.
+ *
+ * This is the one place the window's bounds are decided. Give it where the orb
+ * is — or where you want it to be — and it picks the corner the panel has room
+ * to open into, shrinks the panel if no corner has room for all of it, and puts
+ * the window wherever that puts it. The orb ends up exactly at `rect`.
+ *
+ * There is no clamp afterwards. Clamping is for a character that has been
+ * dragged somewhere silly; it is the caller's job to hand this a sensible rect,
+ * and the window that comes back may well hang off the screen by the width of
+ * the shadow's strip, which is exactly what it should do.
+ */
+function placeAround(rect, open) {
   const { workArea } = screen.getDisplayNearestPoint({
-    x: Math.round(before.x + before.width / 2),
-    y: Math.round(before.y + before.height / 2),
+    x: Math.round(rect.x + rect.width / 2),
+    y: Math.round(rect.y + rect.height / 2),
   });
 
-  // Above unless it does not fit. Closing always goes back to the plain layout,
-  // so a closed orb is never left in the flipped one.
-  let below = false;
-  if (open) {
-    const above = characterOffset(size, false);
-    const roomAbove = before.y - above.y >= workArea.y;
-    const flipped = characterOffset(size, true);
-    const roomBelow = before.y - flipped.y + size.height <= workArea.y + workArea.height;
-    // If neither fits the screen is smaller than the panel; keep the usual
-    // side rather than flip to one that is equally impossible.
-    below = !roomAbove && roomBelow;
-  }
+  // Closed, there is nothing to find room for, so the corner is KEPT rather
+  // than reset. Resetting it looks harmless — a lone orb sits in the same place
+  // whichever corner it is nominally in — but it changes the offset main
+  // measures from at the same moment the window changes size, and the renderer
+  // only hears about the new corner an IPC hop later. That one frame of
+  // disagreement is a visibly misplaced orb. Keeping it means closing changes
+  // exactly one thing.
+  const how = open
+    ? chooseSide(rect, panelSize(), characterSize(), STAGE_PAD, shadowRoom(), workArea, panelHow)
+    : { side: panelHow.side, drop: panelHow.drop, size: orbSize() };
 
-  const off = characterOffset(size, below);
-  panelBelow = below;
-  win.setBounds({ x: before.x - off.x, y: before.y - off.y, ...size });
-  state.set({ panelOpen: !!open, panelBelow: below });
+  panelHow = how;
+  const at = windowFor(rect, how.size, characterSize(), STAGE_PAD, shadowRoom(), how);
+  const b = win.getBounds();
+  // Guarded because this runs every frame of a drag, and setting a window to
+  // the bounds it already has is not free.
+  if (at.x !== b.x || at.y !== b.y ||
+      how.size.width !== b.width || how.size.height !== b.height) {
+    win.setBounds({ ...at, ...how.size });
+  }
+  return how;
+}
+
+/** Tell the renderer which corner it is laying out for, if that has changed. */
+function syncCorner(how, extra = null) {
+  const s = state.get();
+  if (extra || s.panelBelow !== how.drop || s.panelSide !== how.side) {
+    state.set({ ...extra, panelBelow: how.drop, panelSide: how.side });
+  }
+}
+
+function setPanelOpen(open) {
+  const how = placeAround(characterRect(), open);
+  syncCorner(how, { panelOpen: !!open });
+  // Returned as well as pushed. The push is how every other window learns the
+  // corner; the return is how the one that asked learns it without waiting a
+  // second hop, which matters because it is about to reveal the panel.
+  return { side: how.side, drop: how.drop };
 }
 
 function createWindow() {
@@ -612,6 +656,21 @@ app.whenReady().then(() => {
   // the left: the character stays exactly where the user parked it.
   ipcMain.handle('fren:setPanelOpen', (_e, open) => setPanelOpen(open));
 
+  // Asked before opening, so the stage can be laid out for the corner the panel
+  // is about to use while the window is still orb-sized. Doing it afterwards
+  // instead leaves one frame where the window is already panel-sized and the
+  // renderer still has the old corner, which puts the orb a long way from where
+  // main just placed it. This only reads geometry; nothing moves.
+  ipcMain.handle('fren:aimPanel', () => {
+    const rect = characterRect();
+    const { workArea } = screen.getDisplayNearestPoint({
+      x: Math.round(rect.x + rect.width / 2),
+      y: Math.round(rect.y + rect.height / 2),
+    });
+    const how = chooseSide(rect, panelSize(), characterSize(), STAGE_PAD, shadowRoom(), workArea, panelHow);
+    return { side: how.side, drop: how.drop };
+  });
+
   /**
    * A way in that does not depend on the right mouse button.
    *
@@ -632,21 +691,35 @@ app.whenReady().then(() => {
     ]));
   }
 
+  // Dragged by the CHARACTER, not by the window. The window is a different size
+  // and in a different place depending on which corner the panel is in, so
+  // holding the cursor at a fixed offset from its origin meant the orb slid out
+  // from under the pointer whenever that changed. Holding it at a fixed offset
+  // from the orb is also what makes it safe for the panel to flip mid-drag: the
+  // window can move and resize underneath and the orb still tracks the cursor.
   ipcMain.handle('fren:dragStart', () => {
     const cursor = screen.getCursorScreenPoint();
-    const b = win.getBounds();
-    drag = { dx: cursor.x - b.x, dy: cursor.y - b.y, moved: false, timer: null };
+    const from = characterRect();
+    drag = { dx: cursor.x - from.x, dy: cursor.y - from.y, from, moved: false, timer: null };
     drag.timer = setInterval(() => {
       if (!drag || !win || win.isDestroyed()) return;
       const c = screen.getCursorScreenPoint();
-      const x = c.x - drag.dx;
-      const y = c.y - drag.dy;
-      const cur = win.getBounds();
-      if (Math.abs(x - cur.x) > 2 || Math.abs(y - cur.y) > 2) drag.moved = true;
+      const ch = characterSize();
+      const want = { ...ch, x: c.x - drag.dx, y: c.y - drag.dy };
+      if (Math.abs(want.x - drag.from.x) > 2 || Math.abs(want.y - drag.from.y) > 2) {
+        drag.moved = true;
+      }
       // Clamped, so fren can be parked against any edge but never carried off
       // one. There is no title bar to grab it back by.
-      const at = clampToScreen({ x, y, width: cur.width, height: cur.height });
-      win.setPosition(at.x, at.y);
+      const { workArea } = screen.getDisplayNearestPoint({
+        x: Math.round(want.x + ch.width / 2),
+        y: Math.round(want.y + ch.height / 2),
+      });
+      // With the chat open this re-chooses the corner every frame, so dragging
+      // fren into the top-left flips the panel down and to the right as it
+      // goes rather than sliding it off the screen.
+      syncCorner(placeAround({ ...ch, ...clampInto(want, ch, workArea) },
+        state.get().panelOpen));
     }, 16);
   });
 
@@ -816,16 +889,20 @@ app.whenReady().then(() => {
     const wasScale = orbScale;
     orbScale = clampScale(next);
 
-    const size = state.get().panelOpen ? panelSize() : orbSize();
+    // Re-chosen rather than kept: a bigger orb needs a bigger window, and the
+    // corner that had room for the old one may not have room for this one.
     const ch = characterSize();
-    const off = characterOffset(size, panelBelow);
-    const at = clampToScreen({
-      x: Math.round(centre.x - ch.width / 2) - off.x,
-      y: Math.round(centre.y - ch.height / 2) - off.y,
-      width: size.width,
-      height: size.height,
+    const want = {
+      ...ch,
+      x: Math.round(centre.x - ch.width / 2),
+      y: Math.round(centre.y - ch.height / 2),
+    };
+    const { workArea } = screen.getDisplayNearestPoint({
+      x: Math.round(centre.x), y: Math.round(centre.y),
     });
-    win.setBounds({ ...at, ...size });
+    syncCorner(placeAround({ ...ch, ...clampInto(want, ch, workArea) },
+      state.get().panelOpen));
+    const size = win.getBounds();
     // Written every time rather than on a debounce: this is one small integer,
     // and the alternative is losing the size to a crash or a force-quit right
     // after someone has just set it.
