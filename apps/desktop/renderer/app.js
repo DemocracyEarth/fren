@@ -120,6 +120,9 @@ function render(next) {
   // The most important fact in the window, in words. The orb says it too, but
   // the orb may be behind whatever you are working on.
   document.body.dataset.watching = state.observing ? '1' : '0';
+  // Which way the panel grows. Main works it out from the room around the orb;
+  // this only has to lay it out that way.
+  document.body.dataset.panelBelow = state.panelBelow ? '1' : '0';
   paintWatch();
   // Offered only when a model that can see is configured, and only while the
   // light is on: looking at the screen while paused is precisely what the light
@@ -699,12 +702,22 @@ const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)');
 let panelBusy = false;
 
 /** Resolves when the named animation ends, or at once if it cannot run. */
-function played(node, className, deadlineMs) {
+/**
+ * Run one animation and wait for it.
+ *
+ * `keep` leaves the class ON when it finishes. That is for animations that end
+ * INVISIBLE: their fill mode is what is holding the element out of sight, so
+ * removing the class hands it back at full opacity, and anything the caller
+ * still has to do — hiding it, resizing the window — happens with a fully
+ * painted element on screen. Callers that end invisible take the class off
+ * themselves, after they have hidden the thing.
+ */
+function played(node, className, deadlineMs, { keep = false } = {}) {
   node.classList.add(className);
   if (REDUCED.matches) {
     // The stylesheet disables every animation, so animationend never arrives.
     // Waiting on it would leave the panel stuck open.
-    node.classList.remove(className);
+    if (!keep) node.classList.remove(className);
     return Promise.resolve();
   }
   return new Promise((resolve) => {
@@ -713,7 +726,7 @@ function played(node, className, deadlineMs) {
       if (done) return;
       done = true;
       node.removeEventListener('animationend', onEnd);
-      node.classList.remove(className);
+      if (!keep) node.classList.remove(className);
       resolve();
     };
     // Only the panel's own animation counts. The staggered children fire this
@@ -776,8 +789,18 @@ async function setPanel(open) {
       face.pulse('squash');
       await played(els.panel, 'opening', 500);
     } else {
-      await played(els.panel, 'closing', 320);
+      // `keep` matters here and is the whole fix for the closing flicker.
+      //
+      // panel-out has fill mode `both`, so at the end of the animation the
+      // panel is held at the final keyframe — invisible. Dropping the class
+      // releases that hold and the panel snaps back to full opacity. played()
+      // used to remove it before returning, so there was a moment where a fully
+      // opaque panel was waiting to be hidden, and that moment is the flash.
+      //
+      // So it stays held: hide first, and only then let go.
+      await played(els.panel, 'closing', 320, { keep: true });
       els.panel.hidden = true;
+      els.panel.classList.remove('closing');
       state.panelOpen = false;
       await window.fren.setPanelOpen(false);  // and only now take the room back
     }

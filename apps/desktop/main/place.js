@@ -41,4 +41,32 @@ function clampInto(bounds, orb, workArea) {
   };
 }
 
-module.exports = { clampInto };
+/**
+ * Where the character is drawn inside a window of a given size.
+ *
+ * The one place that answers "where is the orb, really". It is always hard
+ * against the right, inset by the stage's padding and the strip left for its
+ * shadow. Vertically it depends on which side the panel grows from: the orb is
+ * at the BOTTOM when the panel is above it, and at the TOP when the panel is
+ * below — which is the whole mechanism by which the panel can flip sides
+ * without the orb moving a pixel.
+ */
+function offsetInWindow(size, character, pad, room, below) {
+  return {
+    x: size.width - pad - room - character.width,
+    y: below ? pad : size.height - pad - room - character.height,
+  };
+}
+
+/**
+ * Where to put a window of `size` so the character lands exactly on `rect`.
+ *
+ * Opening the panel is this and nothing else: measure where the character is,
+ * pick a side, and place the new window around it.
+ */
+function windowFor(rect, size, character, pad, room, below) {
+  const off = offsetInWindow(size, character, pad, room, below);
+  return { x: rect.x - off.x, y: rect.y - off.y };
+}
+
+module.exports = { clampInto, offsetInWindow, windowFor };

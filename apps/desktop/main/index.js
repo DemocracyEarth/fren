@@ -12,7 +12,7 @@ const { createSummarizer } = require('./summarizer');
 const { createPatternWatcher } = require('./patterns');
 const { createCuriosityWatcher } = require('./curiosity');
 const { wakeOnLaunchFrom } = require('./wake');
-const { clampInto } = require('./place');
+const { clampInto, offsetInWindow } = require('./place');
 const providerSettings = require('./settings');
 const { createRoutineRunner, nextRunAt, isDue } = require('./routines');
 const executor = require('./executor');
@@ -111,6 +111,12 @@ const ORB_ZONE_BASE = 144;      // the drag halo, from styles.css
  * up and to the left of the sphere (orb.js: key.position -2.2, 4.2, 3.0).
  */
 const SHADOW_ROOM = 22;
+// #stage's own padding, from styles.css. Needed here because main has to know
+// exactly where inside the window the character is drawn.
+const STAGE_PAD = 4;
+// Which side of the orb the panel grows from. Whichever it is, the ORB does not
+// move — that is the whole point of tracking it.
+let panelBelow = false;
 const SCALE_MIN = 0.65;
 const SCALE_MAX = 2.0;
 let orbScale = 1;
@@ -186,18 +192,23 @@ const log = (...args) => console.log(...args);
  * got lost.
  */
 function clampToScreen(bounds) {
-  // The CHARACTER, not the window. The window's lower strip is transparent room
-  // for the shadow, and insisting that stays on screen would stop fren being
-  // parked against the bottom edge.
+  // The CHARACTER, not the window. The window carries a transparent strip for
+  // the shadow, and may carry the panel above OR below — insisting all of that
+  // stays on screen would stop fren being parked against an edge at all.
   const orb = characterSize();
-  // Nearest to the ORB, not to the window: with the panel open the window's
-  // own centre can be on a different display from the character.
+  const off = characterOffset(bounds, panelBelow);
+  // Nearest to the ORB, not to the window: with the panel open the window's own
+  // centre can be on a different display from the character.
   const { workArea } = screen.getDisplayNearestPoint({
-    x: Math.round(bounds.x + bounds.width - shadowRoom() - orb.width / 2),
-    y: Math.round(bounds.y + bounds.height - shadowRoom() - orb.height / 2),
+    x: Math.round(bounds.x + off.x + orb.width / 2),
+    y: Math.round(bounds.y + off.y + orb.height / 2),
   });
+  // clampInto keeps the orb at the bottom-right of what it is given, so it is
+  // given a box that ENDS at the character: same top-left as the real window,
+  // sized so its bottom-right corner is the character's. The origin it returns
+  // is the origin the real window wants, whichever side the panel is on.
   return clampInto(
-    { ...bounds, width: bounds.width - shadowRoom(), height: bounds.height - shadowRoom() },
+    { x: bounds.x, y: bounds.y, width: off.x + orb.width, height: off.y + orb.height },
     orb, workArea
   );
 }
@@ -233,26 +244,65 @@ function positionWindow(size) {
  * The orb lives at the window's bottom-right, so the window grows up and to the
  * left: the character stays exactly where it was parked.
  */
+/**
+ * Where the character is drawn inside a window of this size.
+ *
+ * Everything about keeping the orb still comes back to this one function. The
+ * character is always hard against the right, inset by the stage padding and
+ * the strip left for its shadow. Vertically it depends on which side the panel
+ * grows from: the orb is at the BOTTOM when the panel is above it, and at the
+ * TOP when the panel is below.
+ */
+function characterOffset(size, below) {
+  return offsetInWindow(size, characterSize(), STAGE_PAD, shadowRoom(), below);
+}
+
+/** The character's rectangle on screen, right now. */
+function characterRect() {
+  const b = win.getBounds();
+  const off = characterOffset({ width: b.width, height: b.height }, panelBelow);
+  return { ...characterSize(), x: b.x + off.x, y: b.y + off.y };
+}
+
+/**
+ * Open or close the panel WITHOUT moving the orb.
+ *
+ * The old version anchored the window's bottom-right and then clamped it into
+ * the work area, which is fine until there is no room above — near the top of
+ * the screen the taller window would have hung off it, so the clamp pushed the
+ * whole thing down and took the character with it. The orb jumping when you
+ * open the chat is the one thing this must not do.
+ *
+ * So the character's rectangle is measured first and treated as fixed, the
+ * panel goes on whichever side has room for it, and the window is placed around
+ * that. No clamp afterwards: clamping is for a character that has been dragged
+ * somewhere silly, not for one that has not moved at all.
+ */
 function setPanelOpen(open) {
-  const cur = win.getBounds();
+  const before = characterRect();
   const size = open ? panelSize() : orbSize();
-  const anchorRight = cur.x + cur.width;
-  const anchorBottom = cur.y + cur.height;
-  const { workArea } = screen.getDisplayMatching(cur);
-  const x = Math.min(
-    Math.max(anchorRight - size.width, workArea.x),
-    workArea.x + workArea.width - size.width
-  );
-  const y = Math.min(
-    Math.max(anchorBottom - size.height, workArea.y),
-    workArea.y + workArea.height - size.height
-  );
-  win.setBounds({ x, y, ...size });
-  // Opening the panel grows the window up and to the left; near a top or left
-  // edge that can carry the orb out of the work area.
-  const at = clampToScreen(win.getBounds());
-  win.setPosition(at.x, at.y);
-  state.set({ panelOpen: !!open });
+  const { workArea } = screen.getDisplayNearestPoint({
+    x: Math.round(before.x + before.width / 2),
+    y: Math.round(before.y + before.height / 2),
+  });
+
+  // Above unless it does not fit. Closing always goes back to the plain layout,
+  // so a closed orb is never left in the flipped one.
+  let below = false;
+  if (open) {
+    const above = characterOffset(size, false);
+    const roomAbove = before.y - above.y >= workArea.y;
+    const flipped = characterOffset(size, true);
+    const roomBelow = before.y - flipped.y + size.height <= workArea.y + workArea.height;
+    // If neither fits the screen is smaller than the panel; keep the usual
+    // side rather than flip to one that is equally impossible.
+    below = !roomAbove && roomBelow;
+  }
+
+  const off = characterOffset(size, below);
+  panelBelow = below;
+  win.setBounds({ x: before.x - off.x, y: before.y - off.y, ...size });
+  state.set({ panelOpen: !!open, panelBelow: below });
 }
 
 function createWindow() {
@@ -286,14 +336,11 @@ function createWindow() {
 }
 
 function orbCenter() {
-  const b = win.getBounds();
-  // The CHARACTER's centre, so the gaze tracks the pointer relative to the face
-  // rather than to a window that now hangs lower than the face does.
-  const { width, height } = characterSize();
-  return {
-    x: b.x + b.width - shadowRoom() - width / 2,
-    y: b.y + b.height - shadowRoom() - height / 2,
-  };
+  // The CHARACTER's centre, wherever in the window it currently sits, so the
+  // gaze tracks the pointer relative to the face rather than to a window that
+  // may extend well past it in either direction.
+  const r = characterRect();
+  return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
 }
 
 /**
@@ -758,17 +805,23 @@ app.whenReady().then(() => {
    * across the screen as it changes size.
    */
   ipcMain.handle('fren:setOrbScale', (_e, next) => {
-    const before = orbScale;
+    // Measured BEFORE the scale changes, because characterRect() is computed
+    // from it — reading it afterwards would describe where the orb is about to
+    // be rather than where it is. Anchored on its centre, so growing and
+    // shrinking happen around the character rather than walking it across the
+    // screen.
+    const was = characterRect();
+    const centre = { x: was.x + was.width / 2, y: was.y + was.height / 2 };
+
+    const wasScale = orbScale;
     orbScale = clampScale(next);
-    const cur = win.getBounds();
+
     const size = state.get().panelOpen ? panelSize() : orbSize();
-    // Anchored bottom-right so fren grows up and to the left, staying where it
-    // was parked. One clamp rule for every path that moves the window: this
-    // used to force the whole window into the work area while the drag used no
-    // rule at all, which is two answers to the same question.
+    const ch = characterSize();
+    const off = characterOffset(size, panelBelow);
     const at = clampToScreen({
-      x: cur.x + cur.width - size.width,
-      y: cur.y + cur.height - size.height,
+      x: Math.round(centre.x - ch.width / 2) - off.x,
+      y: Math.round(centre.y - ch.height / 2) - off.y,
       width: size.width,
       height: size.height,
     });
@@ -776,7 +829,7 @@ app.whenReady().then(() => {
     // Written every time rather than on a debounce: this is one small integer,
     // and the alternative is losing the size to a crash or a force-quit right
     // after someone has just set it.
-    if (orbScale !== before) {
+    if (orbScale !== wasScale) {
       try { memory.setSetting('orbScale', orbScale); } catch { /* size still applied */ }
       log(`[orb] resized to ${orbScale.toFixed(2)}x (${size.width}px)`);
     }

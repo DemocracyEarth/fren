@@ -83,3 +83,69 @@ test('it returns whole pixels', () => {
   assert.equal(p.x, Math.round(p.x));
   assert.equal(p.y, Math.round(p.y));
 });
+
+// --- the panel flipping sides ----------------------------------------------
+//
+// The orb must never move. It is the one thing anchored to a place on the
+// screen, and everything else — the panel, the shadow's room, the window itself
+// — arranges itself around wherever it happens to be.
+
+const { offsetInWindow, windowFor } = require('../main/place.js');
+
+const PAD = 4;
+const ROOM = 22;
+const CHAR = { width: 150, height: 150 };
+const ORB_WIN = { width: 150 + ROOM, height: 150 + ROOM };
+const PANEL_WIN = { width: 384 + ROOM, height: 460 + 144 + ROOM };
+
+test('the character sits bottom-right when the panel is above', () => {
+  const off = offsetInWindow(ORB_WIN, CHAR, PAD, ROOM, false);
+  assert.equal(off.x, ORB_WIN.width - PAD - ROOM - CHAR.width);
+  assert.equal(off.y, ORB_WIN.height - PAD - ROOM - CHAR.height);
+});
+
+test('and top-right when the panel is below', () => {
+  const off = offsetInWindow(ORB_WIN, CHAR, PAD, ROOM, true);
+  assert.equal(off.y, PAD, 'the orb goes to the top, so the panel has room under it');
+  assert.equal(off.x, ORB_WIN.width - PAD - ROOM - CHAR.width, 'horizontally unchanged');
+});
+
+/** Where the character ends up if a window of `size` is placed by windowFor. */
+const landsAt = (rect, size, below) => {
+  const w = windowFor(rect, size, CHAR, PAD, ROOM, below);
+  const off = offsetInWindow(size, CHAR, PAD, ROOM, below);
+  return { x: w.x + off.x, y: w.y + off.y };
+};
+
+test('opening the panel ABOVE does not move the orb', () => {
+  const at = { x: 1300, y: 700 };
+  assert.deepEqual(landsAt(at, PANEL_WIN, false), at);
+});
+
+test('opening the panel BELOW does not move the orb', () => {
+  // The case that was broken: near the top of the screen there is no room
+  // above, the window used to be clamped back down, and the orb came with it.
+  const at = { x: 1300, y: 40 };
+  assert.deepEqual(landsAt(at, PANEL_WIN, true), at);
+});
+
+test('the orb stays put wherever it is, either way round', () => {
+  for (const at of [{ x: 0, y: 0 }, { x: 1300, y: 700 }, { x: -900, y: 300 },
+                    { x: 3600, y: 1900 }, { x: 12, y: 5 }]) {
+    for (const below of [false, true]) {
+      assert.deepEqual(landsAt(at, PANEL_WIN, below), at,
+        `moved from ${at.x},${at.y} with below=${below}`);
+      assert.deepEqual(landsAt(at, ORB_WIN, below), at, 'and closing does not move it either');
+    }
+  }
+});
+
+test('flipping sides moves the WINDOW, never the character', () => {
+  const at = { x: 1300, y: 400 };
+  const above = windowFor(at, PANEL_WIN, CHAR, PAD, ROOM, false);
+  const below = windowFor(at, PANEL_WIN, CHAR, PAD, ROOM, true);
+  assert.notDeepEqual(above, below, 'the window has to move for the panel to change sides');
+  assert.equal(above.x, below.x, 'but only vertically');
+  assert.deepEqual(landsAt(at, PANEL_WIN, false), landsAt(at, PANEL_WIN, true),
+    'and the character lands in the same place either way');
+});

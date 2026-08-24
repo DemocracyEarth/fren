@@ -7,6 +7,9 @@ const base = {
   observing: false,
   canSeeScreen: false,   // a vision-capable model is configured
   panelOpen: false,
+  // Which side of the orb the panel grows from. Main decides it from the room
+  // on screen; the renderer flips the stage to match.
+  panelBelow: false,
   gatewayOk: false,
 };
 
