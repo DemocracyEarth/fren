@@ -109,6 +109,31 @@ const trafficCentre = () => TRAFFIC_LIGHT_Y + TRAFFIC_LIGHT_H / 2;
 // there. Whichever corner it is, the ORB does not move — that is the whole
 // point of tracking this rather than just clamping the window afterwards.
 let panelHow = { side: 'left', drop: false };
+/**
+ * Where the character's centre WANTS to be, in screen coordinates.
+ *
+ * Not where it is. Parked in a corner and grown, the orb runs into the edge of
+ * the screen and gets clamped inward — and if the next resize then measures
+ * where it actually ended up, the clamped position becomes the new truth and
+ * shrinking it again leaves it stranded in the middle. Zooming in and back out
+ * walked the orb diagonally off its corner, a bit further every time.
+ *
+ * So this is written only by the things that genuinely move fren — a drag, the
+ * first placement, being rescued back onto the screen — and resizing only ever
+ * reads it. Growing against an edge is then exactly undone by shrinking again.
+ */
+let orbAnchor = null;
+
+/** The character's centre right now, wherever it has ended up. */
+function characterCentre() {
+  const r = characterRect();
+  return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+}
+
+/** fren has been moved on purpose: this is where it wants to be from now on. */
+function anchorHere() {
+  orbAnchor = characterCentre();
+}
 const SCALE_MIN = 0.65;
 const SCALE_MAX = 2.0;
 let orbScale = 1;
@@ -225,6 +250,7 @@ function recenter() {
   const at = clampToScreen(b);
   if (at.x !== b.x || at.y !== b.y) {
     win.setPosition(at.x, at.y);
+    anchorHere();
     log(`[window] brought fren back on screen from ${b.x},${b.y}`);
   }
   win.showInactive();
@@ -248,6 +274,7 @@ function positionWindow(size) {
     ...windowFor(rect, size, ch, STAGE_PAD, shadowRoom(), panelHow),
     ...size,
   });
+  anchorHere();
 }
 
 /**
@@ -720,6 +747,9 @@ app.whenReady().then(() => {
       // goes rather than sliding it off the screen.
       syncCorner(placeAround({ ...ch, ...clampInto(want, ch, workArea) },
         state.get().panelOpen));
+      // Dragging is fren being moved on purpose, so this is where it wants to
+      // be now — including if the drag ends with it pressed against an edge.
+      anchorHere();
     }, 16);
   });
 
@@ -878,13 +908,16 @@ app.whenReady().then(() => {
    * across the screen as it changes size.
    */
   ipcMain.handle('fren:setOrbScale', (_e, next) => {
-    // Measured BEFORE the scale changes, because characterRect() is computed
-    // from it — reading it afterwards would describe where the orb is about to
-    // be rather than where it is. Anchored on its centre, so growing and
-    // shrinking happen around the character rather than walking it across the
-    // screen.
-    const was = characterRect();
-    const centre = { x: was.x + was.width / 2, y: was.y + was.height / 2 };
+    // The remembered anchor, NOT where the orb currently is. Those differ
+    // exactly when the orb has been clamped by a screen edge, which is the case
+    // this has to get right: measuring the clamped position here is what made
+    // zooming in and back out leave fren somewhere else.
+    //
+    // Measured BEFORE the scale changes either way, because characterRect() is
+    // computed from it, and reading it afterwards would describe where the orb
+    // is about to be rather than where it is.
+    if (!orbAnchor) anchorHere();
+    const centre = orbAnchor;
 
     const wasScale = orbScale;
     orbScale = clampScale(next);
