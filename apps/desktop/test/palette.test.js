@@ -14,18 +14,21 @@ const P = require('../renderer/face/palette.js');
 
 const hx = (n) => '#' + n.toString(16).padStart(6, '0');
 
-test('the default colour reproduces the original palette exactly', () => {
+test('the default colour reproduces the shipped palette exactly', () => {
   // Not approximately. Someone who never touches this setting must get the
   // palette that was tuned by hand, byte for byte.
+  //
+  // These bytes have moved once: the original ember #ff8a00 was a solid, and
+  // when the body became a gold-to-coral gradient the base was regraded to the
+  // gradient's MIDPOINT — softer and pinker, since the shader rotates the gold
+  // and coral stops out of whatever this is. The relationships are unchanged;
+  // that is the other tests' job to prove.
   const t = P.tonesFrom(P.DEFAULT_HEX);
-  assert.equal(hx(t.base.color), '#ff8a00');
-  // warm and excited moved when the moods were pulled back onto the base hue:
-  // they were #ffa51f and #ffb92e, drifting toward yellow and colliding with
-  // the listening tone. Same lightness as before, no hue shift.
-  assert.equal(hx(t.warm.color), '#ff981f');
-  assert.equal(hx(t.excited.color), '#ff9f2e');
-  assert.equal(hx(t.hearing.color), '#ffc85a');
-  assert.equal(hx(P.sheenColorFrom(P.DEFAULT_HEX)), '#ffc06a');
+  assert.equal(hx(t.base.color), '#f28b54');
+  assert.equal(hx(t.warm.color), '#f49f71');
+  assert.equal(hx(t.excited.color), '#f5a87f');
+  assert.equal(hx(t.hearing.color), '#f8cea8');
+  assert.equal(hx(P.sheenColorFrom(P.DEFAULT_HEX)), '#f9d0b7');
 });
 
 test('no mood wears the listening colour', () => {
@@ -209,10 +212,17 @@ test('the bright accent is kept as the button wherever it can be', () => {
 });
 
 test('the default colour leaves the shipped accent where it was', () => {
+  // "Shipped" means the literals in tokens.css: the app must look the same the
+  // frame before applyAccent runs as the frame after, or launch flashes the
+  // old orange. When this test moves, tokens.css moves with it — same bytes.
   const a = P.accentFrom(P.DEFAULT_HEX);
-  assert.equal(hx(a.accent), '#ff8a00');
+  assert.equal(hx(a.accent), '#f28b54');
+  assert.equal(hx(a.lite), '#fcbb8c');
+  assert.equal(hx(a.deep), '#e86330');
+  assert.equal(hx(a.shadow), '#c63c12');
+  assert.equal(hx(a.ink), '#ac430b');
   // The tints are driven from this, so it has to be the components of the accent.
-  assert.equal(a.rgb, '255, 138, 0');
+  assert.equal(a.rgb, '242, 139, 84');
 });
 
 test('every accent token comes back as something CSS can use', () => {

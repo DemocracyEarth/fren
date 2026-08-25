@@ -154,8 +154,12 @@ class Orb {
       color: TONE.base.color,
       roughness: TONE.base.rough,
       metalness: 0,
-      clearcoat: 1,
-      clearcoatRoughness: 0.06,
+      // Not 1 any more. A full clearcoat with no environment map steals the
+      // base layer's energy at grazing angles and reflects nothing back — a
+      // black mirror — which is what kept the orb's lower rim dark brown no
+      // matter how bright the coral under it was. Half keeps the glint.
+      clearcoat: 0.5,
+      clearcoatRoughness: 0.12,
       sheen: TONE.base.sheen,
       sheenColor: new THREE.Color(0xffc06a),
       emissive: new THREE.Color(0xffffff),
@@ -177,7 +181,13 @@ class Orb {
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', `#include <common>
           uniform float uTime; uniform float uAmount; uniform float uSquash;
-          uniform float uSeed;`)
+          uniform float uSeed;
+          varying vec3 vGradN;`)
+        // The gradient's compass. View-space normals, so the warm corner stays
+        // pinned to the screen's top-left however the sphere rolls or the gaze
+        // turns — it reads as light falling on fren, not as paint on it.
+        .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
+          vGradN = normalMatrix * objectNormal;`)
         // Three axes rather than two, so a wobble travels around the sphere
         // instead of rippling in one plane, and a per-shake seed so the surface
         // deforms differently each time instead of the same standing wave
@@ -190,18 +200,87 @@ class Orb {
           transformed += normal * w * uAmount;
           transformed.xz *= 1.0 + uSquash;
           transformed.y  *= 1.0 - uSquash;`);
+
+      /*
+       * The body is a gradient, not a colour: gold falling in from the top
+       * left, coral pooling at the bottom right. Crucially both stops are
+       * DERIVED from the one animated base colour, in the shader, per frame —
+       * hue rotated a few degrees either way — rather than being two more
+       * uniforms someone has to remember to set. Everything that already
+       * moves the base keeps working untouched: moods brighten it, listening
+       * pulses it toward gold, sleep drains it to grey (where saturation is
+       * near zero, so the hue swing quietly vanishes and asleep stays grey).
+       */
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>
+          varying vec3 vGradN;
+          vec3 frenHsl(vec3 c) {
+            float mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b));
+            float l = (mx + mn) * 0.5, d = mx - mn, h = 0.0, s = 0.0;
+            if (d > 1e-5) {
+              s = l > 0.5 ? d / (2.0 - mx - mn) : d / (mx + mn);
+              if (mx == c.r)      h = (c.g - c.b) / d + (c.g < c.b ? 6.0 : 0.0);
+              else if (mx == c.g) h = (c.b - c.r) / d + 2.0;
+              else                h = (c.r - c.g) / d + 4.0;
+              h /= 6.0;
+            }
+            return vec3(h, s, l);
+          }
+          float frenHue(float p, float q, float t) {
+            t = fract(t);
+            if (t < 1.0 / 6.0) return p + (q - p) * 6.0 * t;
+            if (t < 0.5)       return q;
+            if (t < 2.0 / 3.0) return p + (q - p) * (2.0 / 3.0 - t) * 6.0;
+            return p;
+          }
+          vec3 frenRgb(vec3 hsl) {
+            float s = clamp(hsl.y, 0.0, 1.0), l = clamp(hsl.z, 0.0, 1.0);
+            if (s < 1e-5) return vec3(l);
+            float q = l < 0.5 ? l * (1.0 + s) : l + s - l * s;
+            float p = 2.0 * l - q;
+            return vec3(frenHue(p, q, hsl.x + 1.0 / 3.0),
+                        frenHue(p, q, hsl.x),
+                        frenHue(p, q, hsl.x - 1.0 / 3.0));
+          }`)
+        .replace('vec4 diffuseColor = vec4( diffuse, opacity );', `
+          // The colour work happens in sRGB, not in the linear values the
+          // shader is handed. A hue turned toward red at constant LINEAR
+          // lightness loses perceived brightness — that is how the coral
+          // corner kept coming out maroon — and these offsets were chosen by
+          // eye against an sRGB reference, so sRGB is the space they mean.
+          vec3 frenBase = frenHsl(pow(diffuse, vec3(1.0 / 2.2)));
+          vec3 frenGold  = frenBase + vec3( 0.055, 0.00, 0.055);
+          vec3 frenCoral = frenBase + vec3(-0.050, 0.02, 0.045);
+          // Centre of the disc sits at the midpoint; the stops arrive just
+          // before the rim, along the same up-left diagonal as the key light.
+          vec3 frenNv = normalize(vGradN);
+          float frenT = smoothstep(0.0, 1.0,
+            0.5 + 0.62 * dot(frenNv.xy, vec2(-0.566, 0.824)));
+          vec4 diffuseColor =
+            vec4(pow(frenRgb(mix(frenCoral, frenGold, frenT)), vec3(2.2)), opacity);`);
     };
 
     this.orb = new THREE.Mesh(new THREE.SphereGeometry(1, 128, 128), this.material);
     this.scene.add(this.orb);
 
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+    // Bright and even, so the gradient reads as the body's colour. With the
+    // old 0.35 ambient the coral corner sat in the key light's shade and came
+    // out brown — the reference the palette is matched to is nearly flat-lit,
+    // its form carried by the colour ramp rather than by shading.
+    this.scene.add(new THREE.AmbientLight(0xffffff, 1.08));
     // The key SHAPES the sphere. High and up-left, and it casts nothing --
     // from up there the shadow would land far below the frame.
-    this.key = new THREE.DirectionalLight(0xfff1dc, 3.1);
+    this.key = new THREE.DirectionalLight(0xfff1dc, 1.7);
     this.key.position.set(-2.2, 4.2, 3.0);
     this.key.castShadow = false;
     this.scene.add(this.key);
+    // A fill from the coral corner, so the gradient's far stop is lit by
+    // something and reads as colour rather than as shade. Warm-pink on
+    // purpose: a white fill would wash the coral toward orange.
+    this.fill = new THREE.DirectionalLight(0xffd2c2, 0.55);
+    this.fill.position.set(2.4, -2.6, 2.6);
+    this.fill.castShadow = false;
+    this.scene.add(this.fill);
 
     // Nothing casts a shadow in the scene. A plane can only receive a shadow
     // ONTO itself, which is the wrong shape entirely -- what the orb needs is a
