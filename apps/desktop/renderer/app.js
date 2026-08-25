@@ -28,7 +28,9 @@ const els = {
   watch: document.getElementById('watch'),
   watchSay: document.getElementById('watch-say'),
   dashDot: document.getElementById('dash-dot'),
-  quit: document.getElementById('quit'),
+  lightQuit: document.getElementById('light-quit'),
+  lightMin: document.getElementById('light-min'),
+  lightExpand: document.getElementById('light-expand'),
   messages: document.getElementById('messages'),
   empty: document.getElementById('empty'),
   typing: document.getElementById('typing'),
@@ -1259,7 +1261,8 @@ async function pumpScale() {
       // is a real shrink, not a rounding-sized one. Hence: grow the window
       // first, shrink the orb first. The window is transparent, so being
       // briefly too big for what is in it costs nothing to look at.
-      const growing = next > orbScale;
+      const was = orbScale;
+      const growing = next > was;
       orbScale = next;
       // Shrinking, the orb goes first and the window follows; growing, the
       // window goes first and the orb follows. Either way the window is never
@@ -1270,7 +1273,8 @@ async function pumpScale() {
       const viewport = growing ? onceResized() : null;
       // Main owns the window and the saved value, and it clamps — so believe
       // what it reports back rather than what was asked for.
-      let settled = orbScale;
+      let settled = next;
+      let resized = true;
       try {
         const r = await window.fren.setOrbScale(orbScale);
         if (r) {
@@ -1278,9 +1282,17 @@ async function pumpScale() {
           scaleMax = r.max;
           settled = r.scale;
           orbScale = r.scale;
+          // A clamped notch can leave the window exactly as it was, and then
+          // no resize event is coming — waiting for one is a stall per notch.
+          if (r.size) resized = r.size.width !== innerWidth || r.size.height !== innerHeight;
         }
-      } catch { /* the window did not move, so neither should the orb */ }
-      if (viewport) await viewport;
+      } catch {
+        // The request never landed, so the window never moved — and the orb
+        // must not be left resized inside it. Put the scale back.
+        settled = was;
+        orbScale = was;
+      }
+      if (viewport && resized) await viewport;
       // On the way up this is the first time the orb hears about it, and the
       // window it is about to fill is already the right size. On the way down
       // it is a correction, and usually a no-op.
@@ -1615,23 +1627,22 @@ function paintWatch() {
 // the tabs gone this is the only way through, so it is a real button rather
 // than a link tucked in a corner.
 //
-// "Expand" rather than "Dashboard": it is the same conversation with room to
+// The green light is the old Expand button: the same conversation with room to
 // read it, and main closes this panel as the other window opens — so it reads
 // as one thing growing rather than a second thing appearing.
-const dashBtn = document.getElementById('open-dash');
-if (dashBtn) {
-  dashBtn.addEventListener('click', () => {
-    window.fren.openDashboard();
-    // Whatever was waiting is about to be on screen.
-    if (els.dashDot) els.dashDot.hidden = true;
-  });
-}
+els.lightExpand.addEventListener('click', () => {
+  window.fren.openDashboard();
+  // Whatever was waiting is about to be on screen.
+  if (els.dashDot) els.dashDot.hidden = true;
+});
 
 els.watch.addEventListener('click', () => window.fren.toggleObservation());
-// Closes the CHAT, not fren. Quitting is one decision, made in one place: the
-// dashboard's close dialog. A × on a chat panel that killed the whole app was
-// the kind of thing you only learn once.
-els.quit.addEventListener('click', () => setPanel(false));
+// Yellow closes the CHAT, not fren — tucked away, still running, exactly what
+// minimise means. A × here that killed the whole app was the kind of thing you
+// only learn once, so the killing is red's job and red ASKS: main puts up the
+// same kind of dialog the dashboard's close button does.
+els.lightMin.addEventListener('click', () => setPanel(false));
+els.lightQuit.addEventListener('click', () => window.fren.quit());
 
 els.form.addEventListener('submit', (e) => {
   e.preventDefault();

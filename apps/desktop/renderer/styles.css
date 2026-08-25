@@ -173,6 +173,65 @@ body[data-panel-below="1"] #panel { --hinge-y: 0%; --lean-y: -26px; }
 body[data-panel-side="right"] #stage { align-items: flex-start; }
 body[data-panel-side="right"] #panel { --hinge-x: 0%; --lean-x: -10px; }
 
+/*
+ * The tail. A speech bubble is a box that POINTS AT ITS SPEAKER, and until now
+ * the panel just floated near the orb — related by proximity, not by anatomy.
+ *
+ * It is a square rotated 45°, sitting astride the panel's orb-facing edge and
+ * centred on the orb. It paints IN FRONT of the panel, so its fill erases the
+ * stretch of panel border it crosses and the two bordered edges read as the
+ * bubble's outline continuing down to the point — the classic seamless tail.
+ * Behind the panel instead would leave the panel's own hairline running across
+ * the tail's base.
+ *
+ * The offsets are the same numbers main uses to place the character
+ * (place.js): the orb's centre is pad + zone/2 from its edge, and the panel's
+ * edge is pad(+room) + zone + gap from the window's. All in --orb-scale, so it
+ * tracks the wheel.
+ */
+#stage { position: relative; }
+#stage::after {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  background: var(--cream);
+  border-right: 1px solid rgba(255, 255, 255, 0.6);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.6);
+  transform: rotate(45deg);
+  pointer-events: none;
+  /* Centred on the orb: pad + (room + zone/2) from the right. */
+  right: calc(4px + 94px * var(--orb-scale, 1) - 8px);
+  /* Astride the panel's bottom edge: pad + room + zone + gap from the bottom. */
+  bottom: calc(12px + 166px * var(--orb-scale, 1) - 8px);
+}
+/* No panel, no tail. */
+#stage:has(#panel[hidden])::after { display: none; }
+/* It appears once the panel has mostly arrived — a tail growing out of a
+ * bubble that is still unfolding reads as debris — and lets go quickly. */
+#stage:has(#panel.opening)::after { animation: tail-in .34s var(--ease-out) both; }
+#stage:has(#panel.closing)::after { animation: tail-out .19s var(--ease-soft) both; }
+@keyframes tail-in { from { opacity: 0; } 55% { opacity: 0; } to { opacity: 1; } }
+@keyframes tail-out { to { opacity: 0; } }
+
+/* The panel below the orb: the tail moves to its TOP edge and points up, so
+ * the bordered edges swap to the other pair. Bone, not cream — the gradient's
+ * stop at that end. */
+body[data-panel-below="1"] #stage::after {
+  bottom: auto;
+  top: calc(12px + 144px * var(--orb-scale, 1) - 8px);
+  background: var(--bone);
+  border: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.6);
+  border-top: 1px solid rgba(255, 255, 255, 0.6);
+}
+/* The orb on the left: the tail slides to the panel's left end. The left
+ * inset has no shadow room, so the orb's centre is closer to that edge. */
+body[data-panel-side="right"] #stage::after {
+  right: auto;
+  left: calc(4px + 72px * var(--orb-scale, 1) - 8px);
+}
+
 @keyframes panel-in {
   /* Overshoot slightly at 72% so it settles rather than stops — the same
      softness the character itself has. The lean is signed by the corner, so
@@ -372,16 +431,53 @@ button { font-family: inherit; -webkit-app-region: no-drag; cursor: pointer; }
 }
 .ghost:hover { background: rgba(26, 23, 18, .06); color: var(--ink); }
 
-.icon {
+/*
+ * The traffic lights.
+ *
+ * macOS colours, macOS behaviour: blank dots at rest, glyphs on the whole
+ * group when any of them is hovered — the glyph tells you what a dot does at
+ * the moment you could do it, and stays out of the way otherwise. The dots are
+ * 12px like the real ones, but the BUTTONS are bigger than they look: a 12px
+ * target is a miss waiting to happen, so the padding carries the hit area.
+ */
+#lights { display: inline-flex; gap: 2px; align-items: center; }
+.light {
+  position: relative;
   border: 0;
   background: transparent;
-  color: var(--ink-soft);
-  font-size: 19px;
-  line-height: 1;
-  padding: 2px 6px;
-  border-radius: 8px;
+  padding: 5px 3px;          /* the invisible part of the target */
+  line-height: 0;
 }
-.icon:hover { background: rgba(26, 23, 18, .08); color: var(--ink); }
+.light > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  font-size: 9px;
+  font-weight: 700;
+  color: transparent;        /* glyph hidden until the group is hovered */
+}
+#light-quit   > span:first-child { background: #ff5f57; }
+#light-min    > span:first-child { background: #febc2e; }
+#light-expand > span:first-child { background: #28c840; }
+#lights:hover .light > span:first-child { color: rgba(0, 0, 0, 0.55); }
+.light:active > span:first-child { filter: brightness(0.85); }
+.light:focus-visible { outline: 2px solid var(--gold, #c90); outline-offset: 1px; border-radius: 8px; }
+
+/* Something is waiting in the big window: a speck on the green light, in the
+ * same place the old Expand button wore it. */
+#dash-dot {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--gold, #c90);
+}
 
 /* ------------------------------------------------------------- messages */
 #messages {

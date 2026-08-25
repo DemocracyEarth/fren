@@ -13,6 +13,22 @@
          when the window grows. -->
     <section id="panel" hidden>
       <header id="panel-head">
+        <!-- The window's own controls, said the way macOS says them. The old ×
+             here only hid the chat, and there was no way to QUIT fren from
+             this window at all — the one decision people most expect a red
+             light to make. Red quits (and asks first), yellow tucks the chat
+             away, green is the old Expand button: the same conversation with
+             room to read it. Hovering the group reveals the glyphs, exactly
+             like the real ones. -->
+        <div id="lights" role="group" aria-label="Window controls">
+          <button id="light-quit" class="light" title="Quit fren"
+                  aria-label="Quit fren"><span aria-hidden="true">&#215;</span></button>
+          <button id="light-min" class="light" title="Close the chat"
+                  aria-label="Close the chat — fren keeps running"><span aria-hidden="true">&#8722;</span></button>
+          <button id="light-expand" class="light" title="Open the big window"
+                  aria-label="Open the big window"><span aria-hidden="true">&#8599;</span>
+            <span id="dash-dot" hidden></span></button>
+        </div>
         <span class="wordmark" role="img" aria-label="fren"></span>
         <span class="spacer"></span>
         <span id="gateway-dot" title="fren cannot reach its thinking half"></span>
@@ -31,16 +47,6 @@
              this window is the one a screen reader never hears. -->
         <span id="watch-say" class="sr-only" role="status" aria-live="polite"></span>
 
-        <button id="open-dash" title="Open the big window">
-          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none"
-               stroke="currentColor" stroke-width="2" stroke-linecap="round"
-               stroke-linejoin="round">
-            <path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>
-          </svg>
-          <span>Expand</span>
-          <span id="dash-dot" hidden></span>
-        </button>
-        <button id="quit" class="icon" title="Quit fren">&#215;</button>
       </header>
 
       <div id="messages" role="log" aria-live="polite" aria-label="Conversation with fren">

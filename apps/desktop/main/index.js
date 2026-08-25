@@ -943,7 +943,13 @@ app.whenReady().then(() => {
       try { memory.setSetting('orbScale', orbScale); } catch { /* size still applied */ }
       log(`[orb] resized to ${orbScale.toFixed(2)}x (${size.width}px)`);
     }
-    return { scale: orbScale, min: SCALE_MIN, max: SCALE_MAX };
+    return {
+      scale: orbScale, min: SCALE_MIN, max: SCALE_MAX,
+      // What the window is NOW, so the renderer can tell whether a resize
+      // event is coming at all — a clamped notch changes nothing, and waiting
+      // for an event that will never fire is a stall per notch.
+      size: { width: size.width, height: size.height },
+    };
   });
 
   ipcMain.handle('fren:getOrbScale', () => ({ scale: orbScale, min: SCALE_MIN, max: SCALE_MAX }));
@@ -1492,7 +1498,20 @@ app.whenReady().then(() => {
     return true;
   });
 
-  ipcMain.handle('fren:quit', () => { quitting = true; app.quit(); });
+  // The chat's red light. It asks, the way the dashboard's close button asks:
+  // quitting stops fren watching and forgets nothing, but it is still the kind
+  // of decision a 12px dot should not make on a slipped click.
+  ipcMain.handle('fren:quit', () => {
+    const response = dialog.showMessageBoxSync(win, {
+      type: 'question',
+      buttons: ['Quit fren', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      message: 'Quit fren?',
+      detail: 'fren stops watching and everything closes. What it remembers is kept.',
+    });
+    if (response === 0) { quitting = true; app.quit(); }
+  });
 
   /**
    * Answer a question from fren's own memory.
