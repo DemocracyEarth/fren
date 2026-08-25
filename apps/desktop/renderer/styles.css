@@ -20,7 +20,13 @@ html, body {
   justify-content: flex-end;
   align-items: flex-end;
   gap: 8px;
-  padding: 4px;
+  /* Empty room along the bottom AND the right, with nothing in it. The window
+     is larger than the character by exactly this much so the shadow has
+     somewhere to fade out — down and right, away from the key light.
+     SHADOW_ROOM in main/index.js grows the window to match, and pads the panel
+     back out so its own width is unchanged. */
+  padding: 4px calc(4px + 22px * var(--orb-scale, 1))
+           calc(4px + 22px * var(--orb-scale, 1)) 4px;
 }
 
 /* ---------------------------------------------------------------- the orb */
@@ -36,6 +42,8 @@ html, body {
 }
 
 #orb {
+  /* The cast shadow below is positioned against this. */
+  position: relative;
   width: calc(123px * var(--orb-scale, 1));
   height: calc(123px * var(--orb-scale, 1));  /* leaves a drag ring around it */
   padding: 0;
@@ -48,6 +56,36 @@ html, body {
 #orb:active { transform: scale(.94); }
 
 .fren-face { display: block; overflow: visible; }
+
+/*
+ * Standing off a wall, not sitting on a floor.
+ *
+ * Those are different shadows and only one of them is a drop-shadow. A floor
+ * shadow is foreshortened — an ellipse pooled beneath the object, which is what
+ * this was, and it made the orb read as resting on a surface. A shadow on a
+ * plane BEHIND the object is the object's own silhouette, undistorted, pushed
+ * away from the light. That is exactly what drop-shadow does, so the ellipse is
+ * gone and the whole shadow is back in the filter.
+ *
+ * The direction is not a taste call: the key light sits up and to the left and
+ * slightly in front (orb.js: key.position -2.2, 4.2, 3.0), so the shadow falls
+ * down and to the right, at about half as far across as down — the ratio of
+ * that light's x to its y.
+ *
+ * Two layers. A near one that keeps the silhouette legible, and a wider, weaker
+ * one that gives the gap between orb and wall — the further a thing stands off
+ * a surface, the softer and fainter its shadow on it.
+ */
+#orb canvas,
+#orb .fren-face {
+  filter:
+    drop-shadow(calc(4px * var(--orb-scale, 1))
+                calc(8px * var(--orb-scale, 1))
+                calc(9px * var(--orb-scale, 1)) rgba(48, 26, 8, 0.26))
+    drop-shadow(calc(8px * var(--orb-scale, 1))
+                calc(16px * var(--orb-scale, 1))
+                calc(20px * var(--orb-scale, 1)) rgba(48, 26, 8, 0.20));
+}
 
 /*
  * Recording, on the fallback renderer.
@@ -93,33 +131,121 @@ body[data-recording="1"] #orb .fren-face {
 
   /* It unfolds out of the orb and folds back into it.
    *
-   * The orb sits at the bottom-right of this window and the panel stacks above
-   * it, so bottom-right is where the panel is physically hinged — scaling from
-   * anywhere else would read as a dialog appearing rather than as fren opening
-   * up. The window itself resizes instantly and invisibly (it is transparent);
-   * everything you actually see happens here. */
-  transform-origin: 100% 100%;
+   * Wherever the orb is in this window, that corner is where the panel is
+   * physically hinged — scaling from anywhere else would read as a dialog
+   * appearing rather than as fren opening up. There are four such corners now,
+   * so the hinge and the direction it leans are variables and the corner sets
+   * their signs. The window itself resizes instantly and invisibly (it is
+   * transparent); everything you actually see happens here. */
+  --hinge-x: 100%;    /* the orb's corner, which the panel scales out of */
+  --hinge-y: 100%;
+  --lean-x: 10px;     /* and the direction of the orb, which it leans from */
+  --lean-y: 26px;
+  transform-origin: var(--hinge-x) var(--hinge-y);
   will-change: transform, opacity;
 }
 #panel[hidden] { display: none; }
 
 #panel.opening { animation: panel-in .34s var(--ease-out) both; }
-#panel.closing { animation: panel-out .19s var(--ease-soft) both; }
+
+/*
+ * The panel below the orb instead of above it.
+ *
+ * column-reverse walks the main axis bottom-to-top, so flex-end packs at the
+ * TOP and the children come out in reverse: the orb first, the panel under it.
+ * The DOM does not move — the panel stays before the orb in the markup, which
+ * keeps reading order and focus order the way they were.
+ */
+body[data-panel-below="1"] #stage { flex-direction: column-reverse; }
+/* Coming out of the character means coming DOWN now: hinged on the panel's top
+   edge, leaning up toward the orb. */
+body[data-panel-below="1"] #panel { --hinge-y: 0%; --lean-y: -26px; }
+
+/*
+ * The panel to the RIGHT of the orb instead of the left.
+ *
+ * For an orb parked against the left edge of the screen there is no room to the
+ * left to grow into, so the window extends the other way and the orb moves to
+ * its left edge. flex-start on the cross axis; the DOM does not move here
+ * either.
+ */
+body[data-panel-side="right"] #stage { align-items: flex-start; }
+body[data-panel-side="right"] #panel { --hinge-x: 0%; --lean-x: -10px; }
+
+/*
+ * The tail. A speech bubble is a box that POINTS AT ITS SPEAKER, and until now
+ * the panel just floated near the orb — related by proximity, not by anatomy.
+ *
+ * It is a square rotated 45°, sitting astride the panel's orb-facing edge and
+ * centred on the orb. It paints IN FRONT of the panel, so its fill erases the
+ * stretch of panel border it crosses and the two bordered edges read as the
+ * bubble's outline continuing down to the point — the classic seamless tail.
+ * Behind the panel instead would leave the panel's own hairline running across
+ * the tail's base.
+ *
+ * The offsets are the same numbers main uses to place the character
+ * (place.js): the orb's centre is pad + zone/2 from its edge, and the panel's
+ * edge is pad(+room) + zone + gap from the window's. All in --orb-scale, so it
+ * tracks the wheel.
+ */
+#stage { position: relative; }
+#stage::after {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  /* Not the panel's gradient stop — the colour of the thing it actually
+   * touches. The bottom of the panel is the input row, which is a wash of
+   * white over the gradient, so the tail wears the same wash over the same
+   * base. Painted as the same two layers rather than a flattened hex, so if
+   * the tokens move the tail moves with them. */
+  background: linear-gradient(rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.42)), var(--cream);
+  border-right: 1px solid rgba(255, 255, 255, 0.6);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.6);
+  transform: rotate(45deg);
+  pointer-events: none;
+  /* Centred on the orb: pad + (room + zone/2) from the right. */
+  right: calc(4px + 94px * var(--orb-scale, 1) - 8px);
+  /* Astride the panel's bottom edge: pad + room + zone + gap from the bottom. */
+  bottom: calc(12px + 166px * var(--orb-scale, 1) - 8px);
+}
+/* No panel, no tail. */
+#stage:has(#panel[hidden])::after { display: none; }
+/* It appears once the panel has mostly arrived — a tail growing out of a
+ * bubble that is still unfolding reads as debris. There is no tail-out to
+ * match: closing is instant, and the [hidden] rule above removes the tail in
+ * the very same frame as the panel it belongs to. */
+#stage:has(#panel.opening)::after { animation: tail-in .34s var(--ease-out) both; }
+@keyframes tail-in { from { opacity: 0; } 55% { opacity: 0; } to { opacity: 1; } }
+
+/* The panel below the orb: the tail moves to its TOP edge and points up, so
+ * the bordered edges swap to the other pair. Bone, not cream — the gradient's
+ * stop at that end. */
+body[data-panel-below="1"] #stage::after {
+  bottom: auto;
+  top: calc(12px + 144px * var(--orb-scale, 1) - 8px);
+  /* Up here it touches the header, which is a lighter wash over the gradient's
+   * top stop. Same two layers as the header itself. */
+  background: linear-gradient(rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.34)), var(--bone);
+  border: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.6);
+  border-top: 1px solid rgba(255, 255, 255, 0.6);
+}
+/* The orb on the left: the tail slides to the panel's left end. The left
+ * inset has no shadow room, so the orb's centre is closer to that edge. */
+body[data-panel-side="right"] #stage::after {
+  right: auto;
+  left: calc(4px + 72px * var(--orb-scale, 1) - 8px);
+}
 
 @keyframes panel-in {
   /* Overshoot slightly at 72% so it settles rather than stops — the same
-     softness the character itself has. */
-  from { opacity: 0; transform: translate(10px, 26px) scale(.82); }
-  72%  { opacity: 1; transform: translate(0, -3px) scale(1.012); }
+     softness the character itself has. The lean is signed by the corner, so
+     one pair of keyframes covers all four of them. */
+  from { opacity: 0; transform: translate(var(--lean-x), var(--lean-y)) scale(.82); }
+  72%  { opacity: 1; transform: translate(0, calc(var(--lean-y) * -0.115)) scale(1.012); }
   to   { opacity: 1; transform: none; }
 }
-@keyframes panel-out {
-  /* Quicker than it arrived. Waiting to leave feels like lag; arriving slowly
-     feels considered. */
-  from { opacity: 1; transform: none; }
-  to   { opacity: 0; transform: translate(8px, 18px) scale(.88); }
-}
-
 /* The pieces arrive just after the box does, so it reads as unfolding rather
  * than as one flat card sliding in. Small offsets — this is a 340ms event and
  * anything longer would be a thing you wait for. */
@@ -303,16 +429,53 @@ button { font-family: inherit; -webkit-app-region: no-drag; cursor: pointer; }
 }
 .ghost:hover { background: rgba(26, 23, 18, .06); color: var(--ink); }
 
-.icon {
+/*
+ * The traffic lights.
+ *
+ * macOS colours, macOS behaviour: blank dots at rest, glyphs on the whole
+ * group when any of them is hovered — the glyph tells you what a dot does at
+ * the moment you could do it, and stays out of the way otherwise. The dots are
+ * 12px like the real ones, but the BUTTONS are bigger than they look: a 12px
+ * target is a miss waiting to happen, so the padding carries the hit area.
+ */
+#lights { display: inline-flex; gap: 2px; align-items: center; }
+.light {
+  position: relative;
   border: 0;
   background: transparent;
-  color: var(--ink-soft);
-  font-size: 19px;
-  line-height: 1;
-  padding: 2px 6px;
-  border-radius: 8px;
+  padding: 5px 3px;          /* the invisible part of the target */
+  line-height: 0;
 }
-.icon:hover { background: rgba(26, 23, 18, .08); color: var(--ink); }
+.light > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  font-size: 9px;
+  font-weight: 700;
+  color: transparent;        /* glyph hidden until the group is hovered */
+}
+#light-quit   > span:first-child { background: #ff5f57; }
+#light-min    > span:first-child { background: #febc2e; }
+#light-expand > span:first-child { background: #28c840; }
+#lights:hover .light > span:first-child { color: rgba(0, 0, 0, 0.55); }
+.light:active > span:first-child { filter: brightness(0.85); }
+.light:focus-visible { outline: 2px solid var(--gold, #c90); outline-offset: 1px; border-radius: 8px; }
+
+/* Something is waiting in the big window: a speck on the green light, in the
+ * same place the old Expand button wore it. */
+#dash-dot {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--gold, #c90);
+}
 
 /* ------------------------------------------------------------- messages */
 #messages {

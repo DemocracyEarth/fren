@@ -8,7 +8,8 @@ if (!window.fren && location.protocol !== 'file:') {
     getState: async () => ({ observing: false, mascot: 'sleeping', panelOpen: false, gatewayOk: false }),
     toggleObservation: async () => {},
     chat: async () => ({ reply: 'Running outside Electron, so this is a canned reply.' }),
-    setPanelOpen: async () => {},
+    setPanelOpen: async () => ({ side: 'left', drop: false }),
+    aimPanel: async () => ({ side: 'left', drop: false }),
     quit: async () => {},
     dragStart: async () => {},
     dragEnd: async () => ({ moved: false }),
@@ -27,7 +28,9 @@ const els = {
   watch: document.getElementById('watch'),
   watchSay: document.getElementById('watch-say'),
   dashDot: document.getElementById('dash-dot'),
-  quit: document.getElementById('quit'),
+  lightQuit: document.getElementById('light-quit'),
+  lightMin: document.getElementById('light-min'),
+  lightExpand: document.getElementById('light-expand'),
   messages: document.getElementById('messages'),
   empty: document.getElementById('empty'),
   typing: document.getElementById('typing'),
@@ -120,6 +123,22 @@ function render(next) {
   // The most important fact in the window, in words. The orb says it too, but
   // the orb may be behind whatever you are working on.
   document.body.dataset.watching = state.observing ? '1' : '0';
+  // Which way the panel grows. Main works it out from the room around the orb;
+  // this only has to lay it out that way.
+  //
+  // Guarded like paintPanel() just above, and for the same reason. These two
+  // attributes decide which corner of the window the orb is drawn in, so
+  // rewriting them while the window is panel-sized moves the orb the height of
+  // the whole panel. Mid-transition setPanel() has already turned the stage to
+  // face the corner it is opening into, and main has not necessarily committed
+  // that corner yet — fren:aimPanel deliberately does not, it only answers the
+  // question. So during a transition the local write is the authority and a
+  // state push arriving from anything else at all (an observation tick, a mood
+  // change, the gateway going up) must not overwrite it.
+  if (!panelBusy) {
+    document.body.dataset.panelBelow = state.panelBelow ? '1' : '0';
+    document.body.dataset.panelSide = state.panelSide === 'right' ? 'right' : 'left';
+  }
   paintWatch();
   // Offered only when a model that can see is configured, and only while the
   // light is on: looking at the screen while paused is precisely what the light
@@ -681,24 +700,24 @@ async function sendMessage(text) {
 /**
  * Showing and hiding the conversation.
  *
- * The order is reversed between the two directions, which is the whole reason
- * this is not two lines. The window is transparent, so resizing it is invisible
- * — what you see is entirely the panel. So:
+ * The two directions are deliberately not mirror images. The window is
+ * transparent, so resizing it is invisible — what you see is entirely the
+ * panel. So:
  *
- *   opening — grow the window FIRST (nothing to see), then play the fold inside
- *             the space that now exists.
- *   closing — play the fold FIRST, then shrink. Shrinking first clips the panel
- *             mid-animation, which is what used to happen: there was no exit at
- *             all, it simply stopped existing.
+ *   opening — grow the window FIRST (nothing to see), then play the fold
+ *             inside the space that now exists.
+ *   closing — no animation at all. Hide, let a frame paint, shrink. Every
+ *             closing artifact this window ever produced lived inside its exit
+ *             animation, and a finished conversation does not need a send-off.
  *
  * While a transition runs it owns the panel's visibility and render() stands
- * back, or a state broadcast landing mid-fold snaps the panel away.
+ * back, or a state broadcast landing mid-open snaps the panel away.
  */
 const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 let panelBusy = false;
 
-/** Resolves when the named animation ends, or at once if it cannot run. */
+/** Run one animation and wait for it — or resolve at once if it cannot run. */
 function played(node, className, deadlineMs) {
   node.classList.add(className);
   if (REDUCED.matches) {
@@ -761,14 +780,50 @@ async function loadPanelHistory() {
   scrollDown();
 }
 
+/**
+ * Wait until the browser has actually put a frame on the screen.
+ *
+ * One rAF only gets you into the frame that is being built; the callback of a
+ * second one runs after that frame has been handed to the compositor. Both the
+ * open and the close path need this, because both change the window's size, and
+ * a window that changes size before its contents have been redrawn shows the
+ * old contents at the new size for a moment.
+ */
+const painted = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+/** Lay the stage out for the corner the panel is going to open into. */
+function faceCorner(how) {
+  if (!how) return;
+  document.body.dataset.panelBelow = how.drop ? '1' : '0';
+  document.body.dataset.panelSide = how.side === 'right' ? 'right' : 'left';
+}
+
 async function setPanel(open) {
   if (panelBusy) return;
   panelBusy = true;
   try {
     if (open) {
       await loadPanelHistory();
-      await window.fren.setPanelOpen(true);   // make room, invisibly
+      // Turn to face the corner BEFORE the window grows into it. While the
+      // window is still orb-sized this costs nothing to look at; after it has
+      // grown, the same change moves the orb the height of the whole panel.
+      // Usually it is already facing the right way and this is free.
+      const aim = await window.fren.aimPanel();
+      if (aim.drop !== (document.body.dataset.panelBelow === '1') ||
+          aim.side !== document.body.dataset.panelSide) {
+        faceCorner(aim);
+        await painted();
+      }
+      // The corner comes back from the answer rather than from the state push
+      // that follows it — the push arrives a hop later, and the panel is
+      // revealed before then.
+      faceCorner(await window.fren.setPanelOpen(true));
       state.panelOpen = true;
+      // The window is now panel-sized but still holds only the orb. Letting
+      // that paint means the surface is the right size BEFORE anything appears
+      // on it, so the panel unfolds onto a settled window instead of arriving
+      // with one frame of the old, smaller one behind it.
+      await painted();
       els.panel.hidden = false;
       els.input.focus();
       // A beat from the character itself, so the orb reads as the thing the
@@ -776,9 +831,24 @@ async function setPanel(open) {
       face.pulse('squash');
       await played(els.panel, 'opening', 500);
     } else {
-      await played(els.panel, 'closing', 320);
+      // No exit animation, on purpose. Closing used to play a 190ms fold, and
+      // every closing artifact this window ever produced lived somewhere
+      // inside it — the fill-mode flash, the held-frame flicker, the animation
+      // racing the resize. Opening can afford ceremony because nothing is
+      // waiting on it; closing is the user already done with the chat, and the
+      // most honest thing a finished conversation can do is not be there.
+      // One frame it is; the next it is gone — and the tail goes in the same
+      // frame, from the same fact (#stage:has(#panel[hidden]) in the styles).
       els.panel.hidden = true;
       state.panelOpen = false;
+      // A frame with the panel gone but the window still large. The orb does
+      // not move when the panel is hidden — the stage pins it to the same
+      // corner either way — so this paints exactly what the small window is
+      // about to contain. Shrinking first instead means the window is 172px
+      // tall while the surface behind it is still the 626px one with the
+      // conversation on it, and what shows through is the top of that: the
+      // panel where the orb should be.
+      await painted();
       await window.fren.setPanelOpen(false);  // and only now take the room back
     }
   } finally {
@@ -1031,6 +1101,36 @@ els.orb.addEventListener('mousedown', (e) => {
   pressing = true;
   dragging = false;
   pressAt = { x: e.screenX, y: e.screenY };
+  shakeDetector.reset();
+});
+
+/**
+ * Shaking fren.
+ *
+ * A shake is a drag that keeps changing its mind: swing one way, swing back,
+ * again. So it is detected on direction REVERSALS rather than on speed —
+ * carrying the orb across a large screen is fast too, and a speed test would
+ * set it wobbling every time anyone moved it.
+ *
+ * The detection is in face/shake.js so it can be tested against synthetic
+ * gestures. What matters is not that a shake is recognised but that carrying
+ * the orb somewhere, sweeping it in an arc, or holding it with an unsteady hand
+ * are all NOT — twelve of its fifteen tests assert something must not fire.
+ *
+ * Screen coordinates, so the window chasing the cursor during the drag cannot
+ * feed back into the signal. And nothing to guard against on the recording
+ * side any more: a drag never starts one, because mouseup checks `dragging`
+ * before it toggles.
+ */
+const shakeDetector = window.FrenShake.createShakeDetector();
+
+window.addEventListener('mousemove', (e) => {
+  if (!dragging) return;
+  const hit = shakeDetector.feed(e.screenX, e.screenY, Date.now());
+  if (hit && face && face.shake) {
+    face.shake(hit.power);
+    react('shake');
+  }
 });
 
 window.addEventListener('mousemove', (e) => {
@@ -1053,6 +1153,7 @@ window.addEventListener('mouseup', async (e) => {
     // recording — this is the only thing standing between "moved fren" and
     // "opened the microphone without meaning to".
     dragging = false;
+    shakeDetector.reset();
     await window.fren.dragEnd();
     return;
   }
@@ -1097,6 +1198,29 @@ function applyOrbScale(s) {
   if (face && face.resize) face.resize(ORB_BASE_PX * s);
 }
 
+/**
+ * Wait until this window has ACTUALLY changed size.
+ *
+ * Awaiting main's reply is not the same thing. Main's handler calls setBounds
+ * and returns, so the reply says "I have asked for the new size" — the
+ * renderer's own viewport catches up a frame or so later, and anything laid out
+ * in between is laid out against the old one.
+ *
+ * The timeout is not a fallback for a slow resize, it is for a resize that
+ * never happens: at the ends of the scale range main clamps and the window
+ * keeps the size it had, so there is no event coming.
+ */
+const onceResized = (ms = 120) => new Promise((resolve) => {
+  let timer = null;
+  const done = () => {
+    window.removeEventListener('resize', done);
+    clearTimeout(timer);
+    resolve();
+  };
+  window.addEventListener('resize', done);
+  timer = setTimeout(done, ms);
+});
+
 async function pumpScale() {
   if (scaleBusy || wantScale === null) return;
   scaleBusy = true;
@@ -1108,18 +1232,58 @@ async function pumpScale() {
       const next = wantScale;
       wantScale = null;
       if (Math.abs(next - orbScale) < 0.001) continue;
+      // WHICHEVER IS BIGGER GOES FIRST, so the window is never smaller than
+      // the orb inside it.
+      //
+      // The renderer changes the orb's size and main changes the window's, and
+      // between them is a whole IPC round trip. If the smaller of the two
+      // lands first the orb does not fit its window: #stage overflows, and
+      // because the stage packs its content against the far edge the overflow
+      // goes off the TOP-LEFT — so the orb jumps up and to the left and is
+      // clipped by the window it no longer fits in. That is the flicker.
+      //
+      // It used to always apply the scale first, which clipped on every zoom
+      // IN. Always resizing the window first just moves the clipping to every
+      // zoom OUT — and a fast scroll drains several notches through here, so it
+      // is a real shrink, not a rounding-sized one. Hence: grow the window
+      // first, shrink the orb first. The window is transparent, so being
+      // briefly too big for what is in it costs nothing to look at.
+      const was = orbScale;
+      const growing = next > was;
       orbScale = next;
-      applyOrbScale(orbScale);
+      // Shrinking, the orb goes first and the window follows; growing, the
+      // window goes first and the orb follows. Either way the window is never
+      // smaller than the orb in it.
+      if (!growing) applyOrbScale(orbScale);
+      // Started BEFORE the request, or the resize can land while we are not
+      // listening and the wait would run to its timeout every time.
+      const viewport = growing ? onceResized() : null;
       // Main owns the window and the saved value, and it clamps — so believe
       // what it reports back rather than what was asked for.
+      let settled = next;
+      let resized = true;
       try {
         const r = await window.fren.setOrbScale(orbScale);
         if (r) {
           scaleMin = r.min;
           scaleMax = r.max;
-          if (Math.abs(r.scale - orbScale) > 0.001) { orbScale = r.scale; applyOrbScale(orbScale); }
+          settled = r.scale;
+          orbScale = r.scale;
+          // A clamped notch can leave the window exactly as it was, and then
+          // no resize event is coming — waiting for one is a stall per notch.
+          if (r.size) resized = r.size.width !== innerWidth || r.size.height !== innerHeight;
         }
-      } catch { /* the canvas already moved; the window will catch up */ }
+      } catch {
+        // The request never landed, so the window never moved — and the orb
+        // must not be left resized inside it. Put the scale back.
+        settled = was;
+        orbScale = was;
+      }
+      if (viewport && resized) await viewport;
+      // On the way up this is the first time the orb hears about it, and the
+      // window it is about to fill is already the right size. On the way down
+      // it is a correction, and usually a no-op.
+      applyOrbScale(settled);
     }
   } finally {
     scaleBusy = false;
@@ -1450,23 +1614,22 @@ function paintWatch() {
 // the tabs gone this is the only way through, so it is a real button rather
 // than a link tucked in a corner.
 //
-// "Expand" rather than "Dashboard": it is the same conversation with room to
+// The green light is the old Expand button: the same conversation with room to
 // read it, and main closes this panel as the other window opens — so it reads
 // as one thing growing rather than a second thing appearing.
-const dashBtn = document.getElementById('open-dash');
-if (dashBtn) {
-  dashBtn.addEventListener('click', () => {
-    window.fren.openDashboard();
-    // Whatever was waiting is about to be on screen.
-    if (els.dashDot) els.dashDot.hidden = true;
-  });
-}
+els.lightExpand.addEventListener('click', () => {
+  window.fren.openDashboard();
+  // Whatever was waiting is about to be on screen.
+  if (els.dashDot) els.dashDot.hidden = true;
+});
 
 els.watch.addEventListener('click', () => window.fren.toggleObservation());
-// Closes the CHAT, not fren. Quitting is one decision, made in one place: the
-// dashboard's close dialog. A × on a chat panel that killed the whole app was
-// the kind of thing you only learn once.
-els.quit.addEventListener('click', () => setPanel(false));
+// Yellow closes the CHAT, not fren — tucked away, still running, exactly what
+// minimise means. A × here that killed the whole app was the kind of thing you
+// only learn once, so the killing is red's job and red ASKS: main puts up the
+// same kind of dialog the dashboard's close button does.
+els.lightMin.addEventListener('click', () => setPanel(false));
+els.lightQuit.addEventListener('click', () => window.fren.quit());
 
 els.form.addEventListener('submit', (e) => {
   e.preventDefault();
