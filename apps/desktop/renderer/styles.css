@@ -195,7 +195,12 @@ body[data-panel-side="right"] #panel { --hinge-x: 0%; --lean-x: -10px; }
   position: absolute;
   width: 16px;
   height: 16px;
-  background: var(--cream);
+  /* Not the panel's gradient stop — the colour of the thing it actually
+   * touches. The bottom of the panel is the input row, which is a wash of
+   * white over the gradient, so the tail wears the same wash over the same
+   * base. Painted as the same two layers rather than a flattened hex, so if
+   * the tokens move the tail moves with them. */
+  background: linear-gradient(rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.42)), var(--cream);
   border-right: 1px solid rgba(255, 255, 255, 0.6);
   border-bottom: 1px solid rgba(255, 255, 255, 0.6);
   transform: rotate(45deg);
@@ -220,7 +225,9 @@ body[data-panel-side="right"] #panel { --hinge-x: 0%; --lean-x: -10px; }
 body[data-panel-below="1"] #stage::after {
   bottom: auto;
   top: calc(12px + 144px * var(--orb-scale, 1) - 8px);
-  background: var(--bone);
+  /* Up here it touches the header, which is a lighter wash over the gradient's
+   * top stop. Same two layers as the header itself. */
+  background: linear-gradient(rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.34)), var(--bone);
   border: 0;
   border-left: 1px solid rgba(255, 255, 255, 0.6);
   border-top: 1px solid rgba(255, 255, 255, 0.6);
