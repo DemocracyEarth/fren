@@ -700,40 +700,30 @@ async function sendMessage(text) {
 /**
  * Showing and hiding the conversation.
  *
- * The order is reversed between the two directions, which is the whole reason
- * this is not two lines. The window is transparent, so resizing it is invisible
- * — what you see is entirely the panel. So:
+ * The two directions are deliberately not mirror images. The window is
+ * transparent, so resizing it is invisible — what you see is entirely the
+ * panel. So:
  *
- *   opening — grow the window FIRST (nothing to see), then play the fold inside
- *             the space that now exists.
- *   closing — play the fold FIRST, then shrink. Shrinking first clips the panel
- *             mid-animation, which is what used to happen: there was no exit at
- *             all, it simply stopped existing.
+ *   opening — grow the window FIRST (nothing to see), then play the fold
+ *             inside the space that now exists.
+ *   closing — no animation at all. Hide, let a frame paint, shrink. Every
+ *             closing artifact this window ever produced lived inside its exit
+ *             animation, and a finished conversation does not need a send-off.
  *
  * While a transition runs it owns the panel's visibility and render() stands
- * back, or a state broadcast landing mid-fold snaps the panel away.
+ * back, or a state broadcast landing mid-open snaps the panel away.
  */
 const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 let panelBusy = false;
 
-/** Resolves when the named animation ends, or at once if it cannot run. */
-/**
- * Run one animation and wait for it.
- *
- * `keep` leaves the class ON when it finishes. That is for animations that end
- * INVISIBLE: their fill mode is what is holding the element out of sight, so
- * removing the class hands it back at full opacity, and anything the caller
- * still has to do — hiding it, resizing the window — happens with a fully
- * painted element on screen. Callers that end invisible take the class off
- * themselves, after they have hidden the thing.
- */
-function played(node, className, deadlineMs, { keep = false } = {}) {
+/** Run one animation and wait for it — or resolve at once if it cannot run. */
+function played(node, className, deadlineMs) {
   node.classList.add(className);
   if (REDUCED.matches) {
     // The stylesheet disables every animation, so animationend never arrives.
     // Waiting on it would leave the panel stuck open.
-    if (!keep) node.classList.remove(className);
+    node.classList.remove(className);
     return Promise.resolve();
   }
   return new Promise((resolve) => {
@@ -742,7 +732,7 @@ function played(node, className, deadlineMs, { keep = false } = {}) {
       if (done) return;
       done = true;
       node.removeEventListener('animationend', onEnd);
-      if (!keep) node.classList.remove(className);
+      node.classList.remove(className);
       resolve();
     };
     // Only the panel's own animation counts. The staggered children fire this
@@ -841,18 +831,15 @@ async function setPanel(open) {
       face.pulse('squash');
       await played(els.panel, 'opening', 500);
     } else {
-      // `keep` matters here and is the whole fix for the closing flicker.
-      //
-      // panel-out has fill mode `both`, so at the end of the animation the
-      // panel is held at the final keyframe — invisible. Dropping the class
-      // releases that hold and the panel snaps back to full opacity. played()
-      // used to remove it before returning, so there was a moment where a fully
-      // opaque panel was waiting to be hidden, and that moment is the flash.
-      //
-      // So it stays held: hide first, and only then let go.
-      await played(els.panel, 'closing', 320, { keep: true });
+      // No exit animation, on purpose. Closing used to play a 190ms fold, and
+      // every closing artifact this window ever produced lived somewhere
+      // inside it — the fill-mode flash, the held-frame flicker, the animation
+      // racing the resize. Opening can afford ceremony because nothing is
+      // waiting on it; closing is the user already done with the chat, and the
+      // most honest thing a finished conversation can do is not be there.
+      // One frame it is; the next it is gone — and the tail goes in the same
+      // frame, from the same fact (#stage:has(#panel[hidden]) in the styles).
       els.panel.hidden = true;
-      els.panel.classList.remove('closing');
       state.panelOpen = false;
       // A frame with the panel gone but the window still large. The orb does
       // not move when the panel is hidden — the stage pins it to the same

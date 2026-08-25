@@ -147,7 +147,6 @@ body[data-recording="1"] #orb .fren-face {
 #panel[hidden] { display: none; }
 
 #panel.opening { animation: panel-in .34s var(--ease-out) both; }
-#panel.closing { animation: panel-out .19s var(--ease-soft) both; }
 
 /*
  * The panel below the orb instead of above it.
@@ -213,11 +212,11 @@ body[data-panel-side="right"] #panel { --hinge-x: 0%; --lean-x: -10px; }
 /* No panel, no tail. */
 #stage:has(#panel[hidden])::after { display: none; }
 /* It appears once the panel has mostly arrived — a tail growing out of a
- * bubble that is still unfolding reads as debris — and lets go quickly. */
+ * bubble that is still unfolding reads as debris. There is no tail-out to
+ * match: closing is instant, and the [hidden] rule above removes the tail in
+ * the very same frame as the panel it belongs to. */
 #stage:has(#panel.opening)::after { animation: tail-in .34s var(--ease-out) both; }
-#stage:has(#panel.closing)::after { animation: tail-out .19s var(--ease-soft) both; }
 @keyframes tail-in { from { opacity: 0; } 55% { opacity: 0; } to { opacity: 1; } }
-@keyframes tail-out { to { opacity: 0; } }
 
 /* The panel below the orb: the tail moves to its TOP edge and points up, so
  * the bordered edges swap to the other pair. Bone, not cream — the gradient's
@@ -247,14 +246,6 @@ body[data-panel-side="right"] #stage::after {
   72%  { opacity: 1; transform: translate(0, calc(var(--lean-y) * -0.115)) scale(1.012); }
   to   { opacity: 1; transform: none; }
 }
-@keyframes panel-out {
-  /* Quicker than it arrived. Waiting to leave feels like lag; arriving slowly
-     feels considered. */
-  from { opacity: 1; transform: none; }
-  to   { opacity: 0;
-         transform: translate(calc(var(--lean-x) * 0.8), calc(var(--lean-y) * 0.7)) scale(.88); }
-}
-
 /* The pieces arrive just after the box does, so it reads as unfolding rather
  * than as one flat card sliding in. Small offsets — this is a 340ms event and
  * anything longer would be a thing you wait for. */
