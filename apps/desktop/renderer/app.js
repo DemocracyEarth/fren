@@ -123,8 +123,20 @@ function render(next) {
   document.body.dataset.watching = state.observing ? '1' : '0';
   // Which way the panel grows. Main works it out from the room around the orb;
   // this only has to lay it out that way.
-  document.body.dataset.panelBelow = state.panelBelow ? '1' : '0';
-  document.body.dataset.panelSide = state.panelSide === 'right' ? 'right' : 'left';
+  //
+  // Guarded like paintPanel() just above, and for the same reason. These two
+  // attributes decide which corner of the window the orb is drawn in, so
+  // rewriting them while the window is panel-sized moves the orb the height of
+  // the whole panel. Mid-transition setPanel() has already turned the stage to
+  // face the corner it is opening into, and main has not necessarily committed
+  // that corner yet — fren:aimPanel deliberately does not, it only answers the
+  // question. So during a transition the local write is the authority and a
+  // state push arriving from anything else at all (an observation tick, a mood
+  // change, the gateway going up) must not overwrite it.
+  if (!panelBusy) {
+    document.body.dataset.panelBelow = state.panelBelow ? '1' : '0';
+    document.body.dataset.panelSide = state.panelSide === 'right' ? 'right' : 'left';
+  }
   paintWatch();
   // Offered only when a model that can see is configured, and only while the
   // light is on: looking at the screen while paused is precisely what the light
@@ -1197,6 +1209,29 @@ function applyOrbScale(s) {
   if (face && face.resize) face.resize(ORB_BASE_PX * s);
 }
 
+/**
+ * Wait until this window has ACTUALLY changed size.
+ *
+ * Awaiting main's reply is not the same thing. Main's handler calls setBounds
+ * and returns, so the reply says "I have asked for the new size" — the
+ * renderer's own viewport catches up a frame or so later, and anything laid out
+ * in between is laid out against the old one.
+ *
+ * The timeout is not a fallback for a slow resize, it is for a resize that
+ * never happens: at the ends of the scale range main clamps and the window
+ * keeps the size it had, so there is no event coming.
+ */
+const onceResized = (ms = 120) => new Promise((resolve) => {
+  let timer = null;
+  const done = () => {
+    window.removeEventListener('resize', done);
+    clearTimeout(timer);
+    resolve();
+  };
+  window.addEventListener('resize', done);
+  timer = setTimeout(done, ms);
+});
+
 async function pumpScale() {
   if (scaleBusy || wantScale === null) return;
   scaleBusy = true;
@@ -1208,18 +1243,48 @@ async function pumpScale() {
       const next = wantScale;
       wantScale = null;
       if (Math.abs(next - orbScale) < 0.001) continue;
+      // WHICHEVER IS BIGGER GOES FIRST, so the window is never smaller than
+      // the orb inside it.
+      //
+      // The renderer changes the orb's size and main changes the window's, and
+      // between them is a whole IPC round trip. If the smaller of the two
+      // lands first the orb does not fit its window: #stage overflows, and
+      // because the stage packs its content against the far edge the overflow
+      // goes off the TOP-LEFT — so the orb jumps up and to the left and is
+      // clipped by the window it no longer fits in. That is the flicker.
+      //
+      // It used to always apply the scale first, which clipped on every zoom
+      // IN. Always resizing the window first just moves the clipping to every
+      // zoom OUT — and a fast scroll drains several notches through here, so it
+      // is a real shrink, not a rounding-sized one. Hence: grow the window
+      // first, shrink the orb first. The window is transparent, so being
+      // briefly too big for what is in it costs nothing to look at.
+      const growing = next > orbScale;
       orbScale = next;
-      applyOrbScale(orbScale);
+      // Shrinking, the orb goes first and the window follows; growing, the
+      // window goes first and the orb follows. Either way the window is never
+      // smaller than the orb in it.
+      if (!growing) applyOrbScale(orbScale);
+      // Started BEFORE the request, or the resize can land while we are not
+      // listening and the wait would run to its timeout every time.
+      const viewport = growing ? onceResized() : null;
       // Main owns the window and the saved value, and it clamps — so believe
       // what it reports back rather than what was asked for.
+      let settled = orbScale;
       try {
         const r = await window.fren.setOrbScale(orbScale);
         if (r) {
           scaleMin = r.min;
           scaleMax = r.max;
-          if (Math.abs(r.scale - orbScale) > 0.001) { orbScale = r.scale; applyOrbScale(orbScale); }
+          settled = r.scale;
+          orbScale = r.scale;
         }
-      } catch { /* the canvas already moved; the window will catch up */ }
+      } catch { /* the window did not move, so neither should the orb */ }
+      if (viewport) await viewport;
+      // On the way up this is the first time the orb hears about it, and the
+      // window it is about to fill is already the right size. On the way down
+      // it is a correction, and usually a no-op.
+      applyOrbScale(settled);
     }
   } finally {
     scaleBusy = false;
