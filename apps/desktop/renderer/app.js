@@ -10,6 +10,7 @@ if (!window.fren && location.protocol !== 'file:') {
     chat: async () => ({ reply: 'Running outside Electron, so this is a canned reply.' }),
     setPanelOpen: async () => ({ side: 'left', drop: false }),
     aimPanel: async () => ({ side: 'left', drop: false }),
+    setHint: async () => ({ side: 'left', drop: false }),
     quit: async () => {},
     dragStart: async () => {},
     dragEnd: async () => ({ moved: false }),
@@ -28,6 +29,7 @@ const els = {
   watch: document.getElementById('watch'),
   watchSay: document.getElementById('watch-say'),
   dashDot: document.getElementById('dash-dot'),
+  hint: document.getElementById('hint'),
   lightQuit: document.getElementById('light-quit'),
   lightMin: document.getElementById('light-min'),
   lightExpand: document.getElementById('light-expand'),
@@ -745,6 +747,109 @@ function played(node, className, deadlineMs) {
   });
 }
 
+/**
+ * The hover hint — the tooltip, done properly.
+ *
+ * The OS tooltip was a yellow box mumbling "click to record · right-click for
+ * the menu" in the system font. This is the same information as a miniature
+ * speech bubble: same card language as the chat, same tail, pointing at the
+ * same speaker. It borrows the panel's whole window dance — aim, grow, paint,
+ * show / hide, paint, shrink — because the closed window has no room for a
+ * card, and that dance is the proven way to make room without moving the orb.
+ *
+ * It waits out a dwell before appearing, forgives a quick trip across the gap
+ * before disappearing, and any actual interaction dismisses it instantly —
+ * the moment you press, you have stopped needing instructions.
+ */
+const HINT_DWELL_MS = 650;
+const HINT_GRACE_MS = 200;
+let hintTimer = null;
+let hintBusy = false;
+let hintNote = null;             // something fren is holding: a greeting, a noticed thing
+
+function renderHint() {
+  const rows = [];
+  const gesture = (key, what) =>
+    `<div class="hint-row"><span class="hint-key">${key}</span><span>${what}</span></div>`;
+  if (hintNote) {
+    // Something fren is holding leads the card, and the gestures step back to
+    // the two that matter for hearing it — the card's height is fixed (main
+    // sizes the window from its twin of that number), so this is a budget,
+    // not a style choice.
+    rows.push(`<div class="hint-note"></div>`);
+    if (voiceReady) rows.push(gesture('click', 'talk to me'));
+    rows.push(gesture('right-click', 'open our chat'));
+  } else {
+    if (voiceReady) rows.push(gesture('click', 'talk to me'));
+    rows.push(gesture('right-click', 'open our chat'));
+    rows.push(gesture('scroll', 'grow or shrink me'));
+    rows.push(gesture('drag', 'carry me anywhere'));
+  }
+  els.hint.innerHTML = rows.join('');
+  // textContent, not markup: the note can be model output.
+  if (hintNote) els.hint.querySelector('.hint-note').textContent = hintNote;
+}
+
+async function setHint(open) {
+  if (hintBusy) return;
+  hintBusy = true;
+  try {
+    if (open) {
+      // The panel owns the window when it is open, and a hint mid-panel-dance
+      // would fight it for the corner. Main refuses too; this just saves the trip.
+      if (panelBusy || state.panelOpen || !els.hint.hidden) return;
+      renderHint();
+      // The same corner dance as the panel, for the same reason: turn while
+      // the window is small, grow, let the new size paint, then show.
+      const aim = await window.fren.aimPanel('hint');
+      if (aim && (aim.drop !== (document.body.dataset.panelBelow === '1') ||
+                  aim.side !== document.body.dataset.panelSide)) {
+        faceCorner(aim);
+        await painted();
+      }
+      const got = await window.fren.setHint(true);
+      if (!got) return;            // main said the panel has the window
+      faceCorner(got);
+      await painted();
+      els.hint.hidden = false;
+    } else {
+      if (els.hint.hidden) return;
+      els.hint.hidden = true;
+      await painted();
+      await window.fren.setHint(false);
+    }
+  } finally {
+    hintBusy = false;
+  }
+}
+
+/**
+ * Dismissed without ceremony, mid-gesture. The shrink is fired and not
+ * awaited: when a press or a wheel tick is already resizing the window, the
+ * next resize supersedes this one, and IPC keeps them in order.
+ */
+function dropHint() {
+  clearTimeout(hintTimer);
+  hintTimer = null;
+  if (!els.hint.hidden) {
+    els.hint.hidden = true;
+    window.fren.setHint(false).catch(() => { /* the next resize corrects it */ });
+  }
+}
+
+function armHint() {
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(() => { setHint(true); }, HINT_DWELL_MS);
+}
+
+function disarmHint() {
+  clearTimeout(hintTimer);
+  // A grace period, not an instant close: leaving the orb for a moment —
+  // crossing to the card to read it, clipping the halo — should not slam the
+  // door. Interaction still dismisses instantly through dropHint().
+  hintTimer = setTimeout(() => { setHint(false); }, HINT_GRACE_MS);
+}
+
 /** Put the panel where the state says, unless a transition is mid-flight. */
 function paintPanel() {
   if (panelBusy) return;
@@ -803,6 +908,7 @@ async function setPanel(open) {
   panelBusy = true;
   try {
     if (open) {
+      dropHint();                  // the panel takes the window from here
       await loadPanelHistory();
       // Turn to face the corner BEFORE the window grows into it. While the
       // window is still orb-sized this costs nothing to look at; after it has
@@ -1096,6 +1202,7 @@ for (const [el, ev] of [[els.orb, 'mousedown'], [els.input, 'keydown'], [els.sen
 const CTRL_CLICK_IS_RIGHT_CLICK = navigator.platform.toUpperCase().includes('MAC');
 
 els.orb.addEventListener('mousedown', (e) => {
+  dropHint();                      // pressing means you know how already
   if (e.button !== 0) return;
   if (CTRL_CLICK_IS_RIGHT_CLICK && e.ctrlKey) return;   // that is a right-click
   pressing = true;
@@ -1301,6 +1408,7 @@ els.orb.addEventListener('wheel', (e) => {
   if (Math.abs(next - orbScale) > 0.0005 && face && face.roll) {
     face.roll(-e.deltaY * 0.09);
   }
+  dropHint();                      // the wheel is about to resize this window
   wantScale = next;
   pumpScale();
 }, { passive: false });
@@ -1325,12 +1433,21 @@ els.orb.addEventListener('contextmenu', async (e) => {
   await setPanel(!state.panelOpen);
 });
 
-els.orb.addEventListener('mouseenter', () => react('hover'));
+els.orb.addEventListener('mouseenter', () => { react('hover'); armHint(); });
 els.orb.addEventListener('mouseleave', () => {
   // Let the reaction finish on its own — snapping back mid-expression is what
   // made it feel mechanical.
   if (!speaking && !reactionTimer) setFace(emotionFor(state));
+  disarmHint();
 });
+// Crossing the 8px gap to read the card keeps it open; leaving it lets it go.
+els.hint.addEventListener('mouseenter', () => clearTimeout(hintTimer));
+els.hint.addEventListener('mouseleave', () => disarmHint());
+// Keyboard users get the same card on focus — it is the orb's description.
+// :focus-visible, so only focus that ARRIVED by keyboard shows it; focus
+// handed out programmatically, or left over from a click, does not.
+els.orb.addEventListener('focus', () => { if (els.orb.matches(':focus-visible')) armHint(); });
+els.orb.addEventListener('blur', () => disarmHint());
 
 /**
  * Hold the mic to talk. Recording only happens while the button is down, the
@@ -1683,7 +1800,7 @@ async function greetQuietly(text) {
   if (Date.now() - bootAt > GREET_DEADLINE_MS) return;
 
   addBubble('fren', text);         // read it whenever the panel is opened
-  els.orb.title = text;            // and on hover in the meantime
+  hintNote = text;                 // and it leads the hover card in the meantime
   face.pulse('bounce');
 
   let audible = false;
@@ -1773,7 +1890,7 @@ async function onSuggestion({ message }) {
   }
   // Reserved: hold the thought and look like it. Tapping fren, or asking it
   // anything, delivers it.
-  els.orb.title = 'fren noticed something — tap to hear it';
+  hintNote = 'fren noticed something — tap to hear it';
 }
 
 /** Deliver whatever fren has been sitting on, if anything. */
@@ -1781,9 +1898,7 @@ async function deliverPendingSuggestion() {
   if (!pendingSuggestion || speaking || awaitingReply) return false;
   const message = pendingSuggestion;
   pendingSuggestion = null;
-  els.orb.title = voiceReady
-    ? `${orbVerb()} · click to record · right-click for the menu`
-    : `${orbVerb()} · right-click for the menu · drag to move`;
+  hintNote = null;                 // delivered; the card goes back to gestures
   await speak(message);
   return true;
 }
@@ -1868,9 +1983,9 @@ scheduleWander();
   render(await window.fren.getState());
   setFace(emotionFor(state), { immediate: true });
 
-  els.orb.title = voiceReady
-    ? `${orbVerb()} · click to record · right-click for the menu`
-    : `${orbVerb()} · right-click for the menu · drag to move`;
+  // No title attribute: the OS tooltip is retired. The hover card carries the
+  // gestures now, and the screen reader gets them through aria-describedby.
+  els.orb.setAttribute('aria-label', `fren — ${orbVerb()}`);
 
   markUnread();
 

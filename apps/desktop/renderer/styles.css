@@ -209,14 +209,80 @@ body[data-panel-side="right"] #panel { --hinge-x: 0%; --lean-x: -10px; }
   /* Astride the panel's bottom edge: pad + room + zone + gap from the bottom. */
   bottom: calc(12px + 166px * var(--orb-scale, 1) - 8px);
 }
-/* No panel, no tail. */
-#stage:has(#panel[hidden])::after { display: none; }
+/* No bubble, no tail — and the hint is a bubble too. */
+#stage:has(#panel[hidden]):has(#hint[hidden])::after { display: none; }
 /* It appears once the panel has mostly arrived — a tail growing out of a
  * bubble that is still unfolding reads as debris. There is no tail-out to
  * match: closing is instant, and the [hidden] rule above removes the tail in
  * the very same frame as the panel it belongs to. */
 #stage:has(#panel.opening)::after { animation: tail-in .34s var(--ease-out) both; }
 @keyframes tail-in { from { opacity: 0; } 55% { opacity: 0; } to { opacity: 1; } }
+
+/*
+ * The hover hint. The tooltip the orb deserves: the same card language as the
+ * chat, in miniature, with the same tail pointing at the same speaker. One
+ * flat wash rather than the panel's gradient — a tooltip has no header or
+ * footer to justify one — and the tail override below carries an ID through
+ * :has(), so it outranks the corner variants' colour in every orientation.
+ *
+ * The height is fixed and main carries its twin (HINT_BASE): the window is
+ * sized before this card is shown, so a card that decided its own height
+ * would decide it too late.
+ */
+#hint {
+  width: 100%;
+  height: 132px;
+  box-sizing: border-box;
+  padding: 13px 15px 12px;
+  background: linear-gradient(rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.42)), var(--cream);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(24, 16, 6, 0.05), 0 6px 16px rgba(24, 16, 6, 0.08);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 7px;
+  animation: hint-in .18s var(--ease-out) both;
+}
+#hint[hidden] { display: none; }
+@keyframes hint-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+#hint .hint-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--ink);
+  white-space: nowrap;   /* a wrapped gesture reads as two gestures */
+}
+#hint .hint-key {
+  flex: 0 0 auto;
+  min-width: 74px;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--ink-soft);
+  background: rgba(26, 23, 18, 0.06);
+  border-radius: 6px;
+  padding: 2px 7px;
+  text-align: center;
+}
+/* A notice fren is holding (a greeting, a noticed thing) leads the card. */
+#hint .hint-note {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  /* A greeting can be a sentence; the card cannot grow to meet it. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+#stage:has(#hint:not([hidden]))::after {
+  background: linear-gradient(rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.42)), var(--cream);
+}
 
 /* The panel below the orb: the tail moves to its TOP edge and points up, so
  * the bordered edges swap to the other pair. Bone, not cream — the gradient's
