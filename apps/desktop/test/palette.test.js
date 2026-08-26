@@ -24,13 +24,13 @@ test('the default colour reproduces the shipped palette exactly', () => {
   // and coral stops out of whatever this is. The relationships are unchanged;
   // that is the other tests' job to prove.
   const t = P.tonesFrom(P.DEFAULT_HEX);
-  assert.equal(hx(t.base.color), '#ff8a00');
+  assert.equal(hx(t.base.color), '#ffa200');
   // Saturation rises with lightness, so a softer WORN colour keeps its moods
   // vivid; at the default's 100% it simply clamps and brightness leads.
-  assert.equal(hx(t.warm.color), '#ff9314');
-  assert.equal(hx(t.excited.color), '#ff981f');
-  assert.equal(hx(t.hearing.color), '#ffbb33');
-  assert.equal(hx(P.sheenColorFrom(P.DEFAULT_HEX)), '#ffc06a');
+  assert.equal(hx(t.warm.color), '#ffa914');
+  assert.equal(hx(t.excited.color), '#ffad1f');
+  assert.equal(hx(t.hearing.color), '#ffce33');
+  assert.equal(hx(P.sheenColorFrom(P.DEFAULT_HEX)), '#ffce6a');
 });
 
 test('no mood wears the listening colour', () => {
@@ -215,9 +215,9 @@ test('the bright accent is kept as the button wherever it can be', () => {
 
 test('the default colour leaves the shipped accent where it was', () => {
   const a = P.accentFrom(P.DEFAULT_HEX);
-  assert.equal(hx(a.accent), '#ff8a00');
+  assert.equal(hx(a.accent), '#ffa200');
   // The tints are driven from this, so it has to be the components of the accent.
-  assert.equal(a.rgb, '255, 138, 0');
+  assert.equal(a.rgb, '255, 162, 0');
 });
 
 test('every accent token comes back as something CSS can use', () => {

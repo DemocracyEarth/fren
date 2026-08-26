@@ -163,9 +163,11 @@ class Orb {
       // Not 1 any more. A full clearcoat with no environment map steals the
       // base layer's energy at grazing angles and reflects nothing back — a
       // black mirror — which is what kept the orb's lower rim dark brown no
-      // matter how bright the coral under it was. Half keeps the glint.
-      clearcoat: 0.5,
-      clearcoatRoughness: 0.12,
+      // matter how bright the coral under it was. And well under a half now:
+      // the reference this body is matched to is nearly matte, so the coat is
+      // just enough for one soft catchlight to say "sphere".
+      clearcoat: 0.24,
+      clearcoatRoughness: 0.29,
       sheen: TONE.base.sheen,
       sheenColor: new THREE.Color(0xffc06a),
       emissive: new THREE.Color(0xffffff),
@@ -181,6 +183,14 @@ class Orb {
     // record red back into orange at the gold corner, so recording collapses
     // the swing and the whole sphere reads as one red thing.
     this.uRec = { value: 0 };
+    // The gradient stops as offsets from the base, live-tunable (h, s, l in
+    // 0..1 turns / fractions). Defaults are the shipped look.
+    // The shipped recipe. Chosen BY EYE in the colour workshop (the tune
+    // panel) and pasted back verbatim — these numbers were picked on a real
+    // screen against the reference blob, which is worth more than any of the
+    // four derivations that preceded them.
+    this.uGoldOff = { value: new THREE.Vector3(-3.5 / 360, 0.60, 0.09) };
+    this.uCoralOff = { value: new THREE.Vector3(-16 / 360, 0.54, -0.04) };
     // Re-rolled on every shake, so no two look alike.
     this.uSeed = { value: 0 };
     this.material.onBeforeCompile = (shader) => {
@@ -189,6 +199,8 @@ class Orb {
       shader.uniforms.uSquash = this.uSquash;
       shader.uniforms.uSeed = this.uSeed;
       shader.uniforms.uRec = this.uRec;
+      shader.uniforms.uGoldOff = this.uGoldOff;
+      shader.uniforms.uCoralOff = this.uCoralOff;
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', `#include <common>
           uniform float uTime; uniform float uAmount; uniform float uSquash;
@@ -226,6 +238,8 @@ class Orb {
         .replace('#include <common>', `#include <common>
           varying vec3 vGradN;
           uniform float uRec;
+          uniform vec3 uGoldOff;
+          uniform vec3 uCoralOff;
           vec3 frenHsl(vec3 c) {
             float mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b));
             float l = (mx + mn) * 0.5, d = mx - mn, h = 0.0, s = 0.0;
@@ -265,8 +279,8 @@ class Orb {
           // 20 degrees warmer, which turns record red back into orange — and
           // a record button is red all over, not red in one corner.
           float frenK = 1.0 - 0.85 * uRec;
-          vec3 frenGold  = frenBase + frenK * vec3( 0.055, 0.00, 0.055);
-          vec3 frenCoral = frenBase + frenK * vec3(-0.050, 0.02, 0.045);
+          vec3 frenGold  = frenBase + frenK * uGoldOff;
+          vec3 frenCoral = frenBase + frenK * uCoralOff;
           // Centre of the disc sits at the midpoint; the stops arrive just
           // before the rim, along the same up-left diagonal as the key light.
           vec3 frenNv = normalize(vGradN);
@@ -283,17 +297,18 @@ class Orb {
     // old 0.35 ambient the coral corner sat in the key light's shade and came
     // out brown — the reference the palette is matched to is nearly flat-lit,
     // its form carried by the colour ramp rather than by shading.
-    this.scene.add(new THREE.AmbientLight(0xffffff, 1.08));
+    this.ambient = new THREE.AmbientLight(0xffffff, 2.6);
+    this.scene.add(this.ambient);
     // The key SHAPES the sphere. High and up-left, and it casts nothing --
     // from up there the shadow would land far below the frame.
-    this.key = new THREE.DirectionalLight(0xfff1dc, 1.7);
+    this.key = new THREE.DirectionalLight(0xfff1dc, 0.7);
     this.key.position.set(-2.2, 4.2, 3.0);
     this.key.castShadow = false;
     this.scene.add(this.key);
     // A fill from the coral corner, so the gradient's far stop is lit by
     // something and reads as colour rather than as shade. Warm-pink on
     // purpose: a white fill would wash the coral toward orange.
-    this.fill = new THREE.DirectionalLight(0xffd2c2, 0.55);
+    this.fill = new THREE.DirectionalLight(0xffd2c2, 1.0);
     this.fill.position.set(2.4, -2.6, 2.6);
     this.fill.castShadow = false;
     this.scene.add(this.fill);
@@ -487,6 +502,36 @@ class Orb {
     this.canvas.style.width = `${n}px`;
     this.canvas.style.height = `${n}px`;
     this.renderer.setSize(n, n, false);
+    this._wake();
+  }
+
+  /**
+   * TEMPORARY tuning surface for the colour workshop (the "Tune colours…"
+   * window). Sets whatever it is handed and ignores the rest, so the panel
+   * can be sparse. Values are plain numbers; hue/sat/light offsets arrive in
+   * degrees and percents and are converted here.
+   */
+  tune(t) {
+    const v = (x) => typeof x === 'number' && Number.isFinite(x);
+    if (t.goldH !== undefined || t.goldS !== undefined || t.goldL !== undefined) {
+      const g = this.uGoldOff.value;
+      if (v(t.goldH)) g.x = t.goldH / 360;
+      if (v(t.goldS)) g.y = t.goldS / 100;
+      if (v(t.goldL)) g.z = t.goldL / 100;
+    }
+    if (t.coralH !== undefined || t.coralS !== undefined || t.coralL !== undefined) {
+      const c = this.uCoralOff.value;
+      if (v(t.coralH)) c.x = t.coralH / 360;
+      if (v(t.coralS)) c.y = t.coralS / 100;
+      if (v(t.coralL)) c.z = t.coralL / 100;
+    }
+    if (v(t.ambient)) this.ambient.intensity = t.ambient;
+    if (v(t.key)) this.key.intensity = t.key;
+    if (v(t.fill)) this.fill.intensity = t.fill;
+    if (v(t.clearcoat)) this.material.clearcoat = t.clearcoat;
+    if (v(t.coatRough)) this.material.clearcoatRoughness = t.coatRough;
+    if (v(t.rough)) this.material.roughness = t.rough;
+    if (v(t.sheen)) this.material.sheen = t.sheen;
     this._wake();
   }
 

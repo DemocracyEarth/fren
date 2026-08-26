@@ -769,6 +769,31 @@ app.whenReady().then(() => {
     return { side: how.side, drop: how.drop };
   });
 
+  // TEMPORARY: the colour workshop. Relays tuning values from the panel to
+  // the orb's renderer; holds nothing, persists nothing.
+  ipcMain.handle('fren:openTuner', () => openTuner());
+  ipcMain.handle('fren:tune', (_e, params) => {
+    if (win && !win.isDestroyed()) win.webContents.send('fren:tune', params);
+  });
+
+  let tuneWin = null;
+  function openTuner() {
+    if (tuneWin && !tuneWin.isDestroyed()) { tuneWin.show(); return; }
+    tuneWin = new BrowserWindow({
+      width: 380,
+      height: 720,
+      title: 'fren — colour workshop',
+      alwaysOnTop: true,
+      webPreferences: {
+        preload: path.join(__dirname, '..', 'preload.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    });
+    tuneWin.loadURL(`${SCHEME}://app/tune.html`);
+    tuneWin.on('closed', () => { tuneWin = null; });
+  }
+
   ipcMain.handle('fren:setHint', (_e, open, info) => {
     if (!open) { hideHint(); return true; }
     if (state.get().panelOpen) return null;
@@ -793,6 +818,7 @@ app.whenReady().then(() => {
       { label: 'Bring fren back', click: () => recenter() },
       { label: 'Open the chat', click: () => { setPanelOpen(true); recenter(); } },
       { label: 'Open the dashboard', click: () => openDashboard() },
+      { label: 'Tune colours… (temporary)', click: () => openTuner() },
     ]));
   }
 
