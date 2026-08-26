@@ -24,19 +24,25 @@
  *   deliberately never set.
  */
 
-/** One palette, anchored on the brand orange. Mood shifts hue within a family. */
+/**
+ * One palette, anchored on the gradient's midpoint. Mood raises saturation
+ * and lightness together within the family — brightness alone washes a soft
+ * base toward pastel, which made a happier fren look GREYER.
+ *
+ * These literals are the pre-palette fallback and must byte-match what
+ * palette.js tonesFrom(DEFAULT_HEX) derives, or the orb visibly re-colours a
+ * moment after boot; palette.test.js pins both to the same bytes.
+ */
 export const TONE = {
-  base:    { color: 0xff8a00, rough: 0.34, sheen: 0.40 },
-  warm:    { color: 0xffa51f, rough: 0.28, sheen: 0.55 },   // up, a little brighter
-  excited: { color: 0xffb92e, rough: 0.20, sheen: 0.75 },   // glossier: catches more light
-  blue:    { color: 0x7a8798, rough: 0.42, sheen: 0.26 },   // down, cooled off
+  base:    { color: 0xf28b54, rough: 0.34, sheen: 0.40 },
+  warm:    { color: 0xfa9660, rough: 0.28, sheen: 0.55 },   // brighter AND more vivid
+  excited: { color: 0xff9b66, rough: 0.20, sheen: 0.75 },   // glossier: catches more light
+  blue:    { color: 0x758ec7, rough: 0.42, sheen: 0.26 },   // periwinkle, not slate
   red:     { color: 0xe04a24, rough: 0.30, sheen: 0.45 },   // cross
   grey:    { color: 0x6d6d73, rough: 0.54, sheen: 0.08 },   // asleep, no colour left
-  // Listening. Brighter and glossier than anything else in the set, so "the
-  // microphone is open" is never mistaken for an ordinary mood. It stays inside
-  // the orange family on purpose — a red recording light would collide with
-  // `annoyed`, and this has to be unambiguous at a glance.
-  hearing: { color: 0xffc85a, rough: 0.14, sheen: 0.95 },
+  // Listening-as-a-mood. The RECORDING pulse is semantic red (palette.js);
+  // this gold survives for the mood family's brightest step.
+  hearing: { color: 0xffb97a, rough: 0.14, sheen: 0.95 },
 };
 
 const E = (tone, lidTop, eyeScale, mouthW, mouthOpen, mouthCurve, extra) =>

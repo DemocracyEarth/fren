@@ -25,9 +25,11 @@ test('the default colour reproduces the shipped palette exactly', () => {
   // that is the other tests' job to prove.
   const t = P.tonesFrom(P.DEFAULT_HEX);
   assert.equal(hx(t.base.color), '#f28b54');
-  assert.equal(hx(t.warm.color), '#f49f71');
-  assert.equal(hx(t.excited.color), '#f5a87f');
-  assert.equal(hx(t.hearing.color), '#f8cea8');
+  // Saturation rises with lightness — the regraded base is soft enough that
+  // lightness alone walked the happy moods into pastel grey.
+  assert.equal(hx(t.warm.color), '#fa9660');
+  assert.equal(hx(t.excited.color), '#ff9b66');
+  assert.equal(hx(t.hearing.color), '#ffb97a');
   assert.equal(hx(P.sheenColorFrom(P.DEFAULT_HEX)), '#f9d0b7');
 });
 
@@ -244,5 +246,20 @@ test('the accent family keeps its ordering', () => {
     assert.ok(l(a.lite) > l(a.accent), `${name}: lite must be lighter`);
     assert.ok(l(a.deep) < l(a.accent), `${name}: deep must be darker`);
     assert.ok(l(a.shadow) < l(a.deep), `${name}: shadow must be darkest`);
+  }
+});
+
+test('the pre-palette fallback wears the same bytes as the derived default', async () => {
+  // expressions.js carries a literal TONE table for the moment before the
+  // palette module has run (and for the SVG fallback face). If it drifts from
+  // what tonesFrom(DEFAULT_HEX) derives, the orb visibly re-colours a beat
+  // after boot — the kind of flash nobody can debug from a report.
+  const { TONE } = await import('../renderer/face/expressions.js');
+  const t = P.tonesFrom(P.DEFAULT_HEX);
+  for (const name of ['base', 'warm', 'excited', 'hearing']) {
+    assert.equal(hx(TONE[name].color), hx(t[name].color), `${name} drifted from the palette`);
+  }
+  for (const name of ['blue', 'red', 'grey']) {
+    assert.equal(hx(TONE[name].color), hx(t[name].color), `${name} drifted from the semantics`);
   }
 });

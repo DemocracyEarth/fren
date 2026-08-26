@@ -45,12 +45,20 @@
     // warmer and you land on listening; drift cooler and you land on cross. So
     // the moods differ by BRIGHTNESS and GLOSS, which they already did — warm
     // and excited were never carrying their weight in hue.
-    base:    { dH: 0, dL: 0 },
-    warm:    { dH: 0, dL: 6.078 },
-    excited: { dH: 0, dL: 9.020 },
+    // Brightness comes WITH saturation now, not instead of it. The original
+    // offsets were measured against a base at 100% saturation, where lightness
+    // was the only place a mood could go. The softened base sits at 86% and
+    // l 64 — from there, adding lightness alone walks the colour toward
+    // pastel, and the happier fren was supposed to look, the more washed out
+    // it actually got. Saturation rises with the lightness, so the moods stay
+    // vivid at every step, and toHex clamps at 100 so a fully saturated worn
+    // colour simply keeps its blaze.
+    base:    { dH: 0, dS: 0, dL: 0 },
+    warm:    { dH: 0, dS: 8, dL: 4 },
+    excited: { dH: 0, dS: 14, dL: 6 },
     // The one tone that goes gold, and now the only one. Everything else stays
     // on the base hue, so "fren has turned yellow" means exactly one thing.
-    hearing: { dH: 7.529, dL: 17.647 },
+    hearing: { dH: 7.529, dS: 14, dL: 10 },
   };
   const SHEEN = { dH: 2.160, dL: 20.784 };
 
@@ -72,7 +80,11 @@
 
   /** Meanings rather than decoration. These never move. */
   const SEMANTIC = {
-    blue: { color: 0x7a8798, rough: 0.42, sheen: 0.26 },
+    // Periwinkle, not slate. The old sad blue was 11% saturation — on a body
+    // whose gradient VANISHES as saturation does, that rendered as a flat
+    // grey lump, indistinguishable at a glance from asleep. Sad is a colour,
+    // not an absence: soft, but unmistakably blue.
+    blue: { color: 0x758ec7, rough: 0.42, sheen: 0.26 },
     red:  { color: 0xe04a24, rough: 0.30, sheen: 0.45 },
     grey: { color: 0x6d6d73, rough: 0.54, sheen: 0.08 },
   };
@@ -136,7 +148,8 @@
     const out = {};
     for (const [name, off] of Object.entries(FAMILY)) {
       out[name] = {
-        color: toHex({ h: c.h + off.dH, s: c.s, l: clamp(c.l + off.dL, 0, 96) }),
+        color: toHex({ h: c.h + off.dH, s: clamp(c.s + (off.dS || 0), 0, 100),
+                       l: clamp(c.l + off.dL, 0, 96) }),
         rough: SURFACE[name].rough,
         sheen: SURFACE[name].sheen,
       };
