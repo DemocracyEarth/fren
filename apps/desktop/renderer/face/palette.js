@@ -285,7 +285,7 @@
   // There is no yellow. A marigold sat 11 degrees from Ember and read as the
   // same swatch twice — a choice that is not a choice is worse than one fewer.
   const PRESETS = [
-    { id: 'ember',      name: 'Ember',      hex: 0xf28b54, note: 'how fren comes' },
+    { id: 'ember',      name: 'Ember',      hex: 0xff8a00, note: 'how fren comes' },
     { id: 'rhubarb',    name: 'Rhubarb',    hex: 0xe8446b },
     { id: 'mulberry',   name: 'Mulberry',   hex: 0xa259d9 },
     { id: 'cornflower', name: 'Cornflower', hex: 0x4a7fe0 },
@@ -293,11 +293,13 @@
     { id: 'moss',       name: 'Moss',       hex: 0x5aa838 },
   ];
 
-  // Softer than the original ember: the body is now a gradient and this is
-  // its MIDPOINT — the gold and coral stops are rotated out of it in the
-  // shader, so the default sits between them, not at full blaze. It is a
-  // fixed point of usable(), so the default round-trips byte for byte.
-  const DEFAULT_HEX = 0xf28b54;
+  // The original blaze, restored after a detour. A "softer midpoint" default
+  // was reasoned to fit the gradient better — and looked flatly greyer the
+  // moment it actually reached the screen, because the gradient's life comes
+  // from rotating a SATURATED base, not from a base pre-softened toward its
+  // own stops. The user's word for the midpoint theory was "grayish". A fixed
+  // point of usable(), so the default round-trips byte for byte.
+  const DEFAULT_HEX = 0xff8a00;
 
   return {
     PRESETS, DEFAULT_HEX, RECORDING, tonesFrom, sheenColorFrom, usable, toHsl, toHex,

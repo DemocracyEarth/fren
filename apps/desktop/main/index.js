@@ -1082,16 +1082,7 @@ app.whenReady().then(() => {
    */
   ipcMain.handle('fren:getOrbColour', () => {
     const stored = Number(memory.getSetting('orbColour'));
-    let colour = Number.isFinite(stored) && stored > 0 ? stored : null;    // null == default
-    // The old default, stored. Early builds wrote the default down as though
-    // it had been chosen, which pins everyone who never touched the setting to
-    // whatever the default USED to be. Wearing the old default means "never
-    // chose", so it follows the default wherever it goes — anything else
-    // stored is a real choice and is kept.
-    if (colour === 0xff8a00) {
-      colour = null;
-      memory.setSetting('orbColour', 0);
-    }
+    const colour = Number.isFinite(stored) && stored > 0 ? stored : null;  // null == default
     if (colour) log(`[orb] wearing #${colour.toString(16).padStart(6, '0')}`);
     return colour;
   });

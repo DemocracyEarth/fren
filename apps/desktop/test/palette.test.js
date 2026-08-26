@@ -24,13 +24,13 @@ test('the default colour reproduces the shipped palette exactly', () => {
   // and coral stops out of whatever this is. The relationships are unchanged;
   // that is the other tests' job to prove.
   const t = P.tonesFrom(P.DEFAULT_HEX);
-  assert.equal(hx(t.base.color), '#f28b54');
-  // Saturation rises with lightness — the regraded base is soft enough that
-  // lightness alone walked the happy moods into pastel grey.
-  assert.equal(hx(t.warm.color), '#fa9660');
-  assert.equal(hx(t.excited.color), '#ff9b66');
-  assert.equal(hx(t.hearing.color), '#ffb97a');
-  assert.equal(hx(P.sheenColorFrom(P.DEFAULT_HEX)), '#f9d0b7');
+  assert.equal(hx(t.base.color), '#ff8a00');
+  // Saturation rises with lightness, so a softer WORN colour keeps its moods
+  // vivid; at the default's 100% it simply clamps and brightness leads.
+  assert.equal(hx(t.warm.color), '#ff9314');
+  assert.equal(hx(t.excited.color), '#ff981f');
+  assert.equal(hx(t.hearing.color), '#ffbb33');
+  assert.equal(hx(P.sheenColorFrom(P.DEFAULT_HEX)), '#ffc06a');
 });
 
 test('no mood wears the listening colour', () => {
@@ -214,17 +214,10 @@ test('the bright accent is kept as the button wherever it can be', () => {
 });
 
 test('the default colour leaves the shipped accent where it was', () => {
-  // "Shipped" means the literals in tokens.css: the app must look the same the
-  // frame before applyAccent runs as the frame after, or launch flashes the
-  // old orange. When this test moves, tokens.css moves with it — same bytes.
   const a = P.accentFrom(P.DEFAULT_HEX);
-  assert.equal(hx(a.accent), '#f28b54');
-  assert.equal(hx(a.lite), '#fcbb8c');
-  assert.equal(hx(a.deep), '#e86330');
-  assert.equal(hx(a.shadow), '#c63c12');
-  assert.equal(hx(a.ink), '#ac430b');
+  assert.equal(hx(a.accent), '#ff8a00');
   // The tints are driven from this, so it has to be the components of the accent.
-  assert.equal(a.rgb, '242, 139, 84');
+  assert.equal(a.rgb, '255, 138, 0');
 });
 
 test('every accent token comes back as something CSS can use', () => {

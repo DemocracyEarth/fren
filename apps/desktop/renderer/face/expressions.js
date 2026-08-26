@@ -34,15 +34,15 @@
  * moment after boot; palette.test.js pins both to the same bytes.
  */
 export const TONE = {
-  base:    { color: 0xf28b54, rough: 0.34, sheen: 0.40 },
-  warm:    { color: 0xfa9660, rough: 0.28, sheen: 0.55 },   // brighter AND more vivid
-  excited: { color: 0xff9b66, rough: 0.20, sheen: 0.75 },   // glossier: catches more light
+  base:    { color: 0xff8a00, rough: 0.34, sheen: 0.40 },
+  warm:    { color: 0xff9314, rough: 0.28, sheen: 0.55 },   // brighter AND more vivid
+  excited: { color: 0xff981f, rough: 0.20, sheen: 0.75 },   // glossier: catches more light
   blue:    { color: 0x758ec7, rough: 0.42, sheen: 0.26 },   // periwinkle, not slate
   red:     { color: 0xe04a24, rough: 0.30, sheen: 0.45 },   // cross
   grey:    { color: 0x6d6d73, rough: 0.54, sheen: 0.08 },   // asleep, no colour left
   // Listening-as-a-mood. The RECORDING pulse is semantic red (palette.js);
   // this gold survives for the mood family's brightest step.
-  hearing: { color: 0xffb97a, rough: 0.14, sheen: 0.95 },
+  hearing: { color: 0xffbb33, rough: 0.14, sheen: 0.95 },
 };
 
 const E = (tone, lidTop, eyeScale, mouthW, mouthOpen, mouthCurve, extra) =>
