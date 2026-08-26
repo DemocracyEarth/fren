@@ -186,10 +186,6 @@ class Orb {
     this.uWobble = { value: 0 };
     this.uSquash = { value: 0 };
     this.uTime = { value: 0 };
-    // 1 while the microphone is open. The gradient's hue swing turns the
-    // record red back into orange at the gold corner, so recording collapses
-    // the swing and the whole sphere reads as one red thing.
-    this.uRec = { value: 0 };
     // The gradient stops as offsets from the base, live-tunable (h, s, l in
     // 0..1 turns / fractions). Defaults are the shipped look.
     // Chosen by eye in a live tuning session against a reference image —
@@ -203,7 +199,6 @@ class Orb {
       shader.uniforms.uAmount = this.uWobble;
       shader.uniforms.uSquash = this.uSquash;
       shader.uniforms.uSeed = this.uSeed;
-      shader.uniforms.uRec = this.uRec;
       shader.uniforms.uGoldOff = this.uGoldOff;
       shader.uniforms.uCoralOff = this.uCoralOff;
       shader.vertexShader = shader.vertexShader
@@ -242,7 +237,6 @@ class Orb {
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>
           varying vec3 vGradN;
-          uniform float uRec;
           uniform vec3 uGoldOff;
           uniform vec3 uCoralOff;
           vec3 frenHsl(vec3 c) {
@@ -280,12 +274,15 @@ class Orb {
           // corner kept coming out maroon — and these offsets were chosen by
           // eye against an sRGB reference, so sRGB is the space they mean.
           vec3 frenBase = frenHsl(pow(diffuse, vec3(1.0 / 2.2)));
-          // Recording flattens the gradient. The swing rotates the top-left
-          // 20 degrees warmer, which turns record red back into orange — and
-          // a record button is red all over, not red in one corner.
-          float frenK = 1.0 - 0.85 * uRec;
-          vec3 frenGold  = frenBase + frenK * uGoldOff;
-          vec3 frenCoral = frenBase + frenK * uCoralOff;
+          // The stops apply to EVERYTHING the base does, recording included.
+          // The pulse used to collapse the gradient, because the original
+          // offsets rotated the top-left twenty degrees warmer and turned
+          // record red back into orange. The tuned offsets barely move the
+          // hue and carry the look in saturation — so a recording fren keeps
+          // the same body it always has, just in red, and a customised look
+          // records in its own version of red.
+          vec3 frenGold  = frenBase + uGoldOff;
+          vec3 frenCoral = frenBase + uCoralOff;
           // Centre of the disc sits at the midpoint; the stops arrive just
           // before the rim, along the same up-left diagonal as the key light.
           vec3 frenNv = normalize(vGradN);
