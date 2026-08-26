@@ -45,9 +45,15 @@ const TAU = Math.PI * 2;
  * microphone is open and anything faster becomes an alarm.
  */
 const REC_HZ = 0.62;
-// Scratch colour for the recording pulse's upper end, refilled from the CHOSEN
-// palette every frame so a re-coloured fren pulses in its own colour.
+// Scratch colours for the recording pulse. Refilled every frame from the
+// palette module's RECORDING pair — fixed record red, deliberately NOT the
+// chosen palette; see the note beside it.
+const _recLow = new THREE.Color();
 const _recHigh = new THREE.Color();
+const REC = (typeof window !== 'undefined' && window.FrenPalette &&
+  window.FrenPalette.RECORDING) ||
+  (typeof require === 'function' && (() => { try { return require('./palette.js').RECORDING; } catch { return null; } })()) ||
+  { low: 0xd93425, high: 0xff6247, rough: 0.18, sheen: 0.60 };
 
 
 /** Parameters that cross-fade when the expression changes. */
@@ -171,6 +177,10 @@ class Orb {
     this.uWobble = { value: 0 };
     this.uSquash = { value: 0 };
     this.uTime = { value: 0 };
+    // 1 while the microphone is open. The gradient's hue swing turns the
+    // record red back into orange at the gold corner, so recording collapses
+    // the swing and the whole sphere reads as one red thing.
+    this.uRec = { value: 0 };
     // Re-rolled on every shake, so no two look alike.
     this.uSeed = { value: 0 };
     this.material.onBeforeCompile = (shader) => {
@@ -178,6 +188,7 @@ class Orb {
       shader.uniforms.uAmount = this.uWobble;
       shader.uniforms.uSquash = this.uSquash;
       shader.uniforms.uSeed = this.uSeed;
+      shader.uniforms.uRec = this.uRec;
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', `#include <common>
           uniform float uTime; uniform float uAmount; uniform float uSquash;
@@ -214,6 +225,7 @@ class Orb {
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>
           varying vec3 vGradN;
+          uniform float uRec;
           vec3 frenHsl(vec3 c) {
             float mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b));
             float l = (mx + mn) * 0.5, d = mx - mn, h = 0.0, s = 0.0;
@@ -249,8 +261,12 @@ class Orb {
           // corner kept coming out maroon — and these offsets were chosen by
           // eye against an sRGB reference, so sRGB is the space they mean.
           vec3 frenBase = frenHsl(pow(diffuse, vec3(1.0 / 2.2)));
-          vec3 frenGold  = frenBase + vec3( 0.055, 0.00, 0.055);
-          vec3 frenCoral = frenBase + vec3(-0.050, 0.02, 0.045);
+          // Recording flattens the gradient. The swing rotates the top-left
+          // 20 degrees warmer, which turns record red back into orange — and
+          // a record button is red all over, not red in one corner.
+          float frenK = 1.0 - 0.85 * uRec;
+          vec3 frenGold  = frenBase + frenK * vec3( 0.055, 0.00, 0.055);
+          vec3 frenCoral = frenBase + frenK * vec3(-0.050, 0.02, 0.045);
           // Centre of the disc sits at the midpoint; the stops arrive just
           // before the rim, along the same up-left diagonal as the key light.
           vec3 frenNv = normalize(vGradN);
@@ -477,11 +493,13 @@ class Orb {
   setListening(level) {
     const on = level !== null && level !== undefined;
     if (on !== (this.listenLevel !== null && this.listenLevel !== undefined)) {
-      // this.tone(), not the static TONE: fren's colour is chosen by its owner
-      // and every tone has to come from the chosen palette. Reading the module
-      // constant here meant a teal fren turned the default gold the moment it
-      // started listening.
-      const tone = this.tone(on ? 'hearing' : (EXPRESSIONS[this.emotion] || EXPRESSIONS.calm).tone);
+      // Recording wears the fixed record red (see the pulse below) — this is
+      // what reduced-motion users see steadily instead of the beat, so it has
+      // to be the same red, not the palette's listening tone. Everything else
+      // still comes from the chosen palette via this.tone().
+      const tone = on
+        ? { color: REC.low, rough: REC.rough, sheen: REC.sheen }
+        : this.tone((EXPRESSIONS[this.emotion] || EXPRESSIONS.calm).tone);
       this.toneTo.setHex(tone.color);
       this.matTo.rough = tone.rough;
       this.matTo.sheen = tone.sheen;
@@ -635,21 +653,20 @@ class Orb {
     if (this.listenLevel !== null && !this.reduced) {
       const beat = 0.5 - 0.5 * Math.cos(this.t * TAU * REC_HZ);
 
-      // Straight between the two warm ends, REPLACING the drained colour above
-      // rather than modifying it. Two consequences, both deliberate.
+      // RECORD RED, replacing the drained colour above rather than modifying
+      // it — and replacing the chosen palette too, which is deliberate and a
+      // reversal. The pulse used to travel base-to-hearing "so a teal fren
+      // pulses teal", and after the palette softened, that travel ran from
+      // orange to pale peach: half of every cycle was a washed-out colour and
+      // the whole state read as GREYING, not recording. An open microphone is
+      // the one fact that borrows its colour from the world instead of from
+      // fren — red pulsing sphere, record button, no explanation needed. Both
+      // ends are red, so the state is red all the way through the beat.
       //
-      // The pulse is a hue travel between two live colours instead of a drain
-      // toward grey and back. An orb that goes grey for half of every cycle
-      // does not read as listening; it reads as flickering out.
-      //
-      // And it is not scaled by `lit`, so a PAUSED fren is warm while the
-      // microphone is open. That is the honest signal: a drained orb quietly
-      // recording is the thing this app must never be. Watching and listening
-      // stay tellable apart by the eyes, which do not open here — eyes shut and
-      // pulsing is listening, eyes open and steady is watching.
-      // Both ends from the chosen palette, so a teal fren pulses teal.
-      const set = this.tones || TONE;
-      this.material.color.setHex(set.base.color).lerp(_recHigh.setHex(set.hearing.color), beat);
+      // Still not scaled by `lit`, so a PAUSED fren burns red while the
+      // microphone is open: a drained orb quietly recording is the thing this
+      // app must never be.
+      this.material.color.copy(_recLow.setHex(REC.low)).lerp(_recHigh.setHex(REC.high), beat);
     }
     this.material.roughness = this.matNow.rough;
     this.material.sheen = this.matNow.sheen * this.p.lit;

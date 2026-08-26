@@ -463,6 +463,12 @@ function createWindow() {
     if (msg && String(msg).startsWith('[voice]')) log(String(msg));
   });
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  // Wherever the orb's window goes, the tooltip beside it is now pointing at
+  // nothing — so any move at all dismisses it. This is the one hook that
+  // covers every way the window moves: a drag by the halo (which never
+  // reaches the renderer at all), a drag by the character, the panel opening,
+  // a rescue back onto the screen.
+  win.on('move', () => hideHint());
   win.loadURL(`${SCHEME}://app/index.html`);
   positionWindow(orbSize());
   const b = win.getBounds();

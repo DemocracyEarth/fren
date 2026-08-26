@@ -1186,6 +1186,7 @@ window.addEventListener('mousemove', (e) => {
   // Moving means carrying it. Main takes the cursor offset from here, so the
   // orb keeps its position under the pointer instead of jumping.
   dragging = true;
+  dropHint();                      // a carried orb leaves its tooltip behind
   window.fren.dragStart();
 });
 

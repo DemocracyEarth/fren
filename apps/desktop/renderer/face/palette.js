@@ -54,6 +54,22 @@
   };
   const SHEEN = { dH: 2.160, dL: 20.784 };
 
+  /**
+   * The microphone is open. Record red, for everyone: recording is the one
+   * state that borrows its colour from the world rather than from fren — a
+   * red pulsing sphere is a record button before anyone is told anything,
+   * and a signal that important does not get restyled by a palette choice.
+   * The pulse travels LOW to HIGH, so the whole state is red, not just the
+   * crest of each beat — a swing that dips through pale colours reads as
+   * washing out, which is how "recording" came to look "grayish" once.
+   */
+  const RECORDING = {
+    low: 0xd93425,
+    high: 0xff6247,
+    rough: 0.18,
+    sheen: 0.60,
+  };
+
   /** Meanings rather than decoration. These never move. */
   const SEMANTIC = {
     blue: { color: 0x7a8798, rough: 0.42, sheen: 0.26 },
@@ -271,7 +287,7 @@
   const DEFAULT_HEX = 0xf28b54;
 
   return {
-    PRESETS, DEFAULT_HEX, tonesFrom, sheenColorFrom, usable, toHsl, toHex,
+    PRESETS, DEFAULT_HEX, RECORDING, tonesFrom, sheenColorFrom, usable, toHsl, toHex,
     accentFrom, applyAccent, contrast,
     LIMITS: { MIN_SAT, MIN_LIT, MAX_LIT, AA },
   };
