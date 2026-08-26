@@ -54,6 +54,13 @@ const REC = (typeof window !== 'undefined' && window.FrenPalette &&
   window.FrenPalette.RECORDING) ||
   (typeof require === 'function' && (() => { try { return require('./palette.js').RECORDING; } catch { return null; } })()) ||
   { low: 0xd93425, high: 0xff6247, rough: 0.18, sheen: 0.60 };
+// The shipped look — stops, lights, coat — owned by the palette module so the
+// dashboard's sliders, the sanitizer and these uniforms can never disagree.
+// The literal fallback matches it for the pathological no-palette boot.
+const LOOK = (typeof window !== 'undefined' && window.FrenPalette &&
+  window.FrenPalette.ORB_LOOK) ||
+  { goldH: -3.5, goldS: 60, goldL: 9, coralH: -16, coralS: 54, coralL: -4,
+    ambient: 2.6, key: 0.7, fill: 1.0, clearcoat: 0.24, coatRough: 0.29 };
 
 
 /** Parameters that cross-fade when the expression changes. */
@@ -166,8 +173,8 @@ class Orb {
       // matter how bright the coral under it was. And well under a half now:
       // the reference this body is matched to is nearly matte, so the coat is
       // just enough for one soft catchlight to say "sphere".
-      clearcoat: 0.24,
-      clearcoatRoughness: 0.29,
+      clearcoat: LOOK.clearcoat,
+      clearcoatRoughness: LOOK.coatRough,
       sheen: TONE.base.sheen,
       sheenColor: new THREE.Color(0xffc06a),
       emissive: new THREE.Color(0xffffff),
@@ -185,12 +192,10 @@ class Orb {
     this.uRec = { value: 0 };
     // The gradient stops as offsets from the base, live-tunable (h, s, l in
     // 0..1 turns / fractions). Defaults are the shipped look.
-    // The shipped recipe. Chosen BY EYE in the colour workshop (the tune
-    // panel) and pasted back verbatim — these numbers were picked on a real
-    // screen against the reference blob, which is worth more than any of the
-    // four derivations that preceded them.
-    this.uGoldOff = { value: new THREE.Vector3(-3.5 / 360, 0.60, 0.09) };
-    this.uCoralOff = { value: new THREE.Vector3(-16 / 360, 0.54, -0.04) };
+    // Chosen by eye in a live tuning session against a reference image —
+    // which settled in one evening what four derivations had failed to.
+    this.uGoldOff = { value: new THREE.Vector3(LOOK.goldH / 360, LOOK.goldS / 100, LOOK.goldL / 100) };
+    this.uCoralOff = { value: new THREE.Vector3(LOOK.coralH / 360, LOOK.coralS / 100, LOOK.coralL / 100) };
     // Re-rolled on every shake, so no two look alike.
     this.uSeed = { value: 0 };
     this.material.onBeforeCompile = (shader) => {
@@ -297,18 +302,18 @@ class Orb {
     // old 0.35 ambient the coral corner sat in the key light's shade and came
     // out brown — the reference the palette is matched to is nearly flat-lit,
     // its form carried by the colour ramp rather than by shading.
-    this.ambient = new THREE.AmbientLight(0xffffff, 2.6);
+    this.ambient = new THREE.AmbientLight(0xffffff, LOOK.ambient);
     this.scene.add(this.ambient);
     // The key SHAPES the sphere. High and up-left, and it casts nothing --
     // from up there the shadow would land far below the frame.
-    this.key = new THREE.DirectionalLight(0xfff1dc, 0.7);
+    this.key = new THREE.DirectionalLight(0xfff1dc, LOOK.key);
     this.key.position.set(-2.2, 4.2, 3.0);
     this.key.castShadow = false;
     this.scene.add(this.key);
     // A fill from the coral corner, so the gradient's far stop is lit by
     // something and reads as colour rather than as shade. Warm-pink on
     // purpose: a white fill would wash the coral toward orange.
-    this.fill = new THREE.DirectionalLight(0xffd2c2, 1.0);
+    this.fill = new THREE.DirectionalLight(0xffd2c2, LOOK.fill);
     this.fill.position.set(2.4, -2.6, 2.6);
     this.fill.castShadow = false;
     this.scene.add(this.fill);
@@ -506,32 +511,21 @@ class Orb {
   }
 
   /**
-   * TEMPORARY tuning surface for the colour workshop (the "Tune colours…"
-   * window). Sets whatever it is handed and ignores the rest, so the panel
-   * can be sparse. Values are plain numbers; hue/sat/light offsets arrive in
-   * degrees and percents and are converted here.
+   * Apply a look — the dashboard's "Advanced look" setting, or the shipped
+   * default when the customisation is cleared. Fields already pass through
+   * palette.js sanitizeLook before they get here, so this just applies.
+   * Roughness and sheen are deliberately absent: the mood system owns them
+   * per-expression and rewrites them every frame.
    */
   tune(t) {
-    const v = (x) => typeof x === 'number' && Number.isFinite(x);
-    if (t.goldH !== undefined || t.goldS !== undefined || t.goldL !== undefined) {
-      const g = this.uGoldOff.value;
-      if (v(t.goldH)) g.x = t.goldH / 360;
-      if (v(t.goldS)) g.y = t.goldS / 100;
-      if (v(t.goldL)) g.z = t.goldL / 100;
-    }
-    if (t.coralH !== undefined || t.coralS !== undefined || t.coralL !== undefined) {
-      const c = this.uCoralOff.value;
-      if (v(t.coralH)) c.x = t.coralH / 360;
-      if (v(t.coralS)) c.y = t.coralS / 100;
-      if (v(t.coralL)) c.z = t.coralL / 100;
-    }
-    if (v(t.ambient)) this.ambient.intensity = t.ambient;
-    if (v(t.key)) this.key.intensity = t.key;
-    if (v(t.fill)) this.fill.intensity = t.fill;
-    if (v(t.clearcoat)) this.material.clearcoat = t.clearcoat;
-    if (v(t.coatRough)) this.material.clearcoatRoughness = t.coatRough;
-    if (v(t.rough)) this.material.roughness = t.rough;
-    if (v(t.sheen)) this.material.sheen = t.sheen;
+    const look = { ...LOOK, ...(t || {}) };
+    this.uGoldOff.value.set(look.goldH / 360, look.goldS / 100, look.goldL / 100);
+    this.uCoralOff.value.set(look.coralH / 360, look.coralS / 100, look.coralL / 100);
+    this.ambient.intensity = look.ambient;
+    this.key.intensity = look.key;
+    this.fill.intensity = look.fill;
+    this.material.clearcoat = look.clearcoat;
+    this.material.clearcoatRoughness = look.coatRough;
     this._wake();
   }
 

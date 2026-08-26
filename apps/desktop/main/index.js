@@ -16,6 +16,9 @@ const {
   clampInto, offsetInWindow, windowFor, chooseSide,
   CHARACTER_BASE, STAGE_PAD, SHADOW_ROOM,
 } = require('./place');
+// The palette is a UMD module shared with both renderers; main uses it to
+// sanitize the orb-look setting at its single point of entry.
+const palette = require('../renderer/face/palette.js');
 const providerSettings = require('./settings');
 const { createRoutineRunner, nextRunAt, isDue } = require('./routines');
 const executor = require('./executor');
@@ -769,30 +772,23 @@ app.whenReady().then(() => {
     return { side: how.side, drop: how.drop };
   });
 
-  // TEMPORARY: the colour workshop. Relays tuning values from the panel to
-  // the orb's renderer; holds nothing, persists nothing.
-  ipcMain.handle('fren:openTuner', () => openTuner());
-  ipcMain.handle('fren:tune', (_e, params) => {
-    if (win && !win.isDestroyed()) win.webContents.send('fren:tune', params);
+  /*
+   * The orb's LOOK — the advanced appearance settings in the dashboard.
+   * Everything passes through the palette's sanitizeLook on the way in, so
+   * the stored value is always in range and "reset to default" is stored as
+   * nothing at all. Changed in the dashboard, worn in the orb's window, so a
+   * change travels as a broadcast like the colour does.
+   */
+  ipcMain.handle('fren:getOrbLook', () => {
+    try { return palette.sanitizeLook(JSON.parse(memory.getSetting('orbLook') || 'null')); }
+    catch { return null; }
   });
-
-  let tuneWin = null;
-  function openTuner() {
-    if (tuneWin && !tuneWin.isDestroyed()) { tuneWin.show(); return; }
-    tuneWin = new BrowserWindow({
-      width: 380,
-      height: 720,
-      title: 'fren — colour workshop',
-      alwaysOnTop: true,
-      webPreferences: {
-        preload: path.join(__dirname, '..', 'preload.js'),
-        contextIsolation: true,
-        nodeIntegration: false,
-      },
-    });
-    tuneWin.loadURL(`${SCHEME}://app/tune.html`);
-    tuneWin.on('closed', () => { tuneWin = null; });
-  }
+  ipcMain.handle('fren:setOrbLook', (_e, raw) => {
+    const look = palette.sanitizeLook(raw);
+    memory.setSetting('orbLook', look ? JSON.stringify(look) : '');
+    if (win && !win.isDestroyed()) win.webContents.send('fren:orbLook', look);
+    return look;
+  });
 
   ipcMain.handle('fren:setHint', (_e, open, info) => {
     if (!open) { hideHint(); return true; }
@@ -818,7 +814,6 @@ app.whenReady().then(() => {
       { label: 'Bring fren back', click: () => recenter() },
       { label: 'Open the chat', click: () => { setPanelOpen(true); recenter(); } },
       { label: 'Open the dashboard', click: () => openDashboard() },
-      { label: 'Tune colours… (temporary)', click: () => openTuner() },
     ]));
   }
 

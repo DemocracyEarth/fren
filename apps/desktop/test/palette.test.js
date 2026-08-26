@@ -256,3 +256,20 @@ test('the pre-palette fallback wears the same bytes as the derived default', asy
     assert.equal(hx(TONE[name].color), hx(t[name].color), `${name} drifted from the semantics`);
   }
 });
+
+test('a stored look is clamped, filled, and never trusted', () => {
+  // sanitizeLook is the only door stored looks come through — from the
+  // dashboard, or from a hand-edited database, which must not be able to
+  // produce an invisible or blinding orb.
+  const def = P.ORB_LOOK;
+  assert.equal(P.sanitizeLook(null), null, 'nothing stored is the default');
+  assert.equal(P.sanitizeLook('garbage'), null, 'a non-object is the default');
+  assert.equal(P.sanitizeLook({ ...def }), null,
+    'customised-back-to-normal and never-touched are the same fact');
+  const wild = P.sanitizeLook({ ambient: 999, goldH: -999, coralS: 'NaN', extra: 1 });
+  assert.equal(wild.ambient, P.LOOK_RANGE.ambient[1], 'clamped to the ceiling');
+  assert.equal(wild.goldH, P.LOOK_RANGE.goldH[0], 'clamped to the floor');
+  assert.equal(wild.coralS, def.coralS, 'junk falls back to the default');
+  assert.ok(!('extra' in wild), 'unknown keys are dropped');
+  for (const k of Object.keys(def)) assert.ok(k in wild, `${k} always present`);
+});

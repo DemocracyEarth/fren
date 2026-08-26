@@ -8,10 +8,10 @@ contextBridge.exposeInMainWorld('fren', {
   aimPanel: () => ipcRenderer.invoke('fren:aimPanel'),
   // The orb's tooltip — its own little window, never a resize of this one.
   setHint: (open, info) => ipcRenderer.invoke('fren:setHint', open, info),
-  // TEMPORARY: the colour workshop. The panel sends, the orb listens.
-  sendTune: (params) => ipcRenderer.invoke('fren:tune', params),
-  openTuner: () => ipcRenderer.invoke('fren:openTuner'),
-  onTune: (fn) => ipcRenderer.on('fren:tune', (_e, params) => fn(params)),
+  // The orb's advanced look: read, write (null clears), and hear about changes.
+  getOrbLook: () => ipcRenderer.invoke('fren:getOrbLook'),
+  setOrbLook: (look) => ipcRenderer.invoke('fren:setOrbLook', look),
+  onOrbLook: (fn) => ipcRenderer.on('fren:orbLook', (_e, look) => fn(look)),
   quit: () => ipcRenderer.invoke('fren:quit'),
   getProfile: () => ipcRenderer.invoke('fren:getProfile'),
   setProfile: (p) => ipcRenderer.invoke('fren:setProfile', p),

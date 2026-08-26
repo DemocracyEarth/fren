@@ -300,8 +300,51 @@
   // byte.
   const DEFAULT_HEX = 0xffa200;
 
+  /**
+   * The orb's LOOK: everything about the body that is not the colour itself.
+   * Mixed by eye in a live tuning session against a reference image, and now
+   * the single source — the shader's uniforms, the lights, the dashboard's
+   * "Advanced look" sliders and the sanitizer below all read from here.
+   */
+  const ORB_LOOK = {
+    goldH: -3.5, goldS: 60, goldL: 9,          // the top-left stop, offsets from the base
+    coralH: -16, coralS: 54, coralL: -4,       // the bottom-right stop
+    ambient: 2.6, key: 0.7, fill: 1.0,         // flat light, top-left light, bottom-right light
+    clearcoat: 0.24, coatRough: 0.29,          // the glint, and how soft it is
+  };
+  const LOOK_RANGE = {
+    goldH: [-60, 60], goldS: [-60, 60], goldL: [-20, 45],
+    coralH: [-60, 60], coralS: [-60, 60], coralL: [-20, 45],
+    ambient: [0, 3.4], key: [0, 3], fill: [0, 2.5],
+    clearcoat: [0, 1], coatRough: [0, 1],
+  };
+
+  /**
+   * The only door stored looks come through. Clamps every field into range,
+   * fills gaps with the defaults, drops everything else — and returns null
+   * for a look that IS the default, so "never customised" and "customised
+   * back to normal" are the same stored fact.
+   */
+  function sanitizeLook(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const out = {};
+    let custom = false;
+    for (const key of Object.keys(ORB_LOOK)) {
+      const v = Number(raw[key]);
+      if (Number.isFinite(v)) {
+        const [lo, hi] = LOOK_RANGE[key];
+        out[key] = clamp(v, lo, hi);
+      } else {
+        out[key] = ORB_LOOK[key];
+      }
+      if (out[key] !== ORB_LOOK[key]) custom = true;
+    }
+    return custom ? out : null;
+  }
+
   return {
-    PRESETS, DEFAULT_HEX, RECORDING, tonesFrom, sheenColorFrom, usable, toHsl, toHex,
+    PRESETS, DEFAULT_HEX, RECORDING, ORB_LOOK, LOOK_RANGE, sanitizeLook,
+    tonesFrom, sheenColorFrom, usable, toHsl, toHex,
     accentFrom, applyAccent, contrast,
     LIMITS: { MIN_SAT, MIN_LIT, MAX_LIT, AA },
   };

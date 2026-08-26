@@ -1895,14 +1895,14 @@ scheduleWander();
   // The setting lives in the dashboard, the orb lives here, so a change
   // arrives as a message rather than being read again.
   window.fren.onOrbColour(wearColour);
-  // TEMPORARY: the colour workshop drives the orb live. baseHex rides the
-  // same path as a chosen colour so the whole app follows it.
-  if (window.fren.onTune) {
-    window.fren.onTune((t) => {
-      if (t && Number.isFinite(t.baseHex)) wearColour(t.baseHex);
-      if (t && face && face.tune) face.tune(t);
-    });
-  }
+  // The advanced look, worn at boot and whenever the dashboard changes it.
+  // A null look means "back to the shipped default" — tune() fills the gaps.
+  const wearLook = (look) => { if (face && face.tune) face.tune(look); };
+  try {
+    const look = await window.fren.getOrbLook();
+    if (look) wearLook(look);
+  } catch { /* the shipped look is already on */ }
+  window.fren.onOrbLook(wearLook);
 
   // Restore the size fren was left at. Before the greeting, so it is already
   // the right size the first time it moves.
