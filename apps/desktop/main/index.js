@@ -166,17 +166,6 @@ const characterSize = () => {
 };
 // The orb sits under the panel in the same window, so a bigger orb needs a
 // taller window — otherwise growing it would push the conversation off the top.
-// The hover hint: a card of gestures in fren's own voice, in place of the OS
-// tooltip. Same structural constant as PANEL_BASE — content plus the stage's
-// 16px of chrome — and the card's height is fixed in the stylesheet, so these
-// two only drift apart if someone edits one without the other, which the
-// startup assert below turns from a mystery clip into a message.
-const HINT_BASE = { width: 252, height: 148 };
-const hintSize = () => ({
-  width: HINT_BASE.width + shadowRoom(),
-  height: HINT_BASE.height + Math.round(CHARACTER_BASE * orbScale) + shadowRoom(),
-});
-
 const panelSize = () => ({
   // The same transparent strip on the right, so the orb keeps its shadow room
   // with the panel open. The stage pads it back out, so the panel's own visible
@@ -354,12 +343,8 @@ function placeAround(rect, open) {
   // only hears about the new corner an IPC hop later. That one frame of
   // disagreement is a visibly misplaced orb. Keeping it means closing changes
   // exactly one thing.
-  //
-  // `open` is what the window is for: false, 'panel', or 'hint' — the hint is
-  // the hover bubble, a small panel in every way that matters here.
   const how = open
-    ? chooseSide(rect, open === 'hint' ? hintSize() : panelSize(),
-        characterSize(), STAGE_PAD, shadowRoom(), workArea, panelHow)
+    ? chooseSide(rect, panelSize(), characterSize(), STAGE_PAD, shadowRoom(), workArea, panelHow)
     : { side: panelHow.side, drop: panelHow.drop, size: orbSize() };
 
   panelHow = how;
@@ -383,12 +368,77 @@ function syncCorner(how, extra = null) {
 }
 
 function setPanelOpen(open) {
-  const how = placeAround(characterRect(), open ? 'panel' : false);
+  if (open) hideHint();            // the tooltip never overlaps the conversation
+  const how = placeAround(characterRect(), open);
   syncCorner(how, { panelOpen: !!open });
   // Returned as well as pushed. The push is how every other window learns the
   // corner; the return is how the one that asked learns it without waiting a
   // second hop, which matters because it is about to reveal the panel.
   return { side: how.side, drop: how.drop };
+}
+
+/*
+ * The orb's tooltip lives in its OWN window.
+ *
+ * The first version lived inside the orb's window and borrowed the chat
+ * panel's grow-the-window dance — and a one-frame tear during that resize
+ * could show the orb somewhere it was not. A separate window never touches
+ * the orb's bounds, so the tear is not rare now, it is impossible. It is also
+ * simply less machinery: no corner to face, no size to negotiate, no state to
+ * sync — a card, placed near the orb, shown and hidden.
+ *
+ * Click-through and unfocusable, so it can never steal the hover it explains,
+ * and recreated per show: the query string is how it learns what to say, and
+ * a tooltip appears far too rarely for creation to be worth caching.
+ */
+const HINT_WIN = { width: 380, height: 84 };
+let hintWin = null;
+
+function hideHint() {
+  if (hintWin && !hintWin.isDestroyed()) hintWin.destroy();
+  hintWin = null;
+}
+
+function showHint(info) {
+  hideHint();
+  const orb = characterRect();
+  const { workArea } = screen.getDisplayNearestPoint({
+    x: Math.round(orb.x + orb.width / 2),
+    y: Math.round(orb.y + orb.height / 2),
+  });
+
+  // Above the orb, unless the orb is against the top of the screen.
+  const below = orb.y - HINT_WIN.height - 2 < workArea.y;
+  const y = below ? orb.y + orb.height - 6 : orb.y - HINT_WIN.height + 6;
+  const cx = orb.x + orb.width / 2;
+  const x = Math.round(Math.min(
+    Math.max(cx - HINT_WIN.width / 2, workArea.x),
+    workArea.x + workArea.width - HINT_WIN.width));
+
+  const q = new URLSearchParams();
+  if (info.voice) q.set('v', '1');
+  if (info.note) q.set('n', String(info.note).slice(0, 200));
+  if (below) q.set('b', '1');
+  q.set('tx', String(Math.round(cx - x)));    // where the tail finds the orb
+
+  hintWin = new BrowserWindow({
+    x, y, ...HINT_WIN,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    alwaysOnTop: true,
+    hasShadow: false,
+    skipTaskbar: true,
+    focusable: false,
+    show: false,
+    webPreferences: { contextIsolation: true, nodeIntegration: false },
+  });
+  hintWin.setIgnoreMouseEvents(true);
+  hintWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  hintWin.loadURL(`${SCHEME}://app/hint.html?${q}`);
+  hintWin.once('ready-to-show', () => {
+    if (hintWin && !hintWin.isDestroyed()) hintWin.showInactive();
+  });
 }
 
 function createWindow() {
@@ -703,25 +753,21 @@ app.whenReady().then(() => {
   // instead leaves one frame where the window is already panel-sized and the
   // renderer still has the old corner, which puts the orb a long way from where
   // main just placed it. This only reads geometry; nothing moves.
-  ipcMain.handle('fren:aimPanel', (_e, kind) => {
+  ipcMain.handle('fren:aimPanel', () => {
     const rect = characterRect();
     const { workArea } = screen.getDisplayNearestPoint({
       x: Math.round(rect.x + rect.width / 2),
       y: Math.round(rect.y + rect.height / 2),
     });
-    const how = chooseSide(rect, kind === 'hint' ? hintSize() : panelSize(),
-      characterSize(), STAGE_PAD, shadowRoom(), workArea, panelHow);
+    const how = chooseSide(rect, panelSize(), characterSize(), STAGE_PAD, shadowRoom(), workArea, panelHow);
     return { side: how.side, drop: how.drop };
   });
 
-  // The hover hint borrows the panel's machinery wholesale — grow, face a
-  // corner, shrink — but never touches panelOpen: while the chat is open the
-  // window is the chat's, and a hint request is simply refused.
-  ipcMain.handle('fren:setHint', (_e, open) => {
+  ipcMain.handle('fren:setHint', (_e, open, info) => {
+    if (!open) { hideHint(); return true; }
     if (state.get().panelOpen) return null;
-    const how = placeAround(characterRect(), open ? 'hint' : false);
-    syncCorner(how);
-    return { side: how.side, drop: how.drop };
+    showHint(info || {});
+    return true;
   });
 
   /**

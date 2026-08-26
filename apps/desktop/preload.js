@@ -4,10 +4,10 @@ contextBridge.exposeInMainWorld('fren', {
   toggleObservation: () => ipcRenderer.invoke('fren:toggleObservation'),
   chat: (text) => ipcRenderer.invoke('fren:chat', text),
   setPanelOpen: (open) => ipcRenderer.invoke('fren:setPanelOpen', open),
-  // Which corner the panel (or the hover hint) WOULD open into, without opening it.
-  aimPanel: (kind) => ipcRenderer.invoke('fren:aimPanel', kind),
-  // The hover hint's window: grown and shrunk like the panel's, never while the panel is open.
-  setHint: (open) => ipcRenderer.invoke('fren:setHint', open),
+  // Which corner the panel WOULD open into, without opening it.
+  aimPanel: () => ipcRenderer.invoke('fren:aimPanel'),
+  // The orb's tooltip — its own little window, never a resize of this one.
+  setHint: (open, info) => ipcRenderer.invoke('fren:setHint', open, info),
   quit: () => ipcRenderer.invoke('fren:quit'),
   getProfile: () => ipcRenderer.invoke('fren:getProfile'),
   setProfile: (p) => ipcRenderer.invoke('fren:setProfile', p),

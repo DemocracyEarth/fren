@@ -29,7 +29,6 @@ const els = {
   watch: document.getElementById('watch'),
   watchSay: document.getElementById('watch-say'),
   dashDot: document.getElementById('dash-dot'),
-  hint: document.getElementById('hint'),
   lightQuit: document.getElementById('light-quit'),
   lightMin: document.getElementById('light-min'),
   lightExpand: document.getElementById('light-expand'),
@@ -748,93 +747,34 @@ function played(node, className, deadlineMs) {
 }
 
 /**
- * The hover hint — the tooltip, done properly.
+ * The orb's tooltip.
  *
- * The OS tooltip was a yellow box mumbling "click to record · right-click for
- * the menu" in the system font. This is the same information as a miniature
- * speech bubble: same card language as the chat, same tail, pointing at the
- * same speaker. It borrows the panel's whole window dance — aim, grow, paint,
- * show / hide, paint, shrink — because the closed window has no room for a
- * card, and that dance is the proven way to make room without moving the orb.
- *
- * It waits out a dwell before appearing, forgives a quick trip across the gap
- * before disappearing, and any actual interaction dismisses it instantly —
- * the moment you press, you have stopped needing instructions.
+ * The card itself is main's: a separate little window placed near the orb, so
+ * showing it never resizes THIS window — the first version did, borrowing the
+ * chat's grow-the-window dance, and the resize could tear for a frame with
+ * the orb drawn somewhere it was not. All that lives here is the manners: a
+ * dwell before it appears, a grace before it goes, and instant dismissal the
+ * moment the user actually does anything — pressing means the instructions
+ * are no longer needed.
  */
 const HINT_DWELL_MS = 650;
 const HINT_GRACE_MS = 200;
 let hintTimer = null;
-let hintBusy = false;
+let hintShown = false;
 let hintNote = null;             // something fren is holding: a greeting, a noticed thing
 
-function renderHint() {
-  const rows = [];
-  const gesture = (key, what) =>
-    `<div class="hint-row"><span class="hint-key">${key}</span><span>${what}</span></div>`;
-  if (hintNote) {
-    // Something fren is holding leads the card, and the gestures step back to
-    // the two that matter for hearing it — the card's height is fixed (main
-    // sizes the window from its twin of that number), so this is a budget,
-    // not a style choice.
-    rows.push(`<div class="hint-note"></div>`);
-    if (voiceReady) rows.push(gesture('click', 'talk to me'));
-    rows.push(gesture('right-click', 'open our chat'));
-  } else {
-    if (voiceReady) rows.push(gesture('click', 'talk to me'));
-    rows.push(gesture('right-click', 'open our chat'));
-    rows.push(gesture('scroll', 'grow or shrink me'));
-    rows.push(gesture('drag', 'carry me anywhere'));
-  }
-  els.hint.innerHTML = rows.join('');
-  // textContent, not markup: the note can be model output.
-  if (hintNote) els.hint.querySelector('.hint-note').textContent = hintNote;
+function setHint(open) {
+  if (open && (state.panelOpen || hintShown)) return;
+  if (!open && !hintShown) return;
+  hintShown = !!open;
+  window.fren.setHint(!!open, open ? { voice: voiceReady, note: hintNote } : undefined)
+    .catch(() => { hintShown = false; });
 }
 
-async function setHint(open) {
-  if (hintBusy) return;
-  hintBusy = true;
-  try {
-    if (open) {
-      // The panel owns the window when it is open, and a hint mid-panel-dance
-      // would fight it for the corner. Main refuses too; this just saves the trip.
-      if (panelBusy || state.panelOpen || !els.hint.hidden) return;
-      renderHint();
-      // The same corner dance as the panel, for the same reason: turn while
-      // the window is small, grow, let the new size paint, then show.
-      const aim = await window.fren.aimPanel('hint');
-      if (aim && (aim.drop !== (document.body.dataset.panelBelow === '1') ||
-                  aim.side !== document.body.dataset.panelSide)) {
-        faceCorner(aim);
-        await painted();
-      }
-      const got = await window.fren.setHint(true);
-      if (!got) return;            // main said the panel has the window
-      faceCorner(got);
-      await painted();
-      els.hint.hidden = false;
-    } else {
-      if (els.hint.hidden) return;
-      els.hint.hidden = true;
-      await painted();
-      await window.fren.setHint(false);
-    }
-  } finally {
-    hintBusy = false;
-  }
-}
-
-/**
- * Dismissed without ceremony, mid-gesture. The shrink is fired and not
- * awaited: when a press or a wheel tick is already resizing the window, the
- * next resize supersedes this one, and IPC keeps them in order.
- */
 function dropHint() {
   clearTimeout(hintTimer);
   hintTimer = null;
-  if (!els.hint.hidden) {
-    els.hint.hidden = true;
-    window.fren.setHint(false).catch(() => { /* the next resize corrects it */ });
-  }
+  setHint(false);
 }
 
 function armHint() {
@@ -1440,9 +1380,6 @@ els.orb.addEventListener('mouseleave', () => {
   if (!speaking && !reactionTimer) setFace(emotionFor(state));
   disarmHint();
 });
-// Crossing the 8px gap to read the card keeps it open; leaving it lets it go.
-els.hint.addEventListener('mouseenter', () => clearTimeout(hintTimer));
-els.hint.addEventListener('mouseleave', () => disarmHint());
 // Keyboard users get the same card on focus — it is the orb's description.
 // :focus-visible, so only focus that ARRIVED by keyboard shows it; focus
 // handed out programmatically, or left over from a click, does not.

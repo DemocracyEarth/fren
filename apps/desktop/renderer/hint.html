@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' fren:; style-src 'self' 'unsafe-inline'; img-src 'self' fren:">
+<title>fren</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  /*
+   * The orb's tooltip, in its own window.
+   *
+   * Its own window ON PURPOSE. The first version lived inside the orb's window
+   * and borrowed the chat panel's grow-the-window dance, and the resize could
+   * tear for a frame — the orb visibly elsewhere while the frame and the
+   * surface disagreed. A tooltip in a separate window never touches the orb's
+   * window at all, so the failure is not rare any more, it is impossible.
+   *
+   * Everything here is deliberately slight: one line, one wash, a tail. The
+   * card language is the chat's — same wash-over-cream the bubble tail wears,
+   * same white hairline — at whisper volume.
+   */
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    /* Room below the card for the tail to poke into, and around it for the
+       shadow to finish — the window clips anything past its edge. */
+    padding: 10px 12px 16px;
+    box-sizing: border-box;
+  }
+  body.below { justify-content: flex-start; }
+
+  #card {
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 7px 14px;
+    background: linear-gradient(rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.42)), var(--cream);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    border-radius: 999px;
+    box-shadow: 0 1px 2px rgba(24, 16, 6, 0.05), 0 4px 12px rgba(24, 16, 6, 0.08);
+    font-size: 11.5px;
+    line-height: 1.35;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* A held thought is a sentence, not a list; let it take two lines. */
+  #card.note {
+    white-space: normal;
+    border-radius: 14px;
+    text-align: center;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  #card b { font-weight: 650; color: var(--ink); }
+  #card .dim { color: rgba(26, 23, 18, 0.55); }
+
+  /* The same diamond the chat bubble wears, aimed at the same speaker. */
+  #tail {
+    position: fixed;
+    width: 12px;
+    height: 12px;
+    transform: rotate(45deg);
+    background: linear-gradient(rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.42)), var(--cream);
+    border-right: 1px solid rgba(255, 255, 255, 0.6);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.6);
+    bottom: 11px;
+  }
+  body.below #tail {
+    bottom: auto;
+    top: 11px;
+    border: 0;
+    border-left: 1px solid rgba(255, 255, 255, 0.6);
+    border-top: 1px solid rgba(255, 255, 255, 0.6);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    body { animation: in .16s ease-out both; }
+    @keyframes in { from { opacity: 0; } to { opacity: 1; } }
+  }
+</style>
+</head>
+<body>
+  <div id="card"></div>
+  <div id="tail"></div>
+  <script src="hint.js"></script>
+</body>
+</html>
