@@ -10,6 +10,7 @@ if (!window.fren && location.protocol !== 'file:') {
     chat: async () => ({ reply: 'Running outside Electron, so this is a canned reply.' }),
     setPanelOpen: async () => ({ side: 'left', drop: false }),
     aimPanel: async () => ({ side: 'left', drop: false }),
+    setHint: async () => ({ side: 'left', drop: false }),
     quit: async () => {},
     dragStart: async () => {},
     dragEnd: async () => ({ moved: false }),
@@ -745,6 +746,50 @@ function played(node, className, deadlineMs) {
   });
 }
 
+/**
+ * The orb's tooltip.
+ *
+ * The card itself is main's: a separate little window placed near the orb, so
+ * showing it never resizes THIS window — the first version did, borrowing the
+ * chat's grow-the-window dance, and the resize could tear for a frame with
+ * the orb drawn somewhere it was not. All that lives here is the manners: a
+ * dwell before it appears, a grace before it goes, and instant dismissal the
+ * moment the user actually does anything — pressing means the instructions
+ * are no longer needed.
+ */
+const HINT_DWELL_MS = 650;
+const HINT_GRACE_MS = 200;
+let hintTimer = null;
+let hintShown = false;
+let hintNote = null;             // something fren is holding: a greeting, a noticed thing
+
+function setHint(open) {
+  if (open && (state.panelOpen || hintShown)) return;
+  if (!open && !hintShown) return;
+  hintShown = !!open;
+  window.fren.setHint(!!open, open ? { voice: voiceReady, note: hintNote } : undefined)
+    .catch(() => { hintShown = false; });
+}
+
+function dropHint() {
+  clearTimeout(hintTimer);
+  hintTimer = null;
+  setHint(false);
+}
+
+function armHint() {
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(() => { setHint(true); }, HINT_DWELL_MS);
+}
+
+function disarmHint() {
+  clearTimeout(hintTimer);
+  // A grace period, not an instant close: leaving the orb for a moment —
+  // crossing to the card to read it, clipping the halo — should not slam the
+  // door. Interaction still dismisses instantly through dropHint().
+  hintTimer = setTimeout(() => { setHint(false); }, HINT_GRACE_MS);
+}
+
 /** Put the panel where the state says, unless a transition is mid-flight. */
 function paintPanel() {
   if (panelBusy) return;
@@ -803,6 +848,7 @@ async function setPanel(open) {
   panelBusy = true;
   try {
     if (open) {
+      dropHint();                  // the panel takes the window from here
       await loadPanelHistory();
       // Turn to face the corner BEFORE the window grows into it. While the
       // window is still orb-sized this costs nothing to look at; after it has
@@ -1096,6 +1142,7 @@ for (const [el, ev] of [[els.orb, 'mousedown'], [els.input, 'keydown'], [els.sen
 const CTRL_CLICK_IS_RIGHT_CLICK = navigator.platform.toUpperCase().includes('MAC');
 
 els.orb.addEventListener('mousedown', (e) => {
+  dropHint();                      // pressing means you know how already
   if (e.button !== 0) return;
   if (CTRL_CLICK_IS_RIGHT_CLICK && e.ctrlKey) return;   // that is a right-click
   pressing = true;
@@ -1139,6 +1186,7 @@ window.addEventListener('mousemove', (e) => {
   // Moving means carrying it. Main takes the cursor offset from here, so the
   // orb keeps its position under the pointer instead of jumping.
   dragging = true;
+  dropHint();                      // a carried orb leaves its tooltip behind
   window.fren.dragStart();
 });
 
@@ -1301,6 +1349,7 @@ els.orb.addEventListener('wheel', (e) => {
   if (Math.abs(next - orbScale) > 0.0005 && face && face.roll) {
     face.roll(-e.deltaY * 0.09);
   }
+  dropHint();                      // the wheel is about to resize this window
   wantScale = next;
   pumpScale();
 }, { passive: false });
@@ -1325,12 +1374,18 @@ els.orb.addEventListener('contextmenu', async (e) => {
   await setPanel(!state.panelOpen);
 });
 
-els.orb.addEventListener('mouseenter', () => react('hover'));
+els.orb.addEventListener('mouseenter', () => { react('hover'); armHint(); });
 els.orb.addEventListener('mouseleave', () => {
   // Let the reaction finish on its own — snapping back mid-expression is what
   // made it feel mechanical.
   if (!speaking && !reactionTimer) setFace(emotionFor(state));
+  disarmHint();
 });
+// Keyboard users get the same card on focus — it is the orb's description.
+// :focus-visible, so only focus that ARRIVED by keyboard shows it; focus
+// handed out programmatically, or left over from a click, does not.
+els.orb.addEventListener('focus', () => { if (els.orb.matches(':focus-visible')) armHint(); });
+els.orb.addEventListener('blur', () => disarmHint());
 
 /**
  * Hold the mic to talk. Recording only happens while the button is down, the
@@ -1683,7 +1738,7 @@ async function greetQuietly(text) {
   if (Date.now() - bootAt > GREET_DEADLINE_MS) return;
 
   addBubble('fren', text);         // read it whenever the panel is opened
-  els.orb.title = text;            // and on hover in the meantime
+  hintNote = text;                 // and it leads the hover card in the meantime
   face.pulse('bounce');
 
   let audible = false;
@@ -1773,7 +1828,7 @@ async function onSuggestion({ message }) {
   }
   // Reserved: hold the thought and look like it. Tapping fren, or asking it
   // anything, delivers it.
-  els.orb.title = 'fren noticed something — tap to hear it';
+  hintNote = 'fren noticed something — tap to hear it';
 }
 
 /** Deliver whatever fren has been sitting on, if anything. */
@@ -1781,9 +1836,7 @@ async function deliverPendingSuggestion() {
   if (!pendingSuggestion || speaking || awaitingReply) return false;
   const message = pendingSuggestion;
   pendingSuggestion = null;
-  els.orb.title = voiceReady
-    ? `${orbVerb()} · click to record · right-click for the menu`
-    : `${orbVerb()} · right-click for the menu · drag to move`;
+  hintNote = null;                 // delivered; the card goes back to gestures
   await speak(message);
   return true;
 }
@@ -1842,6 +1895,14 @@ scheduleWander();
   // The setting lives in the dashboard, the orb lives here, so a change
   // arrives as a message rather than being read again.
   window.fren.onOrbColour(wearColour);
+  // The advanced look, worn at boot and whenever the dashboard changes it.
+  // A null look means "back to the shipped default" — tune() fills the gaps.
+  const wearLook = (look) => { if (face && face.tune) face.tune(look); };
+  try {
+    const look = await window.fren.getOrbLook();
+    if (look) wearLook(look);
+  } catch { /* the shipped look is already on */ }
+  window.fren.onOrbLook(wearLook);
 
   // Restore the size fren was left at. Before the greeting, so it is already
   // the right size the first time it moves.
@@ -1868,9 +1929,9 @@ scheduleWander();
   render(await window.fren.getState());
   setFace(emotionFor(state), { immediate: true });
 
-  els.orb.title = voiceReady
-    ? `${orbVerb()} · click to record · right-click for the menu`
-    : `${orbVerb()} · right-click for the menu · drag to move`;
+  // No title attribute: the OS tooltip is retired. The hover card carries the
+  // gestures now, and the screen reader gets them through aria-describedby.
+  els.orb.setAttribute('aria-label', `fren — ${orbVerb()}`);
 
   markUnread();
 

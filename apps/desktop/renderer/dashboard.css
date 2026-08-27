@@ -925,3 +925,34 @@ body[data-watching="1"] #side-status { color: var(--orange-ink); }
 
 /* fren composing a reply, in the transcript's own voice. */
 .said.thinking p { color: var(--ink-soft); font-style: italic; }
+
+/* ------------------------------------------------- the advanced look -- */
+.look-block summary {
+  cursor: pointer;
+  font-weight: 650;
+  font-size: 13px;
+}
+.look-block .caveat { margin-top: 6px; }
+.look-group { margin: 10px 0 2px; }
+.look-title {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-soft, #6b6558);
+  margin-bottom: 2px;
+}
+.look-row {
+  display: grid;
+  grid-template-columns: 120px 1fr 46px;
+  gap: 10px;
+  align-items: center;
+  margin: 2px 0;
+}
+.look-row .look-label { font-size: 12px; color: var(--ink, #1a1712); }
+.look-row input[type="range"] { width: 100%; accent-color: var(--orange); }
+.look-row output {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--ink-soft, #6b6558);
+}
+.look-block > .field-clear { margin-top: 10px; }

@@ -45,9 +45,22 @@ const TAU = Math.PI * 2;
  * microphone is open and anything faster becomes an alarm.
  */
 const REC_HZ = 0.62;
-// Scratch colour for the recording pulse's upper end, refilled from the CHOSEN
-// palette every frame so a re-coloured fren pulses in its own colour.
+// Scratch colours for the recording pulse. Refilled every frame from the
+// palette module's RECORDING pair — fixed record red, deliberately NOT the
+// chosen palette; see the note beside it.
+const _recLow = new THREE.Color();
 const _recHigh = new THREE.Color();
+const REC = (typeof window !== 'undefined' && window.FrenPalette &&
+  window.FrenPalette.RECORDING) ||
+  (typeof require === 'function' && (() => { try { return require('./palette.js').RECORDING; } catch { return null; } })()) ||
+  { low: 0xd93425, high: 0xff6247, rough: 0.18, sheen: 0.60 };
+// The shipped look — stops, lights, coat — owned by the palette module so the
+// dashboard's sliders, the sanitizer and these uniforms can never disagree.
+// The literal fallback matches it for the pathological no-palette boot.
+const LOOK = (typeof window !== 'undefined' && window.FrenPalette &&
+  window.FrenPalette.ORB_LOOK) ||
+  { goldH: -3.5, goldS: 60, goldL: 9, coralH: -16, coralS: 54, coralL: -4,
+    ambient: 2.6, key: 0.7, fill: 1.0, clearcoat: 0.24, coatRough: 0.29 };
 
 
 /** Parameters that cross-fade when the expression changes. */
@@ -154,8 +167,14 @@ class Orb {
       color: TONE.base.color,
       roughness: TONE.base.rough,
       metalness: 0,
-      clearcoat: 1,
-      clearcoatRoughness: 0.06,
+      // Not 1 any more. A full clearcoat with no environment map steals the
+      // base layer's energy at grazing angles and reflects nothing back — a
+      // black mirror — which is what kept the orb's lower rim dark brown no
+      // matter how bright the coral under it was. And well under a half now:
+      // the reference this body is matched to is nearly matte, so the coat is
+      // just enough for one soft catchlight to say "sphere".
+      clearcoat: LOOK.clearcoat,
+      clearcoatRoughness: LOOK.coatRough,
       sheen: TONE.base.sheen,
       sheenColor: new THREE.Color(0xffc06a),
       emissive: new THREE.Color(0xffffff),
@@ -167,6 +186,12 @@ class Orb {
     this.uWobble = { value: 0 };
     this.uSquash = { value: 0 };
     this.uTime = { value: 0 };
+    // The gradient stops as offsets from the base, live-tunable (h, s, l in
+    // 0..1 turns / fractions). Defaults are the shipped look.
+    // Chosen by eye in a live tuning session against a reference image —
+    // which settled in one evening what four derivations had failed to.
+    this.uGoldOff = { value: new THREE.Vector3(LOOK.goldH / 360, LOOK.goldS / 100, LOOK.goldL / 100) };
+    this.uCoralOff = { value: new THREE.Vector3(LOOK.coralH / 360, LOOK.coralS / 100, LOOK.coralL / 100) };
     // Re-rolled on every shake, so no two look alike.
     this.uSeed = { value: 0 };
     this.material.onBeforeCompile = (shader) => {
@@ -174,10 +199,18 @@ class Orb {
       shader.uniforms.uAmount = this.uWobble;
       shader.uniforms.uSquash = this.uSquash;
       shader.uniforms.uSeed = this.uSeed;
+      shader.uniforms.uGoldOff = this.uGoldOff;
+      shader.uniforms.uCoralOff = this.uCoralOff;
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', `#include <common>
           uniform float uTime; uniform float uAmount; uniform float uSquash;
-          uniform float uSeed;`)
+          uniform float uSeed;
+          varying vec3 vGradN;`)
+        // The gradient's compass. View-space normals, so the warm corner stays
+        // pinned to the screen's top-left however the sphere rolls or the gaze
+        // turns — it reads as light falling on fren, not as paint on it.
+        .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
+          vGradN = normalMatrix * objectNormal;`)
         // Three axes rather than two, so a wobble travels around the sphere
         // instead of rippling in one plane, and a per-shake seed so the surface
         // deforms differently each time instead of the same standing wave
@@ -190,18 +223,97 @@ class Orb {
           transformed += normal * w * uAmount;
           transformed.xz *= 1.0 + uSquash;
           transformed.y  *= 1.0 - uSquash;`);
+
+      /*
+       * The body is a gradient, not a colour: gold falling in from the top
+       * left, coral pooling at the bottom right. Crucially both stops are
+       * DERIVED from the one animated base colour, in the shader, per frame —
+       * hue rotated a few degrees either way — rather than being two more
+       * uniforms someone has to remember to set. Everything that already
+       * moves the base keeps working untouched: moods brighten it, listening
+       * pulses it toward gold, sleep drains it to grey (where saturation is
+       * near zero, so the hue swing quietly vanishes and asleep stays grey).
+       */
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>
+          varying vec3 vGradN;
+          uniform vec3 uGoldOff;
+          uniform vec3 uCoralOff;
+          vec3 frenHsl(vec3 c) {
+            float mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b));
+            float l = (mx + mn) * 0.5, d = mx - mn, h = 0.0, s = 0.0;
+            if (d > 1e-5) {
+              s = l > 0.5 ? d / (2.0 - mx - mn) : d / (mx + mn);
+              if (mx == c.r)      h = (c.g - c.b) / d + (c.g < c.b ? 6.0 : 0.0);
+              else if (mx == c.g) h = (c.b - c.r) / d + 2.0;
+              else                h = (c.r - c.g) / d + 4.0;
+              h /= 6.0;
+            }
+            return vec3(h, s, l);
+          }
+          float frenHue(float p, float q, float t) {
+            t = fract(t);
+            if (t < 1.0 / 6.0) return p + (q - p) * 6.0 * t;
+            if (t < 0.5)       return q;
+            if (t < 2.0 / 3.0) return p + (q - p) * (2.0 / 3.0 - t) * 6.0;
+            return p;
+          }
+          vec3 frenRgb(vec3 hsl) {
+            float s = clamp(hsl.y, 0.0, 1.0), l = clamp(hsl.z, 0.0, 1.0);
+            if (s < 1e-5) return vec3(l);
+            float q = l < 0.5 ? l * (1.0 + s) : l + s - l * s;
+            float p = 2.0 * l - q;
+            return vec3(frenHue(p, q, hsl.x + 1.0 / 3.0),
+                        frenHue(p, q, hsl.x),
+                        frenHue(p, q, hsl.x - 1.0 / 3.0));
+          }`)
+        .replace('vec4 diffuseColor = vec4( diffuse, opacity );', `
+          // The colour work happens in sRGB, not in the linear values the
+          // shader is handed. A hue turned toward red at constant LINEAR
+          // lightness loses perceived brightness — that is how the coral
+          // corner kept coming out maroon — and these offsets were chosen by
+          // eye against an sRGB reference, so sRGB is the space they mean.
+          vec3 frenBase = frenHsl(pow(diffuse, vec3(1.0 / 2.2)));
+          // The stops apply to EVERYTHING the base does, recording included.
+          // The pulse used to collapse the gradient, because the original
+          // offsets rotated the top-left twenty degrees warmer and turned
+          // record red back into orange. The tuned offsets barely move the
+          // hue and carry the look in saturation — so a recording fren keeps
+          // the same body it always has, just in red, and a customised look
+          // records in its own version of red.
+          vec3 frenGold  = frenBase + uGoldOff;
+          vec3 frenCoral = frenBase + uCoralOff;
+          // Centre of the disc sits at the midpoint; the stops arrive just
+          // before the rim, along the same up-left diagonal as the key light.
+          vec3 frenNv = normalize(vGradN);
+          float frenT = smoothstep(0.0, 1.0,
+            0.5 + 0.62 * dot(frenNv.xy, vec2(-0.566, 0.824)));
+          vec4 diffuseColor =
+            vec4(pow(frenRgb(mix(frenCoral, frenGold, frenT)), vec3(2.2)), opacity);`);
     };
 
     this.orb = new THREE.Mesh(new THREE.SphereGeometry(1, 128, 128), this.material);
     this.scene.add(this.orb);
 
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+    // Bright and even, so the gradient reads as the body's colour. With the
+    // old 0.35 ambient the coral corner sat in the key light's shade and came
+    // out brown — the reference the palette is matched to is nearly flat-lit,
+    // its form carried by the colour ramp rather than by shading.
+    this.ambient = new THREE.AmbientLight(0xffffff, LOOK.ambient);
+    this.scene.add(this.ambient);
     // The key SHAPES the sphere. High and up-left, and it casts nothing --
     // from up there the shadow would land far below the frame.
-    this.key = new THREE.DirectionalLight(0xfff1dc, 3.1);
+    this.key = new THREE.DirectionalLight(0xfff1dc, LOOK.key);
     this.key.position.set(-2.2, 4.2, 3.0);
     this.key.castShadow = false;
     this.scene.add(this.key);
+    // A fill from the coral corner, so the gradient's far stop is lit by
+    // something and reads as colour rather than as shade. Warm-pink on
+    // purpose: a white fill would wash the coral toward orange.
+    this.fill = new THREE.DirectionalLight(0xffd2c2, LOOK.fill);
+    this.fill.position.set(2.4, -2.6, 2.6);
+    this.fill.castShadow = false;
+    this.scene.add(this.fill);
 
     // Nothing casts a shadow in the scene. A plane can only receive a shadow
     // ONTO itself, which is the wrong shape entirely -- what the orb needs is a
@@ -395,14 +507,35 @@ class Orb {
     this._wake();
   }
 
+  /**
+   * Apply a look — the dashboard's "Advanced look" setting, or the shipped
+   * default when the customisation is cleared. Fields already pass through
+   * palette.js sanitizeLook before they get here, so this just applies.
+   * Roughness and sheen are deliberately absent: the mood system owns them
+   * per-expression and rewrites them every frame.
+   */
+  tune(t) {
+    const look = { ...LOOK, ...(t || {}) };
+    this.uGoldOff.value.set(look.goldH / 360, look.goldS / 100, look.goldL / 100);
+    this.uCoralOff.value.set(look.coralH / 360, look.coralS / 100, look.coralL / 100);
+    this.ambient.intensity = look.ambient;
+    this.key.intensity = look.key;
+    this.fill.intensity = look.fill;
+    this.material.clearcoat = look.clearcoat;
+    this.material.clearcoatRoughness = look.coatRough;
+    this._wake();
+  }
+
   setListening(level) {
     const on = level !== null && level !== undefined;
     if (on !== (this.listenLevel !== null && this.listenLevel !== undefined)) {
-      // this.tone(), not the static TONE: fren's colour is chosen by its owner
-      // and every tone has to come from the chosen palette. Reading the module
-      // constant here meant a teal fren turned the default gold the moment it
-      // started listening.
-      const tone = this.tone(on ? 'hearing' : (EXPRESSIONS[this.emotion] || EXPRESSIONS.calm).tone);
+      // Recording wears the fixed record red (see the pulse below) — this is
+      // what reduced-motion users see steadily instead of the beat, so it has
+      // to be the same red, not the palette's listening tone. Everything else
+      // still comes from the chosen palette via this.tone().
+      const tone = on
+        ? { color: REC.low, rough: REC.rough, sheen: REC.sheen }
+        : this.tone((EXPRESSIONS[this.emotion] || EXPRESSIONS.calm).tone);
       this.toneTo.setHex(tone.color);
       this.matTo.rough = tone.rough;
       this.matTo.sheen = tone.sheen;
@@ -556,21 +689,20 @@ class Orb {
     if (this.listenLevel !== null && !this.reduced) {
       const beat = 0.5 - 0.5 * Math.cos(this.t * TAU * REC_HZ);
 
-      // Straight between the two warm ends, REPLACING the drained colour above
-      // rather than modifying it. Two consequences, both deliberate.
+      // RECORD RED, replacing the drained colour above rather than modifying
+      // it — and replacing the chosen palette too, which is deliberate and a
+      // reversal. The pulse used to travel base-to-hearing "so a teal fren
+      // pulses teal", and after the palette softened, that travel ran from
+      // orange to pale peach: half of every cycle was a washed-out colour and
+      // the whole state read as GREYING, not recording. An open microphone is
+      // the one fact that borrows its colour from the world instead of from
+      // fren — red pulsing sphere, record button, no explanation needed. Both
+      // ends are red, so the state is red all the way through the beat.
       //
-      // The pulse is a hue travel between two live colours instead of a drain
-      // toward grey and back. An orb that goes grey for half of every cycle
-      // does not read as listening; it reads as flickering out.
-      //
-      // And it is not scaled by `lit`, so a PAUSED fren is warm while the
-      // microphone is open. That is the honest signal: a drained orb quietly
-      // recording is the thing this app must never be. Watching and listening
-      // stay tellable apart by the eyes, which do not open here — eyes shut and
-      // pulsing is listening, eyes open and steady is watching.
-      // Both ends from the chosen palette, so a teal fren pulses teal.
-      const set = this.tones || TONE;
-      this.material.color.setHex(set.base.color).lerp(_recHigh.setHex(set.hearing.color), beat);
+      // Still not scaled by `lit`, so a PAUSED fren burns red while the
+      // microphone is open: a drained orb quietly recording is the thing this
+      // app must never be.
+      this.material.color.copy(_recLow.setHex(REC.low)).lerp(_recHigh.setHex(REC.high), beat);
     }
     this.material.roughness = this.matNow.rough;
     this.material.sheen = this.matNow.sheen * this.p.lit;

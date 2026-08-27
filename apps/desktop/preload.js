@@ -6,6 +6,12 @@ contextBridge.exposeInMainWorld('fren', {
   setPanelOpen: (open) => ipcRenderer.invoke('fren:setPanelOpen', open),
   // Which corner the panel WOULD open into, without opening it.
   aimPanel: () => ipcRenderer.invoke('fren:aimPanel'),
+  // The orb's tooltip — its own little window, never a resize of this one.
+  setHint: (open, info) => ipcRenderer.invoke('fren:setHint', open, info),
+  // The orb's advanced look: read, write (null clears), and hear about changes.
+  getOrbLook: () => ipcRenderer.invoke('fren:getOrbLook'),
+  setOrbLook: (look) => ipcRenderer.invoke('fren:setOrbLook', look),
+  onOrbLook: (fn) => ipcRenderer.on('fren:orbLook', (_e, look) => fn(look)),
   quit: () => ipcRenderer.invoke('fren:quit'),
   getProfile: () => ipcRenderer.invoke('fren:getProfile'),
   setProfile: (p) => ipcRenderer.invoke('fren:setProfile', p),

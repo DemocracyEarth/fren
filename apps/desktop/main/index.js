@@ -16,6 +16,9 @@ const {
   clampInto, offsetInWindow, windowFor, chooseSide,
   CHARACTER_BASE, STAGE_PAD, SHADOW_ROOM,
 } = require('./place');
+// The palette is a UMD module shared with both renderers; main uses it to
+// sanitize the orb-look setting at its single point of entry.
+const palette = require('../renderer/face/palette.js');
 const providerSettings = require('./settings');
 const { createRoutineRunner, nextRunAt, isDue } = require('./routines');
 const executor = require('./executor');
@@ -368,12 +371,77 @@ function syncCorner(how, extra = null) {
 }
 
 function setPanelOpen(open) {
+  if (open) hideHint();            // the tooltip never overlaps the conversation
   const how = placeAround(characterRect(), open);
   syncCorner(how, { panelOpen: !!open });
   // Returned as well as pushed. The push is how every other window learns the
   // corner; the return is how the one that asked learns it without waiting a
   // second hop, which matters because it is about to reveal the panel.
   return { side: how.side, drop: how.drop };
+}
+
+/*
+ * The orb's tooltip lives in its OWN window.
+ *
+ * The first version lived inside the orb's window and borrowed the chat
+ * panel's grow-the-window dance — and a one-frame tear during that resize
+ * could show the orb somewhere it was not. A separate window never touches
+ * the orb's bounds, so the tear is not rare now, it is impossible. It is also
+ * simply less machinery: no corner to face, no size to negotiate, no state to
+ * sync — a card, placed near the orb, shown and hidden.
+ *
+ * Click-through and unfocusable, so it can never steal the hover it explains,
+ * and recreated per show: the query string is how it learns what to say, and
+ * a tooltip appears far too rarely for creation to be worth caching.
+ */
+const HINT_WIN = { width: 380, height: 84 };
+let hintWin = null;
+
+function hideHint() {
+  if (hintWin && !hintWin.isDestroyed()) hintWin.destroy();
+  hintWin = null;
+}
+
+function showHint(info) {
+  hideHint();
+  const orb = characterRect();
+  const { workArea } = screen.getDisplayNearestPoint({
+    x: Math.round(orb.x + orb.width / 2),
+    y: Math.round(orb.y + orb.height / 2),
+  });
+
+  // Above the orb, unless the orb is against the top of the screen.
+  const below = orb.y - HINT_WIN.height - 2 < workArea.y;
+  const y = below ? orb.y + orb.height - 6 : orb.y - HINT_WIN.height + 6;
+  const cx = orb.x + orb.width / 2;
+  const x = Math.round(Math.min(
+    Math.max(cx - HINT_WIN.width / 2, workArea.x),
+    workArea.x + workArea.width - HINT_WIN.width));
+
+  const q = new URLSearchParams();
+  if (info.voice) q.set('v', '1');
+  if (info.note) q.set('n', String(info.note).slice(0, 200));
+  if (below) q.set('b', '1');
+  q.set('tx', String(Math.round(cx - x)));    // where the tail finds the orb
+
+  hintWin = new BrowserWindow({
+    x, y, ...HINT_WIN,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    alwaysOnTop: true,
+    hasShadow: false,
+    skipTaskbar: true,
+    focusable: false,
+    show: false,
+    webPreferences: { contextIsolation: true, nodeIntegration: false },
+  });
+  hintWin.setIgnoreMouseEvents(true);
+  hintWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  hintWin.loadURL(`${SCHEME}://app/hint.html?${q}`);
+  hintWin.once('ready-to-show', () => {
+    if (hintWin && !hintWin.isDestroyed()) hintWin.showInactive();
+  });
 }
 
 function createWindow() {
@@ -398,6 +466,12 @@ function createWindow() {
     if (msg && String(msg).startsWith('[voice]')) log(String(msg));
   });
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  // Wherever the orb's window goes, the tooltip beside it is now pointing at
+  // nothing — so any move at all dismisses it. This is the one hook that
+  // covers every way the window moves: a drag by the halo (which never
+  // reaches the renderer at all), a drag by the character, the panel opening,
+  // a rescue back onto the screen.
+  win.on('move', () => hideHint());
   win.loadURL(`${SCHEME}://app/index.html`);
   positionWindow(orbSize());
   const b = win.getBounds();
@@ -696,6 +770,31 @@ app.whenReady().then(() => {
     });
     const how = chooseSide(rect, panelSize(), characterSize(), STAGE_PAD, shadowRoom(), workArea, panelHow);
     return { side: how.side, drop: how.drop };
+  });
+
+  /*
+   * The orb's LOOK — the advanced appearance settings in the dashboard.
+   * Everything passes through the palette's sanitizeLook on the way in, so
+   * the stored value is always in range and "reset to default" is stored as
+   * nothing at all. Changed in the dashboard, worn in the orb's window, so a
+   * change travels as a broadcast like the colour does.
+   */
+  ipcMain.handle('fren:getOrbLook', () => {
+    try { return palette.sanitizeLook(JSON.parse(memory.getSetting('orbLook') || 'null')); }
+    catch { return null; }
+  });
+  ipcMain.handle('fren:setOrbLook', (_e, raw) => {
+    const look = palette.sanitizeLook(raw);
+    memory.setSetting('orbLook', look ? JSON.stringify(look) : '');
+    if (win && !win.isDestroyed()) win.webContents.send('fren:orbLook', look);
+    return look;
+  });
+
+  ipcMain.handle('fren:setHint', (_e, open, info) => {
+    if (!open) { hideHint(); return true; }
+    if (state.get().panelOpen) return null;
+    showHint(info || {});
+    return true;
   });
 
   /**

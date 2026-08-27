@@ -45,18 +45,46 @@
     // warmer and you land on listening; drift cooler and you land on cross. So
     // the moods differ by BRIGHTNESS and GLOSS, which they already did — warm
     // and excited were never carrying their weight in hue.
-    base:    { dH: 0, dL: 0 },
-    warm:    { dH: 0, dL: 6.078 },
-    excited: { dH: 0, dL: 9.020 },
+    // Brightness comes WITH saturation now, not instead of it. The original
+    // offsets were measured against a base at 100% saturation, where lightness
+    // was the only place a mood could go. The softened base sits at 86% and
+    // l 64 — from there, adding lightness alone walks the colour toward
+    // pastel, and the happier fren was supposed to look, the more washed out
+    // it actually got. Saturation rises with the lightness, so the moods stay
+    // vivid at every step, and toHex clamps at 100 so a fully saturated worn
+    // colour simply keeps its blaze.
+    base:    { dH: 0, dS: 0, dL: 0 },
+    warm:    { dH: 0, dS: 8, dL: 4 },
+    excited: { dH: 0, dS: 14, dL: 6 },
     // The one tone that goes gold, and now the only one. Everything else stays
     // on the base hue, so "fren has turned yellow" means exactly one thing.
-    hearing: { dH: 7.529, dL: 17.647 },
+    hearing: { dH: 7.529, dS: 14, dL: 10 },
   };
   const SHEEN = { dH: 2.160, dL: 20.784 };
 
+  /**
+   * The microphone is open. Record red, for everyone: recording is the one
+   * state that borrows its colour from the world rather than from fren — a
+   * red pulsing sphere is a record button before anyone is told anything,
+   * and a signal that important does not get restyled by a palette choice.
+   * The pulse travels LOW to HIGH, so the whole state is red, not just the
+   * crest of each beat — a swing that dips through pale colours reads as
+   * washing out, which is how "recording" came to look "grayish" once.
+   */
+  const RECORDING = {
+    low: 0xd93425,
+    high: 0xff6247,
+    rough: 0.18,
+    sheen: 0.60,
+  };
+
   /** Meanings rather than decoration. These never move. */
   const SEMANTIC = {
-    blue: { color: 0x7a8798, rough: 0.42, sheen: 0.26 },
+    // Periwinkle, not slate. The old sad blue was 11% saturation — on a body
+    // whose gradient VANISHES as saturation does, that rendered as a flat
+    // grey lump, indistinguishable at a glance from asleep. Sad is a colour,
+    // not an absence: soft, but unmistakably blue.
+    blue: { color: 0x758ec7, rough: 0.42, sheen: 0.26 },
     red:  { color: 0xe04a24, rough: 0.30, sheen: 0.45 },
     grey: { color: 0x6d6d73, rough: 0.54, sheen: 0.08 },
   };
@@ -120,7 +148,8 @@
     const out = {};
     for (const [name, off] of Object.entries(FAMILY)) {
       out[name] = {
-        color: toHex({ h: c.h + off.dH, s: c.s, l: clamp(c.l + off.dL, 0, 96) }),
+        color: toHex({ h: c.h + off.dH, s: clamp(c.s + (off.dS || 0), 0, 100),
+                       l: clamp(c.l + off.dL, 0, 96) }),
         rough: SURFACE[name].rough,
         sheen: SURFACE[name].sheen,
       };
@@ -256,7 +285,7 @@
   // There is no yellow. A marigold sat 11 degrees from Ember and read as the
   // same swatch twice — a choice that is not a choice is worse than one fewer.
   const PRESETS = [
-    { id: 'ember',      name: 'Ember',      hex: 0xff8a00, note: 'how fren comes' },
+    { id: 'ember',      name: 'Ember',      hex: 0xffa200, note: 'how fren comes' },
     { id: 'rhubarb',    name: 'Rhubarb',    hex: 0xe8446b },
     { id: 'mulberry',   name: 'Mulberry',   hex: 0xa259d9 },
     { id: 'cornflower', name: 'Cornflower', hex: 0x4a7fe0 },
@@ -264,10 +293,58 @@
     { id: 'moss',       name: 'Moss',       hex: 0x5aa838 },
   ];
 
-  const DEFAULT_HEX = 0xff8a00;
+  // Chosen by eye in the colour workshop, against the reference blob, by the
+  // person the orb belongs to — which settled a colour that two rounds of
+  // derivation had failed to. Fully saturated, a step warmer than the
+  // original ember. A fixed point of usable(), so it round-trips byte for
+  // byte.
+  const DEFAULT_HEX = 0xffa200;
+
+  /**
+   * The orb's LOOK: everything about the body that is not the colour itself.
+   * Mixed by eye in a live tuning session against a reference image, and now
+   * the single source — the shader's uniforms, the lights, the dashboard's
+   * "Advanced look" sliders and the sanitizer below all read from here.
+   */
+  const ORB_LOOK = {
+    goldH: -3.5, goldS: 60, goldL: 9,          // the top-left stop, offsets from the base
+    coralH: -16, coralS: 54, coralL: -4,       // the bottom-right stop
+    ambient: 2.6, key: 0.7, fill: 1.0,         // flat light, top-left light, bottom-right light
+    clearcoat: 0.24, coatRough: 0.29,          // the glint, and how soft it is
+  };
+  const LOOK_RANGE = {
+    goldH: [-60, 60], goldS: [-60, 60], goldL: [-20, 45],
+    coralH: [-60, 60], coralS: [-60, 60], coralL: [-20, 45],
+    ambient: [0, 3.4], key: [0, 3], fill: [0, 2.5],
+    clearcoat: [0, 1], coatRough: [0, 1],
+  };
+
+  /**
+   * The only door stored looks come through. Clamps every field into range,
+   * fills gaps with the defaults, drops everything else — and returns null
+   * for a look that IS the default, so "never customised" and "customised
+   * back to normal" are the same stored fact.
+   */
+  function sanitizeLook(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const out = {};
+    let custom = false;
+    for (const key of Object.keys(ORB_LOOK)) {
+      const v = Number(raw[key]);
+      if (Number.isFinite(v)) {
+        const [lo, hi] = LOOK_RANGE[key];
+        out[key] = clamp(v, lo, hi);
+      } else {
+        out[key] = ORB_LOOK[key];
+      }
+      if (out[key] !== ORB_LOOK[key]) custom = true;
+    }
+    return custom ? out : null;
+  }
 
   return {
-    PRESETS, DEFAULT_HEX, tonesFrom, sheenColorFrom, usable, toHsl, toHex,
+    PRESETS, DEFAULT_HEX, RECORDING, ORB_LOOK, LOOK_RANGE, sanitizeLook,
+    tonesFrom, sheenColorFrom, usable, toHsl, toHex,
     accentFrom, applyAccent, contrast,
     LIMITS: { MIN_SAT, MIN_LIT, MAX_LIT, AA },
   };

@@ -14,18 +14,23 @@ const P = require('../renderer/face/palette.js');
 
 const hx = (n) => '#' + n.toString(16).padStart(6, '0');
 
-test('the default colour reproduces the original palette exactly', () => {
+test('the default colour reproduces the shipped palette exactly', () => {
   // Not approximately. Someone who never touches this setting must get the
   // palette that was tuned by hand, byte for byte.
+  //
+  // These bytes have moved once: the original ember #ff8a00 was a solid, and
+  // when the body became a gold-to-coral gradient the base was regraded to the
+  // gradient's MIDPOINT — softer and pinker, since the shader rotates the gold
+  // and coral stops out of whatever this is. The relationships are unchanged;
+  // that is the other tests' job to prove.
   const t = P.tonesFrom(P.DEFAULT_HEX);
-  assert.equal(hx(t.base.color), '#ff8a00');
-  // warm and excited moved when the moods were pulled back onto the base hue:
-  // they were #ffa51f and #ffb92e, drifting toward yellow and colliding with
-  // the listening tone. Same lightness as before, no hue shift.
-  assert.equal(hx(t.warm.color), '#ff981f');
-  assert.equal(hx(t.excited.color), '#ff9f2e');
-  assert.equal(hx(t.hearing.color), '#ffc85a');
-  assert.equal(hx(P.sheenColorFrom(P.DEFAULT_HEX)), '#ffc06a');
+  assert.equal(hx(t.base.color), '#ffa200');
+  // Saturation rises with lightness, so a softer WORN colour keeps its moods
+  // vivid; at the default's 100% it simply clamps and brightness leads.
+  assert.equal(hx(t.warm.color), '#ffa914');
+  assert.equal(hx(t.excited.color), '#ffad1f');
+  assert.equal(hx(t.hearing.color), '#ffce33');
+  assert.equal(hx(P.sheenColorFrom(P.DEFAULT_HEX)), '#ffce6a');
 });
 
 test('no mood wears the listening colour', () => {
@@ -210,9 +215,9 @@ test('the bright accent is kept as the button wherever it can be', () => {
 
 test('the default colour leaves the shipped accent where it was', () => {
   const a = P.accentFrom(P.DEFAULT_HEX);
-  assert.equal(hx(a.accent), '#ff8a00');
+  assert.equal(hx(a.accent), '#ffa200');
   // The tints are driven from this, so it has to be the components of the accent.
-  assert.equal(a.rgb, '255, 138, 0');
+  assert.equal(a.rgb, '255, 162, 0');
 });
 
 test('every accent token comes back as something CSS can use', () => {
@@ -235,4 +240,36 @@ test('the accent family keeps its ordering', () => {
     assert.ok(l(a.deep) < l(a.accent), `${name}: deep must be darker`);
     assert.ok(l(a.shadow) < l(a.deep), `${name}: shadow must be darkest`);
   }
+});
+
+test('the pre-palette fallback wears the same bytes as the derived default', async () => {
+  // expressions.js carries a literal TONE table for the moment before the
+  // palette module has run (and for the SVG fallback face). If it drifts from
+  // what tonesFrom(DEFAULT_HEX) derives, the orb visibly re-colours a beat
+  // after boot — the kind of flash nobody can debug from a report.
+  const { TONE } = await import('../renderer/face/expressions.js');
+  const t = P.tonesFrom(P.DEFAULT_HEX);
+  for (const name of ['base', 'warm', 'excited', 'hearing']) {
+    assert.equal(hx(TONE[name].color), hx(t[name].color), `${name} drifted from the palette`);
+  }
+  for (const name of ['blue', 'red', 'grey']) {
+    assert.equal(hx(TONE[name].color), hx(t[name].color), `${name} drifted from the semantics`);
+  }
+});
+
+test('a stored look is clamped, filled, and never trusted', () => {
+  // sanitizeLook is the only door stored looks come through — from the
+  // dashboard, or from a hand-edited database, which must not be able to
+  // produce an invisible or blinding orb.
+  const def = P.ORB_LOOK;
+  assert.equal(P.sanitizeLook(null), null, 'nothing stored is the default');
+  assert.equal(P.sanitizeLook('garbage'), null, 'a non-object is the default');
+  assert.equal(P.sanitizeLook({ ...def }), null,
+    'customised-back-to-normal and never-touched are the same fact');
+  const wild = P.sanitizeLook({ ambient: 999, goldH: -999, coralS: 'NaN', extra: 1 });
+  assert.equal(wild.ambient, P.LOOK_RANGE.ambient[1], 'clamped to the ceiling');
+  assert.equal(wild.goldH, P.LOOK_RANGE.goldH[0], 'clamped to the floor');
+  assert.equal(wild.coralS, def.coralS, 'junk falls back to the default');
+  assert.ok(!('extra' in wild), 'unknown keys are dropped');
+  for (const k of Object.keys(def)) assert.ok(k in wild, `${k} always present`);
 });

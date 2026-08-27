@@ -856,6 +856,90 @@ async function colourPicker() {
   return wrap;
 }
 
+/**
+ * The advanced look: the orb's gradient stops, lights and shine, as sliders.
+ *
+ * Folded shut by default because the colour swatches above are the setting
+ * most people mean — this is for the ones who want the exact look, and it is
+ * the same machinery the shipped look was mixed with. Every change lands on
+ * the live orb as the slider moves; Reset stores nothing at all, which is how
+ * "customised back to normal" and "never touched" stay the same fact.
+ */
+async function lookTuner() {
+  const P = window.FrenPalette;
+  const wrap = el('details', 'setting-block look-block');
+  const head = el('summary', null, 'Advanced look');
+  wrap.appendChild(head);
+  wrap.appendChild(el('p', 'caveat',
+    'The gradient, the lights and the shine, for fine hands. ' +
+    'Changes show on the orb immediately and stick until you reset them.'));
+
+  let saved = null;
+  try { saved = await window.fren.getOrbLook(); } catch { /* default */ }
+  const current = { ...P.ORB_LOOK, ...(saved || {}) };
+
+  const GROUPS = [
+    ['Gold corner (top-left)', [
+      ['goldH', 'hue', 0.5], ['goldS', 'saturation', 1], ['goldL', 'brightness', 0.5]]],
+    ['Coral corner (bottom-right)', [
+      ['coralH', 'hue', 0.5], ['coralS', 'saturation', 1], ['coralL', 'brightness', 0.5]]],
+    ['Light', [
+      ['ambient', 'evenness', 0.02], ['key', 'from the top left', 0.05],
+      ['fill', 'from the bottom right', 0.05]]],
+    ['Shine', [
+      ['clearcoat', 'strength', 0.01], ['coatRough', 'softness', 0.01]]],
+  ];
+
+  const inputs = {};
+  let timer = null;
+  const push = () => {
+    const look = {};
+    for (const k of Object.keys(P.ORB_LOOK)) look[k] = Number(inputs[k].value);
+    // The orb should move with the finger, but the disk should not be written
+    // sixty times a second while it does.
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      try { await window.fren.setOrbLook(look); } catch { /* it stays as it was */ }
+    }, 180);
+  };
+
+  for (const [title, rows] of GROUPS) {
+    const g = el('div', 'look-group');
+    g.appendChild(el('strong', 'look-title', title));
+    for (const [key, label, step] of rows) {
+      const [lo, hi] = P.LOOK_RANGE[key];
+      const row = el('label', 'look-row');
+      const input = el('input');
+      input.type = 'range';
+      input.min = String(lo);
+      input.max = String(hi);
+      input.step = String(step);
+      input.value = String(current[key]);
+      const out = el('output', null, String(current[key]));
+      input.addEventListener('input', () => { out.textContent = input.value; push(); });
+      inputs[key] = input;
+      row.append(el('span', 'look-label', label), input, out);
+      g.appendChild(row);
+    }
+    wrap.appendChild(g);
+  }
+
+  const reset = el('button', 'field-clear', 'reset to how fren ships');
+  reset.type = 'button';
+  reset.addEventListener('click', async () => {
+    for (const k of Object.keys(P.ORB_LOOK)) {
+      inputs[k].value = String(P.ORB_LOOK[k]);
+      inputs[k].nextElementSibling.textContent = String(P.ORB_LOOK[k]);
+    }
+    clearTimeout(timer);
+    try { await window.fren.setOrbLook(null); } catch { /* it stays as it was */ }
+  });
+  wrap.appendChild(reset);
+
+  if (saved) wrap.open = true;   // a customised look deserves to be visible
+  return wrap;
+}
+
 async function showSettings() {
   current = { kind: 'settings' };
   markActive();
@@ -890,6 +974,7 @@ async function showSettings() {
   ));
 
   els.content.appendChild(await colourPicker());
+  els.content.appendChild(await lookTuner());
 
   if (!profile) {
     els.content.appendChild(el('p', 'caveat',
