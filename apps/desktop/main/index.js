@@ -878,6 +878,21 @@ app.whenReady().then(() => {
   // Browser awareness: status for the settings block and the debug readout,
   // the switches, and the exclusion list. Everything passes syncBrowserPolicy
   // so the sensor, the stored settings and the extension's policy agree.
+  // The meta-prompt, live: exactly what would enter the model's prompt about
+  // the browser if the user asked something right now. The dashboard shows it
+  // so the behaviour is inspectable rather than folklore.
+  ipcMain.handle('fren:getBrowserPrompt', () => {
+    const intelligence = require('../../../packages/intelligence');
+    const b = currentBrowserContext();
+    const block = intelligence.formatBrowser(b);
+    if (!block) return { present: false, system: '', message: '' };
+    const kind = intelligence.classifyPage({
+      url: b.tab.url, domain: b.tab.domain,
+      contentType: (b.page || {}).contentType,
+    });
+    return { present: true, kind, system: intelligence.browserSense(kind), message: block };
+  });
+
   ipcMain.handle('fren:getBrowserState', () => ({
     available: !!browserTransport,
     paired: !!(browserTransport && browserTransport.hasPairs()),

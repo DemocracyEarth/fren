@@ -154,7 +154,86 @@ function formatProfile(profile) {
 }
 
 /**
- * The browser context, formatted for the prompt.
+ * What KIND of page is this? The guidance below keys off it: an article wants
+ * summarizing, a discussion wants the argument mapped, a video page is mostly
+ * invisible and honesty demands saying so.
+ *
+ * Heuristics over a registry: the well-known homes of each kind, then URL
+ * shapes, then what the extension saw (an <article> element). Unknown pages
+ * are just 'page' — the generic guidance is safe everywhere.
+ */
+function classifyPage({ url = '', domain = '', contentType = '' } = {}) {
+  const d = String(domain).toLowerCase();
+  const u = String(url).toLowerCase();
+  const has = (...hosts) => hosts.some((h) => d === h || d.endsWith('.' + h));
+
+  if (has('news.ycombinator.com', 'reddit.com', 'lobste.rs', 'stackoverflow.com',
+          'stackexchange.com', 'superuser.com', 'serverfault.com', 'quora.com')) return 'discussion';
+  if (has('youtube.com', 'youtu.be', 'vimeo.com', 'twitch.tv') || u.includes('/watch')) return 'video';
+  if (has('github.com', 'gitlab.com', 'bitbucket.org', 'codeberg.org')) return 'code';
+  if (has('twitter.com', 'x.com', 'bsky.app', 'mastodon.social', 'linkedin.com',
+          'instagram.com', 'facebook.com', 'threads.net')) return 'social';
+  if (has('amazon.com', 'ebay.com', 'etsy.com', 'aliexpress.com', 'walmart.com',
+          'mercadolibre.com', 'mercadolibre.com.ar')) return 'product';
+  if (has('google.com', 'bing.com', 'duckduckgo.com', 'kagi.com') &&
+      (u.includes('/search') || u.includes('?q=') || u.includes('&q='))) return 'search';
+  if (has('wikipedia.org')) return 'reference';
+  if (d.startsWith('docs.') || u.includes('/docs/') || u.includes('/documentation/') ||
+      has('developer.mozilla.org', 'devdocs.io')) return 'docs';
+  if (contentType === 'article') return 'article';
+  return 'page';
+}
+
+/**
+ * The meta-prompt: how to READ each kind of page. One sentence or two per
+ * kind — this rides in the system prompt whenever a page is present, so it
+ * has to earn its tokens. The honesty rules stay unconditional; these only
+ * shape the analysis.
+ */
+const BROWSER_GUIDANCE = {
+  article: 'The page is an article: if asked about it, lead with what it claims or ' +
+    'argues, keep summaries to a few tight sentences, and keep the writer\'s ' +
+    'opinion distinct from reported fact.',
+  discussion: 'The page is a discussion thread: the excerpt mixes the original post ' +
+    'with comments. Keep them apart — what the post says, what the crowd thinks, ' +
+    'and the strongest disagreement, not a soup of all three.',
+  video: 'The page is a video. You can only see its title, description and page ' +
+    'text — never the video itself. Answer from that and say so if they ask about ' +
+    'what is said IN the video.',
+  code: 'The page is a code repository, issue or pull request: say what the project ' +
+    'or change is about in plain words. Precision with names beats paraphrase.',
+  social: 'The page is a social feed: the excerpt is fragments of many voices, not ' +
+    'one text. Prefer what they selected; do not treat the feed as one coherent thing.',
+  product: 'The page is a product listing: they may be evaluating a purchase. Facts ' +
+    'first — what it is, what it claims — and no purchase advice unless they ask.',
+  search: 'The page is search results: the query in the URL or title is what they ' +
+    'are hunting for; the excerpt is just the trail.',
+  reference: 'The page is reference material: answer precisely from it and quote ' +
+    'exact terms where they matter.',
+  docs: 'The page is technical documentation: answer precisely, keep exact names ' +
+    'and signatures exact, and do not improvise beyond what the excerpt shows.',
+  page: 'If asked about the page, work from the excerpt and say plainly when it ' +
+    'does not contain the answer.',
+};
+
+/**
+ * The browser sense, described to the model — the system-prompt half of the
+ * meta-prompt. Only present when a page actually is.
+ */
+function browserSense(kind) {
+  return [
+    'You can also see the page open in their browser right now — it appears in the',
+    'message as "In the browser". This comes from your browser extension: you see',
+    'the ACTIVE tab\'s readable text only, only while your light is on, and never',
+    'excluded sites. The same honesty rules apply to it: it is observed context,',
+    'quote it rather than invent it, and if the excerpt does not contain the answer,',
+    'say so.',
+    BROWSER_GUIDANCE[kind] || BROWSER_GUIDANCE.page,
+  ].join('\n');
+}
+
+/**
+ * The browser context, formatted for the prompt — the message half.
  *
  * The excerpt is capped well below the sensor's own limit: the model needs
  * enough to talk about the page, not the page. An excluded page contributes
@@ -164,16 +243,19 @@ function formatBrowser(browser) {
   if (!browser || !browser.tab || !browser.tab.url) return '';
   const page = browser.page || {};
   if (page.excluded) return '';
+  const kind = classifyPage({ url: browser.tab.url, domain: browser.tab.domain,
+                              contentType: page.contentType });
   const lines = [
-    `They ${browser.active ? 'are' : 'were just'} looking at, in ${browser.browser || 'the browser'}:`,
+    `In the browser (${browser.browser || 'chromium'}, ${browser.active ? 'focused' : 'in the background'}) — a ${kind}:`,
     `"${browser.tab.title || '(untitled)'}" — ${browser.tab.url}`,
   ];
+  if (page.description) lines.push(`Page description: ${page.description}`);
   if (browser.selection && browser.selection.text) {
-    lines.push(`They have selected this text: "${String(browser.selection.text).slice(0, 800)}"`);
+    lines.push(`They have SELECTED this text: "${String(browser.selection.text).slice(0, 800)}"`);
   }
   if (page.content) {
     lines.push('Readable page excerpt:');
-    lines.push(String(page.content).slice(0, 2000) + (page.truncated || page.content.length > 2000 ? ' […]' : ''));
+    lines.push(String(page.content).slice(0, 3000) + (page.truncated || page.content.length > 3000 ? ' […]' : ''));
   }
   return lines.join('\n');
 }
@@ -209,6 +291,12 @@ function buildChatRequest({ question, memories = [], observations = [], profile 
     // reported back as if fren had seen it.
     who && !about ? `About the person you are talking to: ${who}` : '',
     (who || about) ? 'Use their name sparingly and naturally. Do not treat what they told you as something you observed.' : '',
+    // The browser sense enters the SYSTEM prompt only when a page is actually
+    // present — fren must not claim a sense it has nothing from.
+    browser && formatBrowser(browser)
+      ? browserSense(classifyPage({ url: browser.tab.url, domain: browser.tab.domain,
+                                    contentType: (browser.page || {}).contentType }))
+      : '',
   ].filter(Boolean).join('\n\n');
   const inBrowser = formatBrowser(browser);
   const content = [
@@ -856,6 +944,9 @@ module.exports = {
   buildSummarizeRequest,
   parseSummary,
   buildChatRequest,
+  classifyPage,
+  formatBrowser,
+  browserSense,
   formatProfile,
   buildPatternRequest,
   buildExtractRequest,
