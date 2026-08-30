@@ -8,6 +8,12 @@ contextBridge.exposeInMainWorld('fren', {
   aimPanel: () => ipcRenderer.invoke('fren:aimPanel'),
   // The orb's tooltip — its own little window, never a resize of this one.
   setHint: (open, info) => ipcRenderer.invoke('fren:setHint', open, info),
+  // Browser awareness: status + settings for the dashboard, and the live
+  // sensor state pushed to any window that cares. Never page content.
+  getBrowserState: () => ipcRenderer.invoke('fren:getBrowserState'),
+  setBrowserSettings: (patch) => ipcRenderer.invoke('fren:setBrowserSettings', patch),
+  openBrowserExtension: () => ipcRenderer.invoke('fren:openBrowserExtension'),
+  onBrowserState: (fn) => ipcRenderer.on('fren:browserState', (_e, s) => fn(s)),
   // The orb's advanced look: read, write (null clears), and hear about changes.
   getOrbLook: () => ipcRenderer.invoke('fren:getOrbLook'),
   setOrbLook: (look) => ipcRenderer.invoke('fren:setOrbLook', look),

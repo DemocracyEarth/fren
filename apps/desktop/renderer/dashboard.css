@@ -956,3 +956,27 @@ body[data-watching="1"] #side-status { color: var(--orange-ink); }
   color: var(--ink-soft, #6b6558);
 }
 .look-block > .field-clear { margin-top: 10px; }
+
+/* ---------------------------------------------------- browser awareness -- */
+.browser-status { margin: 6px 0 10px; font-size: 12.5px; }
+.browser-ok { color: #3c7a2c; font-weight: 650; }
+.browser-exclusions {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid rgba(26, 23, 18, 0.14);
+  border-radius: 8px;
+  padding: 7px 9px;
+  resize: vertical;
+  background: rgba(255, 255, 255, 0.5);
+}
+.browser-debug summary { cursor: pointer; font-size: 12px; color: var(--ink-soft, #6b6558); }
+.browser-debug pre {
+  font-size: 11px;
+  line-height: 1.5;
+  background: rgba(26, 23, 18, 0.04);
+  border-radius: 8px;
+  padding: 8px 10px;
+  overflow-x: auto;
+}

@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "fren browser awareness",
+  "version": "0.1.0",
+  "description": "Lets fren, running on this computer, see what you are reading. Sends nothing anywhere except to fren on this machine.",
+  "permissions": ["tabs", "storage", "alarms"],
+  "host_permissions": ["http://127.0.0.1/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["lib/extract.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

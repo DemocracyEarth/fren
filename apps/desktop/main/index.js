@@ -8,6 +8,8 @@ const { openMemory } = require('../../../packages/memory');
 const state = require('./state');
 const gateway = require('./gatewayClient');
 const { createObserver } = require('./observer');
+const { createBrowserSensor, EVENTS: BROWSER_EVENTS } = require('./browser-sensor');
+const { createBrowserTransport } = require('./browser-transport');
 const { createSummarizer } = require('./summarizer');
 const { createPatternWatcher } = require('./patterns');
 const { createCuriosityWatcher } = require('./curiosity');
@@ -190,6 +192,9 @@ let gazeTimer = null;
 let drag = null;
 let dash = null;
 let observer = null;
+let browserSensor = null;
+let browserTransport = null;
+let browserStaleTimer = null;
 let summarizer = null;
 let patterns = null;
 let routines = null;
@@ -522,12 +527,54 @@ function startObserving() {
   observer.start();
   startGaze();
   state.set({ observing: true }); // mascot is computed from this
+  syncBrowserPolicy();
 }
 
 function stopObserving() {
   observer.stop();
   stopGaze();
   state.set({ observing: false });
+  // The light going off closes EVERY eye, the browser's included. The
+  // extension learns on its next heartbeat; the sensor stops listening now.
+  syncBrowserPolicy();
+}
+
+/**
+ * The browser sensor's policy is settings AND the light: browser awareness
+ * only sees while fren is observing, exactly like the window observer. This
+ * is the one function that composes the two, so they cannot drift.
+ */
+function syncBrowserPolicy() {
+  if (!browserSensor) return;
+  browserSensor.configure({
+    enabled: state.get().observing && memory.getSetting('browserAwareness') !== 'off',
+    readPage: memory.getSetting('browserReadPage') !== 'off',
+    readSelection: memory.getSetting('browserReadSelection') !== 'off',
+    exclusions: safeParse(memory.getSetting('browserExclusions'), []),
+  });
+  broadcastBrowserState();
+}
+
+function safeParse(s, fallback) {
+  try { const v = JSON.parse(s || 'null'); return v === null ? fallback : v; }
+  catch { return fallback; }
+}
+
+/** The light status every window may know. Never page content. */
+function broadcastBrowserState() {
+  if (!browserSensor) return;
+  const d = browserSensor.debugState();
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('fren:browserState', d);
+  }
+}
+
+/**
+ * What the rest of fren asks for. Normalized context, no browser-specific
+ * details — the agent consumes this, never the extension's wire format.
+ */
+function currentBrowserContext() {
+  return browserSensor ? browserSensor.getContext() : null;
 }
 
 app.whenReady().then(() => {
@@ -538,6 +585,55 @@ app.whenReady().then(() => {
     onObservation: (obs) => memory.addObservation(obs),
     log,
   });
+
+  // The browser sense: pure sensor + loopback transport, per
+  // docs/browser-awareness.md. Pairing goes through a native consent dialog;
+  // granted pairs persist in settings (token hashes only).
+  browserSensor = createBrowserSensor({
+    onEvent: (type, detail) => {
+      // Development visibility, without page contents.
+      if (type === BROWSER_EVENTS.CONNECTED) log(`[browser] connected: ${detail.browser}`);
+      else if (type === BROWSER_EVENTS.DISCONNECTED) log(`[browser] disconnected (${detail.reason})`);
+      else if (type === BROWSER_EVENTS.TAB_CHANGED) log(`[browser] tab changed: ${detail.domain || '(opaque)'}`);
+      else if (type === BROWSER_EVENTS.PAGE_OPENED) log(`[browser] page opened: ${detail.excluded ? '(excluded domain)' : detail.domain}`);
+      else if (type === BROWSER_EVENTS.PAGE_UPDATED) log(`[browser] page context updated`);
+      else if (type === BROWSER_EVENTS.SELECTION_CHANGED) log(`[browser] selection changed (${detail.chars} chars)`);
+      else if (type === BROWSER_EVENTS.BROWSER_FOCUSED) log('[browser] focused');
+      else if (type === BROWSER_EVENTS.BROWSER_BLURRED) log('[browser] blurred');
+      else if (type === BROWSER_EVENTS.PAGE_CLOSED) log('[browser] page closed');
+      broadcastBrowserState();
+    },
+  });
+  browserTransport = createBrowserTransport({
+    port: config.BROWSER_SENSOR_PORT,
+    onMessage: (msg) => browserSensor.ingest(msg),
+    getPolicy: () => browserSensor.policy(),
+    approve: async ({ browser, name, origin }) => {
+      const { response } = await dialog.showMessageBox({
+        type: 'question',
+        buttons: ['Allow', 'Deny'],
+        defaultId: 0,
+        cancelId: 1,
+        message: `Let ${browser} become one of fren's senses?`,
+        detail: `"${name}" (${origin}) wants to tell fren what you are reading in the ` +
+                'browser. It only ever talks to fren on this machine, only sees the ' +
+                'active tab, and only while fren\'s light is on.',
+      });
+      return response === 0;
+    },
+    loadPairs: () => safeParse(memory.getSetting('browserPairs'), []),
+    savePairs: (pairs) => memory.setSetting('browserPairs', JSON.stringify(pairs)),
+    log,
+  });
+  browserTransport.start().catch((err) => {
+    // The port being taken must not take fren down with it; the sense is
+    // simply unavailable and the settings UI says so.
+    log(`[browser] sensor port unavailable: ${err.message}`);
+    browserTransport = null;
+  });
+  browserStaleTimer = setInterval(() => browserSensor.checkStale(), 15_000);
+  if (browserStaleTimer.unref) browserStaleTimer.unref();
+  syncBrowserPolicy();
   summarizer = createSummarizer({
     memory,
     log,
@@ -779,6 +875,36 @@ app.whenReady().then(() => {
    * nothing at all. Changed in the dashboard, worn in the orb's window, so a
    * change travels as a broadcast like the colour does.
    */
+  // Browser awareness: status for the settings block and the debug readout,
+  // the switches, and the exclusion list. Everything passes syncBrowserPolicy
+  // so the sensor, the stored settings and the extension's policy agree.
+  ipcMain.handle('fren:getBrowserState', () => ({
+    available: !!browserTransport,
+    paired: !!(browserTransport && browserTransport.hasPairs()),
+    awareness: memory.getSetting('browserAwareness') !== 'off',
+    readPage: memory.getSetting('browserReadPage') !== 'off',
+    readSelection: memory.getSetting('browserReadSelection') !== 'off',
+    exclusions: safeParse(memory.getSetting('browserExclusions'), []),
+    sensor: browserSensor ? browserSensor.debugState() : null,
+  }));
+  ipcMain.handle('fren:setBrowserSettings', (_e, patch) => {
+    const p = patch || {};
+    if (typeof p.awareness === 'boolean') memory.setSetting('browserAwareness', p.awareness ? 'on' : 'off');
+    if (typeof p.readPage === 'boolean') memory.setSetting('browserReadPage', p.readPage ? 'on' : 'off');
+    if (typeof p.readSelection === 'boolean') memory.setSetting('browserReadSelection', p.readSelection ? 'on' : 'off');
+    if (p.exclusions !== undefined) {
+      const { sanitizeExclusions } = require('./browser-sensor');
+      memory.setSetting('browserExclusions', JSON.stringify(sanitizeExclusions(p.exclusions)));
+    }
+    syncBrowserPolicy();
+    return safeParse(memory.getSetting('browserExclusions'), []);
+  });
+  // "Enable": today, the developer path — open the unpacked extension folder
+  // with its README. The same handler later opens the Web Store listing.
+  ipcMain.handle('fren:openBrowserExtension', () => {
+    shell.openPath(path.join(__dirname, '..', '..', 'browser-extension'));
+  });
+
   ipcMain.handle('fren:getOrbLook', () => {
     try { return palette.sanitizeLook(JSON.parse(memory.getSetting('orbLook') || 'null')); }
     catch { return null; }
@@ -1630,6 +1756,7 @@ app.whenReady().then(() => {
     const { reply } = await gateway.chat({
       question, memories, observations, profile,
       soul: character.soul, userDoc: character.user,
+      browser: currentBrowserContext(),
     });
     return reply;
   }
@@ -1657,6 +1784,9 @@ app.whenReady().then(() => {
       const { reply } = await gateway.chat({
         question, memories, observations, profile,
         soul: character.soul, userDoc: character.user,
+        // What is on screen in the browser right now, normalized by the
+        // sensor. The agent consumes fren context, never the extension wire.
+        browser: currentBrowserContext(),
       });
       remember('fren', reply);
       return { reply };

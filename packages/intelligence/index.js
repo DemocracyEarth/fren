@@ -153,8 +153,33 @@ function formatProfile(profile) {
   return bits.join(' ');
 }
 
+/**
+ * The browser context, formatted for the prompt.
+ *
+ * The excerpt is capped well below the sensor's own limit: the model needs
+ * enough to talk about the page, not the page. An excluded page contributes
+ * nothing at all — not even its title reaches here.
+ */
+function formatBrowser(browser) {
+  if (!browser || !browser.tab || !browser.tab.url) return '';
+  const page = browser.page || {};
+  if (page.excluded) return '';
+  const lines = [
+    `They ${browser.active ? 'are' : 'were just'} looking at, in ${browser.browser || 'the browser'}:`,
+    `"${browser.tab.title || '(untitled)'}" — ${browser.tab.url}`,
+  ];
+  if (browser.selection && browser.selection.text) {
+    lines.push(`They have selected this text: "${String(browser.selection.text).slice(0, 800)}"`);
+  }
+  if (page.content) {
+    lines.push('Readable page excerpt:');
+    lines.push(String(page.content).slice(0, 2000) + (page.truncated || page.content.length > 2000 ? ' […]' : ''));
+  }
+  return lines.join('\n');
+}
+
 function buildChatRequest({ question, memories = [], observations = [], profile = null,
-                            soul = '', userDoc = '', now = Date.now() } = {}) {
+                            soul = '', userDoc = '', browser = null, now = Date.now() } = {}) {
   const who = formatProfile(profile);
   // SOUL.md is the character the user defined, so it leads — the defaults below
   // are what fren is in the absence of instructions, not an override of them.
@@ -185,6 +210,7 @@ function buildChatRequest({ question, memories = [], observations = [], profile 
     who && !about ? `About the person you are talking to: ${who}` : '',
     (who || about) ? 'Use their name sparingly and naturally. Do not treat what they told you as something you observed.' : '',
   ].filter(Boolean).join('\n\n');
+  const inBrowser = formatBrowser(browser);
   const content = [
     `Current local time: ${clock(now)}`,
     '',
@@ -193,6 +219,9 @@ function buildChatRequest({ question, memories = [], observations = [], profile 
     '',
     'Recent raw timeline:',
     compactObservations(observations) || '(none)',
+    // The live page, when the browser sensor has one. This is observed
+    // context like everything above it — the same honesty rules apply.
+    ...(inBrowser ? ['', inBrowser] : []),
     '',
     `Question: ${question}`,
   ].join('\n');

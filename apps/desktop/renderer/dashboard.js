@@ -940,6 +940,114 @@ async function lookTuner() {
   return wrap;
 }
 
+/**
+ * Browser awareness: the sense, its switches, its exclusions — and the live
+ * sensor readout, which doubles as the developer debug view the architecture
+ * doc promises. Everything below talks to main; the page content itself never
+ * enters this window.
+ */
+async function browserBlock() {
+  const wrap = el('div', 'setting-block');
+  wrap.append(el('strong', null, 'Browser awareness'));
+
+  let st = null;
+  try { st = await window.fren.getBrowserState(); } catch { /* below */ }
+  if (!st || !st.available) {
+    wrap.appendChild(el('p', 'caveat',
+      'The browser sense could not start (its local port is busy). ' +
+      'Restart fren to try again.'));
+    return wrap;
+  }
+
+  // Status line: Connected ✓ / paired-but-quiet / not installed + Enable.
+  const status = el('p', 'browser-status');
+  const paint = (s) => {
+    const d = s.sensor || {};
+    if (d.connected) {
+      status.innerHTML = '';
+      status.append(el('strong', null, (d.browser || 'browser') + ' '),
+        el('span', 'browser-ok', 'Connected ✓'));
+    } else if (s.paired) {
+      status.textContent = 'Paired, but the browser is not talking right now — is it open?';
+    } else {
+      status.innerHTML = '';
+      const enable = el('button', 'field-clear', 'Enable');
+      enable.type = 'button';
+      enable.title = 'Opens the extension folder — load it unpacked from chrome://extensions';
+      enable.addEventListener('click', () => window.fren.openBrowserExtension());
+      status.append(el('span', null, 'Extension not installed. '), enable);
+    }
+  };
+  paint(st);
+  wrap.appendChild(status);
+
+  wrap.appendChild(switchRow('set-browser', 'Let me see the browser',
+    ' While my light is on, the extension tells me what page you are reading ' +
+    'in the active tab. Nothing ever leaves this machine.',
+    st.awareness,
+    async (on) => { await window.fren.setBrowserSettings({ awareness: on }); return on; }));
+  wrap.appendChild(switchRow('set-browser-page', 'Read the active page',
+    ' The readable text of the page, so you can ask me about it.',
+    st.readPage,
+    async (on) => { await window.fren.setBrowserSettings({ readPage: on }); return on; }));
+  wrap.appendChild(switchRow('set-browser-selection', 'Read selected text',
+    ' Text you highlight, so "what does this mean?" has a this.',
+    st.readSelection,
+    async (on) => { await window.fren.setBrowserSettings({ readSelection: on }); return on; }));
+
+  // Excluded domains. Banking and health sites are excluded by default and
+  // cannot be un-excluded here; this list adds to them.
+  const exRow = el('div', 'field-row');
+  const exHead = el('label', 'field-head');
+  exHead.append(el('strong', null, 'Excluded websites'),
+    el('span', null, ' One domain per line. Banking and health sites are excluded by default. ' +
+      'Pages on these domains are never read — the extension does not even transmit them.'));
+  const exInput = el('textarea', 'browser-exclusions');
+  exInput.rows = 3;
+  exInput.spellcheck = false;
+  exInput.value = (st.exclusions || []).join('\n');
+  exInput.addEventListener('change', async () => {
+    try {
+      const kept = await window.fren.setBrowserSettings({ exclusions: exInput.value });
+      exInput.value = (kept || []).join('\n');   // show what was KEPT
+    } catch { /* it stays as it was */ }
+  });
+  exRow.append(exHead, exInput);
+  wrap.appendChild(exRow);
+
+  // The debug readout — the browser sensor's state, live.
+  const dbg = el('details', 'browser-debug');
+  dbg.appendChild(el('summary', null, 'Sensor state'));
+  const pre = el('pre');
+  dbg.appendChild(pre);
+  const ago = (t) => (t ? Math.max(0, Math.round((Date.now() - t) / 1000)) + 's ago' : 'never');
+  const paintDebug = (s) => {
+    const d = (s && s.sensor) || {};
+    pre.textContent = [
+      `Status:    ${d.connected ? 'Connected' : 'Disconnected'}${d.enabled === false ? ' (sense off)' : ''}`,
+      `Browser:   ${d.browser || '—'}`,
+      `Active:    ${d.active ? 'yes (browser focused)' : 'no'}`,
+      `Domain:    ${d.excluded ? '(excluded — nothing captured)' : d.domain || '—'}`,
+      `Title:     ${d.title || '—'}`,
+      `Content:   ${d.contentChars ? d.contentChars.toLocaleString() + ' chars' + (d.truncated ? ' (truncated)' : '') : 'none'}`,
+      `Selection: ${d.selectionChars ? d.selectionChars + ' chars' : 'none'}`,
+      `Updated:   ${ago(d.lastActivity)}`,
+    ].join('\n');
+  };
+  paintDebug(st);
+  wrap.appendChild(dbg);
+
+  // Live: main pushes on every sensor event; a slow poll catches the "2s ago"
+  // clock and anything a push missed. Both stop when the block leaves the DOM.
+  window.fren.onBrowserState((d) => { if (wrap.isConnected) { paint({ ...st, sensor: d, paired: true }); paintDebug({ sensor: d }); } });
+  const timer = setInterval(async () => {
+    if (!wrap.isConnected) return clearInterval(timer);
+    try { const s = await window.fren.getBrowserState(); paint(s); paintDebug(s); } catch { /* keep the last */ }
+  }, 2000);
+
+  return wrap;
+}
+
 async function showSettings() {
   current = { kind: 'settings' };
   markActive();
@@ -973,6 +1081,7 @@ async function showSettings() {
     },
   ));
 
+  els.content.appendChild(await browserBlock());
   els.content.appendChild(await colourPicker());
   els.content.appendChild(await lookTuner());
 
