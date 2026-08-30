@@ -361,6 +361,8 @@ async function handleChat(provider, body, res) {
     // SOUL.md and USER.md, as the user has them on disk.
     soul: typeof body.soul === 'string' ? body.soul : '',
     userDoc: typeof body.userDoc === 'string' ? body.userDoc : '',
+    // What is on screen in the user's browser, from the browser sensor.
+    browser: body.browser && typeof body.browser === 'object' ? body.browser : null,
   });
   const reply = await callProvider(provider, request, res);
   if (reply === null) return;

@@ -19,6 +19,13 @@ module.exports = {
   OBSERVATION_RETENTION_DAYS: 7,
   MAX_SCREENSHOTS_KEPT: 200,
 
+  // Browser awareness (the extension <-> desktop loopback channel)
+  BROWSER_SENSOR_PORT: 4526,
+  BROWSER_CONTENT_MAX_CHARS: 24_000,
+  BROWSER_SELECTION_MAX_CHARS: 2_000,
+  BROWSER_HEARTBEAT_MS: 30_000,
+  BROWSER_STALE_MS: 75_000,         // no heartbeat for this long = disconnected
+
   // Gateway
   GATEWAY_PORT: 4519,
   GATEWAY_URL: process.env.FREN_GATEWAY_URL || 'http://127.0.0.1:4519',
