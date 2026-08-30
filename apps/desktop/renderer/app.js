@@ -1371,6 +1371,14 @@ els.orb.addEventListener('contextmenu', async (e) => {
   if (dragging) return;
   pressing = false;
   react('click');
+  // A beckoning orb right-clicked is being ANSWERED, not toggled: open the
+  // conversation and say the thing. speak() writes the bubble too, so the
+  // feedback is on screen as well as in the air.
+  if (pendingSuggestion) {
+    if (!state.panelOpen) await setPanel(true);
+    await deliverPendingSuggestion();
+    return;
+  }
   await setPanel(!state.panelOpen);
 });
 
@@ -1811,12 +1819,50 @@ function learnFrom(answer) {
   window.fren.learn(asked, answer).catch(() => {});
 }
 
+/**
+ * The beckon: while fren is holding a thought, the orb bounces — softly,
+ * every few seconds, the way someone shifts their weight when they have
+ * something to say and are waiting for a good moment. It is the ONLY channel
+ * this state has besides the hover card, so it keeps going until the thought
+ * is delivered or goes stale.
+ *
+ * Stale matters: a suggestion about what you were doing forty minutes ago is
+ * worse than none, so an undelivered thought quietly expires and the orb
+ * settles back down.
+ */
+const BECKON_EVERY_MS = 5000;
+const SUGGESTION_TTL_MS = 30 * 60 * 1000;
+let beckonTimer = null;
+let pendingAt = 0;
+
+function startBeckoning() {
+  if (beckonTimer) return;
+  beckonTimer = setInterval(() => {
+    if (!pendingSuggestion || Date.now() - pendingAt > SUGGESTION_TTL_MS) {
+      if (pendingSuggestion) {
+        pendingSuggestion = null;      // stale: let it go without a word
+        hintNote = null;
+      }
+      stopBeckoning();
+      return;
+    }
+    // Never over speech or reduced motion — the thought keeps, the bounce waits.
+    if (!speaking && !REDUCED.matches) face.pulse('bounce');
+  }, BECKON_EVERY_MS);
+}
+
+function stopBeckoning() {
+  if (beckonTimer) clearInterval(beckonTimer);
+  beckonTimer = null;
+}
+
 async function onSuggestion({ message }) {
   // Show it on the tab regardless of whether it is spoken: noticing is
   // visible, interrupting is opt-in.
   markUnread();
-  if (!message || speaking || awaitingReply) { pendingSuggestion = message; return; }
+  if (!message || speaking || awaitingReply) { pendingSuggestion = message; pendingAt = Date.now(); return; }
   pendingSuggestion = message;
+  pendingAt = Date.now();
   mood.note('idea');
   setFace('realization');
   face.pulse('bounce');
@@ -1826,9 +1872,11 @@ async function onSuggestion({ message }) {
     await speak(message);
     return;
   }
-  // Reserved: hold the thought and look like it. Tapping fren, or asking it
-  // anything, delivers it.
-  hintNote = 'fren noticed something — tap to hear it';
+  // Reserved: hold the thought and LOOK like it — the beckon keeps bouncing
+  // until it is heard. Right-clicking fren, tapping it, or asking anything
+  // delivers it.
+  hintNote = 'fren noticed something — right-click to hear it';
+  startBeckoning();
 }
 
 /** Deliver whatever fren has been sitting on, if anything. */
@@ -1836,6 +1884,7 @@ async function deliverPendingSuggestion() {
   if (!pendingSuggestion || speaking || awaitingReply) return false;
   const message = pendingSuggestion;
   pendingSuggestion = null;
+  stopBeckoning();
   hintNote = null;                 // delivered; the card goes back to gestures
   await speak(message);
   return true;

@@ -75,6 +75,7 @@ module.exports = {
   automate: (payload) => request('/v1/automate', { method: 'POST', body: payload, timeoutMs: 90_000 }),
   routine: (payload) => request('/v1/routine', { method: 'POST', body: payload, timeoutMs: 30_000 }),
   curious: (payload) => request('/v1/curious', { method: 'POST', body: payload, timeoutMs: 45_000 }),
+  suggest: (payload) => request('/v1/suggest', { method: 'POST', body: payload, timeoutMs: 45_000 }),
   learn: (payload) => request('/v1/learn', { method: 'POST', body: payload, timeoutMs: 20_000 }),
   // Short: a greeting that arrives after the user has started working is not a
   // greeting. Better to miss it than to interrupt with a late hello.

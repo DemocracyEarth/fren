@@ -13,6 +13,7 @@ const { createBrowserTransport } = require('./browser-transport');
 const { createSummarizer } = require('./summarizer');
 const { createPatternWatcher } = require('./patterns');
 const { createCuriosityWatcher } = require('./curiosity');
+const { createProactiveWatcher } = require('./proactive');
 const { wakeOnLaunchFrom } = require('./wake');
 const {
   clampInto, offsetInWindow, windowFor, chooseSide,
@@ -199,6 +200,7 @@ let summarizer = null;
 let patterns = null;
 let routines = null;
 let curiosity = null;
+let proactive = null;
 let heartbeat = null;
 // Set once the user has actually chosen to quit, so the dashboard's close
 // handler does not ask again while app.quit() is closing that same window.
@@ -595,7 +597,10 @@ app.whenReady().then(() => {
       if (type === BROWSER_EVENTS.CONNECTED) log(`[browser] connected: ${detail.browser}`);
       else if (type === BROWSER_EVENTS.DISCONNECTED) log(`[browser] disconnected (${detail.reason})`);
       else if (type === BROWSER_EVENTS.TAB_CHANGED) log(`[browser] tab changed: ${detail.domain || '(opaque)'}`);
-      else if (type === BROWSER_EVENTS.PAGE_OPENED) log(`[browser] page opened: ${detail.excluded ? '(excluded domain)' : detail.domain}`);
+      else if (type === BROWSER_EVENTS.PAGE_OPENED) {
+        log(`[browser] page opened: ${detail.excluded ? '(excluded domain)' : detail.domain}`);
+        if (proactive && !detail.excluded) proactive.noteBrowser(currentBrowserContext());
+      }
       else if (type === BROWSER_EVENTS.PAGE_UPDATED) log(`[browser] page context updated`);
       else if (type === BROWSER_EVENTS.SELECTION_CHANGED) log(`[browser] selection changed (${detail.chars} chars)`);
       else if (type === BROWSER_EVENTS.BROWSER_FOCUSED) log('[browser] focused');
@@ -681,6 +686,42 @@ app.whenReady().then(() => {
     },
   });
   curiosity.start();
+
+  // Moments: the third proactive watcher. Patterns notices repeated work,
+  // curiosity asks to know you — this one watches for the TIMES a companion
+  // naturally speaks first: you sit back down, you have been deep in one
+  // topic, or enough has simply happened. It reuses the same suggestion
+  // channel, so the orb-side behaviour (the beckoning bounce, right-click to
+  // hear it) is one mechanism whoever noticed.
+  proactive = createProactiveWatcher({
+    memory,
+    gateway,
+    state,
+    log,
+    idleSeconds: () => {
+      try { return require('electron').powerMonitor.getSystemIdleTime(); }
+      catch { return 0; }
+    },
+    getBrowser: () => currentBrowserContext(),
+    soulFor: () => soul.readContext(app.getPath('userData')).soul,
+    profileFor: () => memory.getSetting('profile'),
+    canSpeak: () => Date.now() - lastChatAt > 4 * 60 * 1000,
+    onSuggestion: ({ message, moment }) => {
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('fren:suggestion', { message, moment });
+      }
+    },
+  });
+  proactive.start();
+
+  // "Any thoughts?" — the same moment machinery, on demand. force skips the
+  // timing gates (you ASKED, so the timing is right by definition); the
+  // model's own bar and the topic dedup still apply, so silence stays an
+  // honest answer.
+  ipcMain.handle('fren:nudge', async () => {
+    const found = await proactive.consider('check-in', {}, true);
+    return { spoke: !!found };
+  });
 
   // Routines: the same questions, at times the user chose. The runner refuses
   // to fire while paused, and a missed one expires rather than arriving hours

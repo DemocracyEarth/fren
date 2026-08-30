@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('fren', {
   // sensor state pushed to any window that cares. Never page content.
   getBrowserState: () => ipcRenderer.invoke('fren:getBrowserState'),
   getBrowserPrompt: () => ipcRenderer.invoke('fren:getBrowserPrompt'),
+  // Ask fren to have a thought right now, if it has one. Silence is honest.
+  nudge: () => ipcRenderer.invoke('fren:nudge'),
   setBrowserSettings: (patch) => ipcRenderer.invoke('fren:setBrowserSettings', patch),
   openBrowserExtension: () => ipcRenderer.invoke('fren:openBrowserExtension'),
   onBrowserState: (fn) => ipcRenderer.on('fren:browserState', (_e, s) => fn(s)),

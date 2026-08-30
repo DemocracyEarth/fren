@@ -300,6 +300,34 @@ async function handleGreet(provider, body, res) {
  * mode below resolves to silence rather than to a question. A companion that
  * asks something dull has spent credibility it does not get back.
  */
+async function handleSuggest(provider, body, res) {
+  const quiet = { worth: false, message: '', about: '' };
+  const request = intelligence.buildSuggestRequest({
+    moment: typeof body.moment === 'string' ? body.moment.slice(0, 40) : 'check-in',
+    memories: Array.isArray(body.memories) ? body.memories : [],
+    observations: Array.isArray(body.observations) ? body.observations : [],
+    browser: body.browser && typeof body.browser === 'object' ? body.browser : null,
+    awayMinutes: Number(body.awayMinutes) || 0,
+    reading: body.reading && typeof body.reading === 'object' ? body.reading : null,
+    profile: body.profile && typeof body.profile === 'object' ? body.profile : null,
+    soul: typeof body.soul === 'string' ? body.soul : '',
+  });
+  const raw = await callProvider(provider, request, res);
+  if (raw === null) return;
+  try {
+    const p = JSON.parse(String(raw).replace(/^```(?:json)?|```$/gm, '').trim());
+    const message = String(p.message || '').trim();
+    send(res, 200, {
+      worth: !!p.worth && message.length > 0,
+      message: message.slice(0, 400),
+      about: String(p.about || '').slice(0, 80),
+    });
+  } catch {
+    // Staying quiet is always recoverable; a garbled interruption is not.
+    send(res, 200, quiet);
+  }
+}
+
 async function handleCuriosity(provider, body, res) {
   const quiet = { ask: false, question: '', about: '', why: '' };
   const request = intelligence.buildCuriosityRequest({
@@ -409,6 +437,7 @@ async function handle(provider, voice, vision, req, res, pathname) {
                                 pathname === '/v1/pattern' || pathname === '/v1/vision' ||
                                 pathname === '/v1/automate' || pathname === '/v1/routine' ||
                                 pathname === '/v1/curious' || pathname === '/v1/learn' ||
+                                pathname === '/v1/suggest' ||
                                 pathname === '/v1/greet')) {
     if (req.headers.authorization !== `Bearer ${config.GATEWAY_TOKEN}`) {
       return send(res, 401, { error: 'unauthorized' });
@@ -440,6 +469,7 @@ async function handle(provider, voice, vision, req, res, pathname) {
     if (pathname === '/v1/automate') return handleAutomate(provider, body, res);
     if (pathname === '/v1/routine') return handleRoutine(provider, body, res);
     if (pathname === '/v1/curious') return handleCuriosity(provider, body, res);
+    if (pathname === '/v1/suggest') return handleSuggest(provider, body, res);
     if (pathname === '/v1/learn') return handleLearn(provider, body, res);
     if (pathname === '/v1/greet') return handleGreet(provider, body, res);
     if (pathname === '/v1/speak') return handleSpeak(voice, body, res);

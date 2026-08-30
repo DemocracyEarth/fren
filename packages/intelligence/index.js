@@ -260,6 +260,61 @@ function formatBrowser(browser) {
   return lines.join('\n');
 }
 
+/**
+ * Should fren speak up, unprompted? The proactive criteria, in one place.
+ *
+ * The whole design is the bar: "would a thoughtful friend interrupt for
+ * this?" Most calls MUST come back worth:false — a companion that pipes up on
+ * schedule is a notification system wearing a face, and the fastest way to be
+ * muted. The moment tells the model why it is being consulted at all.
+ */
+const MOMENT_GUIDANCE = {
+  'welcome-back': 'They just came back to the computer after being away. If their ' +
+    'earlier activity suggests an obvious thread to pick back up, offer it in one ' +
+    'warm sentence. A plain welcome is NOT worth interrupting for — worth:false.',
+  'deep-reading': 'They have been reading around one topic for a while now. If the ' +
+    'trail suggests something genuinely useful — offer to summarize what they have ' +
+    'covered, or name the thread that connects the pages — say that. If the reading ' +
+    'is casual browsing, worth:false.',
+  'check-in': 'A routine look at recent activity. Only speak if something specific ' +
+    'stands out: a struggle repeated across the timeline, a long stretch of context ' +
+    'switching, something they seemed to be hunting without finding. No specific ' +
+    'thing, worth:false — this moment is usually silent.',
+};
+
+function buildSuggestRequest({ moment = 'check-in', memories = [], observations = [],
+                               browser = null, awayMinutes = 0, reading = null,
+                               profile = null, soul = '', now = Date.now() } = {}) {
+  const character = String(soul || '').trim();
+  const system = [
+    character ? `Your character, as its owner wrote it:\n\n${character}\n\nFollow it.` : '',
+    'You are fren, a small quiet desktop companion deciding whether to say something UNPROMPTED.',
+    'The bar: would a thoughtful friend interrupt for this? Prefer silence — most of the time',
+    'the answer is {"worth": false}. Never invent activity that is not in the context.',
+    'If you do speak: at most two short sentences, about the SPECIFIC thing observed,',
+    'phrased as an offer or an observation — never a command, never guilt, never generic',
+    'productivity advice. It will be spoken aloud, so write for the ear.',
+    MOMENT_GUIDANCE[moment] || MOMENT_GUIDANCE['check-in'],
+    'Answer with STRICT JSON, nothing else: {"worth": true|false, "message": "...", "about": "a few words naming the topic"}',
+  ].filter(Boolean).join('\n\n');
+
+  const content = [
+    `Current local time: ${clock(now)}`,
+    `Moment: ${moment}${awayMinutes ? ` (away for about ${Math.round(awayMinutes)} minutes)` : ''}`,
+    reading && reading.domain
+      ? `Reading trail: mostly ${reading.domain} (${reading.kind || 'pages'}), ${reading.pages || 0} pages over ${Math.round(reading.minutes || 0)} minutes.`
+      : '',
+    '',
+    'Recent activity summaries:',
+    formatMemories(memories),
+    '',
+    'Recent raw timeline:',
+    compactObservations(observations) || '(none)',
+    ...(browser && formatBrowser(browser) ? ['', formatBrowser(browser)] : []),
+  ].filter((l) => l !== null).join('\n');
+  return { system, messages: [{ role: 'user', content }] };
+}
+
 function buildChatRequest({ question, memories = [], observations = [], profile = null,
                             soul = '', userDoc = '', browser = null, now = Date.now() } = {}) {
   const who = formatProfile(profile);
@@ -944,6 +999,7 @@ module.exports = {
   buildSummarizeRequest,
   parseSummary,
   buildChatRequest,
+  buildSuggestRequest,
   classifyPage,
   formatBrowser,
   browserSense,
