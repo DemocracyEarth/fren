@@ -1020,6 +1020,23 @@ async function browserBlock() {
   dbg.appendChild(el('summary', null, 'Sensor state'));
   const pre = el('pre');
   dbg.appendChild(pre);
+
+  // And the meta-prompt itself: exactly what fren will be told about this
+  // page when you next ask it something. The behaviour, inspectable.
+  const promptDbg = el('details', 'browser-debug');
+  promptDbg.appendChild(el('summary', null, 'What fren is told (the meta-prompt, live)'));
+  const promptPre = el('pre');
+  promptDbg.appendChild(promptPre);
+  const paintPrompt = async () => {
+    if (!promptDbg.open) return;
+    try {
+      const p = await window.fren.getBrowserPrompt();
+      promptPre.textContent = p.present
+        ? `— added to the system prompt (page kind: ${p.kind}) —\n${p.system}\n\n— added to the message —\n${p.message}`
+        : 'No page in view right now, so the prompt says nothing about the browser.';
+    } catch { promptPre.textContent = 'could not read the prompt'; }
+  };
+  promptDbg.addEventListener('toggle', paintPrompt);
   const ago = (t) => (t ? Math.max(0, Math.round((Date.now() - t) / 1000)) + 's ago' : 'never');
   const paintDebug = (s) => {
     const d = (s && s.sensor) || {};
@@ -1036,13 +1053,15 @@ async function browserBlock() {
   };
   paintDebug(st);
   wrap.appendChild(dbg);
+  wrap.appendChild(promptDbg);
 
   // Live: main pushes on every sensor event; a slow poll catches the "2s ago"
   // clock and anything a push missed. Both stop when the block leaves the DOM.
   window.fren.onBrowserState((d) => { if (wrap.isConnected) { paint({ ...st, sensor: d, paired: true }); paintDebug({ sensor: d }); } });
   const timer = setInterval(async () => {
     if (!wrap.isConnected) return clearInterval(timer);
-    try { const s = await window.fren.getBrowserState(); paint(s); paintDebug(s); } catch { /* keep the last */ }
+    try { const s = await window.fren.getBrowserState(); paint(s); paintDebug(s); await paintPrompt(); }
+    catch { /* keep the last */ }
   }, 2000);
 
   return wrap;

@@ -108,6 +108,59 @@ one file.
 3. fren shows the consent dialog; Allow.
 4. Browse. `[browser]` log lines and the Settings readout update live.
 
+## The meta-prompt
+
+How fren is told to think about the page lives in
+`packages/intelligence/index.js` — `classifyPage`, `browserSense`,
+`formatBrowser` — and is pinned by `test/browser-prompt.test.js`. You can
+watch the live version in the dashboard: Settings → Browser awareness →
+*What fren is told*.
+
+When (and only when) a non-excluded page is in view, the **system prompt**
+gains:
+
+> You can also see the page open in their browser right now — it appears in
+> the message as "In the browser". This comes from your browser extension:
+> you see the ACTIVE tab's readable text only, only while your light is on,
+> and never excluded sites. The same honesty rules apply to it: it is
+> observed context, quote it rather than invent it, and if the excerpt does
+> not contain the answer, say so.
+
+followed by one guidance line chosen by the page's kind:
+
+| kind | guidance |
+| --- | --- |
+| article | lead with what it claims or argues; tight summaries; keep the writer's opinion distinct from reported fact |
+| discussion | keep the post, the crowd's view, and the strongest dissent apart — not a soup of all three |
+| video | only the page text is visible, never the video itself — say so when asked beyond it |
+| code | say what the project or change is about plainly; precision with names beats paraphrase |
+| social | the excerpt is fragments of many voices; prefer what they selected |
+| product | facts first; no purchase advice unless asked |
+| search | the query is what they are hunting; the excerpt is just the trail |
+| reference / docs | answer precisely, quote exact terms, do not improvise past the excerpt |
+| page | work from the excerpt; say plainly when it does not contain the answer |
+
+Kinds come from `classifyPage`: well-known homes first (HN/Reddit/Stack* →
+discussion, YouTube → video, GitHub → code, X/Bluesky → social, Amazon →
+product, engines with a query → search, Wikipedia → reference, docs.* →
+docs), then the extension's own signal (an `<article>` element), then plain
+`page`. Lookalike domains (`notgithub.com`, `github.com.evil.io`) do not
+inherit.
+
+The **message** then carries the page itself:
+
+```
+In the browser (chrome, focused) — a discussion:
+"Show HN: fren" — https://news.ycombinator.com/item?id=…
+Page description: …
+They have SELECTED this text: "…"        (when they have)
+Readable page excerpt:
+…up to 3,000 chars, with a declared […] when capped…
+```
+
+An excluded page contributes nothing to either half — no sense is declared
+at all, so fren cannot claim an eye it does not have.
+
 ## Future sensors
 
 `createBrowserSensor` is deliberately the same shape as `createObserver`:

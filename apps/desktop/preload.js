@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('fren', {
   // Browser awareness: status + settings for the dashboard, and the live
   // sensor state pushed to any window that cares. Never page content.
   getBrowserState: () => ipcRenderer.invoke('fren:getBrowserState'),
+  getBrowserPrompt: () => ipcRenderer.invoke('fren:getBrowserPrompt'),
   setBrowserSettings: (patch) => ipcRenderer.invoke('fren:setBrowserSettings', patch),
   openBrowserExtension: () => ipcRenderer.invoke('fren:openBrowserExtension'),
   onBrowserState: (fn) => ipcRenderer.on('fren:browserState', (_e, s) => fn(s)),

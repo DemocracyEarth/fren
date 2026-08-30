@@ -117,6 +117,40 @@ async function activeTabId() {
   return tab ? tab.id : -1;
 }
 
+/**
+ * MV3 only injects content scripts into pages loaded AFTER the extension
+ * exists — a tab that was already open never gets one, and without this the
+ * extension spent its life sending domain-only events for exactly the pages
+ * the user was already reading. Inject into everything injectable at
+ * install/startup, and once more on demand when a tab turns out script-less.
+ */
+async function injectEverywhere() {
+  const tabs = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] });
+  await Promise.allSettled(tabs.map((t) =>
+    chrome.scripting.executeScript({ target: { tabId: t.id }, files: ['lib/extract.js', 'content.js'] })));
+}
+
+async function injectInto(tabId) {
+  try {
+    await chrome.scripting.executeScript({ target: { tabId }, files: ['lib/extract.js', 'content.js'] });
+    return true;
+  } catch { return false; }              // chrome://, web store, PDFs: not injectable
+}
+
+/** The best a script-less tab can offer: where they are, by the tab's own word. */
+async function opaqueEvent(tabId) {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  const domain = tab && tab.url ? FrenExtract.domainOf(tab.url) : '';
+  const excluded = FrenExtract.isExcluded(domain, policy.exclusions);
+  return { type: 'page', tabId,
+           url: excluded ? '' : (tab && tab.url) || '',
+           domain,
+           title: excluded ? '' : (tab && tab.title) || '',
+           favicon: '', content: '', description: '', canonicalUrl: '',
+           contentType: excluded ? 'excluded' : 'opaque',
+           truncated: false, contentHash: '', navAt: Date.now() };
+}
+
 // ---- the events ------------------------------------------------------------
 
 chrome.runtime.onMessage.addListener((msg, sender) => {
@@ -137,13 +171,14 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   // The newly fronted tab holds the truth; ask its content script to speak.
   try { await chrome.tabs.sendMessage(tabId, { type: 'snapshot_please' }); }
-  catch { /* no content script there (chrome:// etc.) — say the tab changed anyway */
-    const tab = await chrome.tabs.get(tabId).catch(() => null);
-    if (policy.enabled) {
-      await post({ type: 'page', tabId, url: '', domain: tab && tab.url ? FrenExtract.domainOf(tab.url) : '',
-                   title: '', favicon: '', content: '', description: '', canonicalUrl: '',
-                   contentType: 'opaque', truncated: false, contentHash: '', navAt: Date.now() });
+  catch {
+    // No script there — a tab from before the extension existed. Heal it and
+    // ask again; only a genuinely uninjectable page stays opaque.
+    if (await injectInto(tabId)) {
+      try { await chrome.tabs.sendMessage(tabId, { type: 'snapshot_please' }); return; }
+      catch { /* fall through to opaque */ }
     }
+    if (policy.enabled) await post(await opaqueEvent(tabId));
   }
 });
 
@@ -157,9 +192,11 @@ chrome.windows.onFocusChanged.addListener((windowId) => {
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create('fren-heartbeat', { periodInMinutes: HEARTBEAT_MIN });
   pair();
+  injectEverywhere();
 });
 chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.create('fren-heartbeat', { periodInMinutes: HEARTBEAT_MIN });
   heartbeat();
+  injectEverywhere();
 });
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'fren-heartbeat') heartbeat(); });
