@@ -10,7 +10,7 @@ const DEFAULTS = {
   // Both are configurable because ElevenLabs revises model and voice IDs;
   // if one 404s, set the env var rather than editing code.
   model: 'eleven_flash_v2_5',
-  voice: '21m00Tcm4TlvDq8ikWAM',
+  voice: 'aJmaNc1NyxWiTc1ZWt8R',    // fren's own voice, chosen by its owner
   baseUrl: 'https://api.elevenlabs.io',
 };
 
