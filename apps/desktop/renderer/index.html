@@ -13,21 +13,15 @@
          when the window grows. -->
     <section id="panel" hidden>
       <header id="panel-head">
-        <!-- The window's own controls, said the way macOS says them. The old ×
-             here only hid the chat, and there was no way to QUIT fren from
-             this window at all — the one decision people most expect a red
-             light to make. Red quits (and asks first), yellow tucks the chat
-             away, green is the old Expand button: the same conversation with
-             room to read it. Hovering the group reveals the glyphs, exactly
-             like the real ones. -->
+        <!-- One light, not three. The owner pared the app down to the orb
+             and this chat: the dashboard lost its doors (its features moved
+             into the conversation itself — ask fren to change a setting and
+             it does), and closing the chat is what clicking the orb already
+             does. What remains is the one decision that needs a control: red
+             quits, and asks first. -->
         <div id="lights" role="group" aria-label="Window controls">
           <button id="light-quit" class="light" title="Quit fren"
                   aria-label="Quit fren"><span aria-hidden="true">&#215;</span></button>
-          <button id="light-min" class="light" title="Close the chat"
-                  aria-label="Close the chat — fren keeps running"><span aria-hidden="true">&#8722;</span></button>
-          <button id="light-expand" class="light" title="Open the big window"
-                  aria-label="Open the big window"><span aria-hidden="true">&#8599;</span>
-            <span id="dash-dot" hidden></span></button>
         </div>
         <span class="wordmark" role="img" aria-label="fren"></span>
         <span class="spacer"></span>

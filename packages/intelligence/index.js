@@ -328,6 +328,22 @@ function buildSuggestRequest({ moment = 'check-in', memories = [], observations 
   return { system, messages: [{ role: 'user', content }] };
 }
 
+const CHAT_ACTIONS = [
+  'You can change your own settings when the user asks you to — and ONLY when they',
+  'ask. End your reply with exactly one fenced block, after confirming the change',
+  'in your own words (the block itself is invisible to them):',
+  '```fren-action',
+  '{"do": "..."}',
+  '```',
+  'Your actions: {"do":"wakeOnLaunch","on":true|false} wake up watching at launch;',
+  '{"do":"interrupt","on":true|false} whether you may interrupt with thoughts;',
+  '{"do":"watch","on":true|false} start or stop watching right now;',
+  '{"do":"colour","value":"teal"} wear a colour — a name (orange, red, pink, purple,',
+  'blue, teal, green), a preset (Ember, Rhubarb, Mulberry, Cornflower, Lagoon, Moss),',
+  'or a hex like #11a8a8; {"do":"lookReset"} appearance back to how you ship.',
+  'Never emit the block unless they asked for a change. Never invent other actions.',
+].join('\n');
+
 function buildChatRequest({ question, memories = [], observations = [], profile = null,
                             soul = '', userDoc = '', browser = null, now = Date.now() } = {}) {
   const who = formatProfile(profile);
@@ -364,6 +380,10 @@ function buildChatRequest({ question, memories = [], observations = [], profile 
     'Figma, then back in the editor", never "you spent 47 minutes in Figma".',
     'If the context is insufficient or observation was off, say so plainly instead of guessing.',
     'No generic productivity advice.',
+    // Settings by conversation. The whitelist below is mirrored by the parser
+    // in apps/desktop/main/actions.js, which refuses everything else — the
+    // model is offered these verbs and trusted with none of them.
+    CHAT_ACTIONS,
     // What the user told fren about themselves. It is context for TONE and for
     // what they care about -- it is not observed activity, and must never be
     // reported back as if fren had seen it.

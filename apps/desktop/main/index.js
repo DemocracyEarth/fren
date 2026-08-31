@@ -22,6 +22,7 @@ const {
 // The palette is a UMD module shared with both renderers; main uses it to
 // sanitize the orb-look setting at its single point of entry.
 const palette = require('../renderer/face/palette.js');
+const { parseReply } = require('./actions');
 const providerSettings = require('./settings');
 const { createRoutineRunner, nextRunAt, isDue } = require('./routines');
 const executor = require('./executor');
@@ -216,7 +217,21 @@ let lastChatAt = 0;
 let automationTimer = null;
 let automationTickBusy = false;
 
-const log = (...args) => console.log(...args);
+/**
+ * The log is also fren's visible train of thought. Every line goes to the
+ * console as always, AND into a ring the debug window can read — the owner
+ * removed the dashboard and asked for exactly this instead: a way to see what
+ * fren is thinking and doing when something needs debugging.
+ */
+const debugRing = [];
+let debugWin = null;
+const log = (...args) => {
+  console.log(...args);
+  const line = `${new Date().toISOString().slice(11, 19)} ${args.join(' ')}`;
+  debugRing.push(line);
+  if (debugRing.length > 800) debugRing.shift();
+  if (debugWin && !debugWin.isDestroyed()) debugWin.webContents.send('fren:debugLine', line);
+};
 
 /**
  * Keep the character on a screen.
@@ -449,6 +464,23 @@ function showHint(info) {
   hintWin.once('ready-to-show', () => {
     if (hintWin && !hintWin.isDestroyed()) hintWin.showInactive();
   });
+}
+
+/** The train of thought, in a window. Plain, monospace, live. */
+function openDebugLog() {
+  if (debugWin && !debugWin.isDestroyed()) { debugWin.show(); return; }
+  debugWin = new BrowserWindow({
+    width: 640,
+    height: 480,
+    title: 'fren — debug log',
+    webPreferences: {
+      preload: path.join(__dirname, '..', 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  debugWin.loadURL(`${SCHEME}://app/debug.html`);
+  debugWin.on('closed', () => { debugWin = null; });
 }
 
 function createWindow() {
@@ -975,6 +1007,8 @@ app.whenReady().then(() => {
 
   // The governor's food: the renderer says how each held suggestion ended,
   // and fren's forwardness drifts to match. See paceFor in proactive.js.
+  ipcMain.handle('fren:debugLog', () => debugRing.slice());
+
   ipcMain.handle('fren:suggestionOutcome', (_e, kind) => {
     if (proactive && proactive.noteOutcome) proactive.noteOutcome(kind);
   });
@@ -1002,7 +1036,6 @@ app.whenReady().then(() => {
     app.dock.setMenu(Menu.buildFromTemplate([
       { label: 'Bring fren back', click: () => recenter() },
       { label: 'Open the chat', click: () => { setPanelOpen(true); recenter(); } },
-      { label: 'Open the dashboard', click: () => openDashboard() },
       // The test lever for the proactive loop: force a look at what is on
       // fren's mind right now, gates bypassed. If there is anything worth
       // saying, the orb beckons; if not, nothing happens — which is also the
@@ -1011,6 +1044,9 @@ app.whenReady().then(() => {
         const found = await proactive.nudge();
         log(`[proactive] nudge: ${found ? 'spoke' : 'held its tongue'}`);
       } },
+      // The dashboard's door is gone — settings answer to conversation now.
+      // What debugging needs instead is fren's train of thought, live.
+      { label: 'Debug log', click: () => openDebugLog() },
     ]));
   }
 
@@ -1832,6 +1868,49 @@ app.whenReady().then(() => {
     return reply;
   }
 
+  /**
+   * One conversational action, applied. Each case reuses the exact code the
+   * dashboard's controls ran, so talking and clicking cannot drift apart —
+   * and each logs, so the debug window shows fren doing what it said.
+   */
+  function applyChatAction(a) {
+    try {
+      switch (a.do) {
+        case 'wakeOnLaunch':
+          memory.setSetting('wakeOnLaunch', a.on);
+          log(`[chat-action] launches ${a.on ? 'awake' : 'paused'} from now on`);
+          break;
+        case 'interrupt': {
+          const current = memory.getSetting('profile');
+          if (current && typeof current === 'object') {
+            memory.setSetting('profile', { ...current, volunteer: a.on });
+            log(`[chat-action] interruptions ${a.on ? 'allowed' : 'turned off'}`);
+          }
+          break;
+        }
+        case 'watch':
+          if (a.on && !state.get().observing) startObserving();
+          if (!a.on && state.get().observing) stopObserving();
+          log(`[chat-action] watching ${a.on ? 'on' : 'off'}`);
+          break;
+        case 'colour':
+          memory.setSetting('orbColour', a.hex);
+          if (win && !win.isDestroyed()) win.webContents.send('fren:orbColour', a.hex);
+          log(`[chat-action] wearing #${a.hex.toString(16).padStart(6, '0')}`);
+          break;
+        case 'lookReset':
+          memory.setSetting('orbLook', '');
+          if (win && !win.isDestroyed()) win.webContents.send('fren:orbLook', null);
+          log('[chat-action] look back to how fren ships');
+          break;
+        default:
+          break;
+      }
+    } catch (err) {
+      log(`[chat-action] failed quietly: ${err.message}`);
+    }
+  }
+
   ipcMain.handle('fren:chat', async (_e, text) => {
     const question = String(text ?? '').trim().slice(0, 2000);
     if (!question) return { reply: '…' };
@@ -1859,8 +1938,14 @@ app.whenReady().then(() => {
         // sensor. The agent consumes fren context, never the extension wire.
         browser: currentBrowserContext(),
       });
-      remember('fren', reply);
-      return { reply };
+      // Settings by conversation: the reply may carry one action fence.
+      // Parse it off, apply it through the same paths the dashboard's
+      // switches used, and never let the fence reach the transcript or the
+      // voice — the model already confirmed the change in its own words.
+      const { text: said, action } = parseReply(reply);
+      if (action) applyChatAction(action);
+      remember('fren', said);
+      return { reply: said };
     } catch (err) {
       log(`[chat] failed: ${err.message}`);
       return {

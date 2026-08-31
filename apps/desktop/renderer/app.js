@@ -30,8 +30,6 @@ const els = {
   watchSay: document.getElementById('watch-say'),
   dashDot: document.getElementById('dash-dot'),
   lightQuit: document.getElementById('light-quit'),
-  lightMin: document.getElementById('light-min'),
-  lightExpand: document.getElementById('light-expand'),
   messages: document.getElementById('messages'),
   empty: document.getElementById('empty'),
   typing: document.getElementById('typing'),
@@ -1696,24 +1694,10 @@ function paintWatch() {
 }
 
 // The panel is for talking; the big window is for reading back properly. With
-// the tabs gone this is the only way through, so it is a real button rather
-// than a link tucked in a corner.
-//
-// The green light is the old Expand button: the same conversation with room to
-// read it, and main closes this panel as the other window opens — so it reads
-// as one thing growing rather than a second thing appearing.
-els.lightExpand.addEventListener('click', () => {
-  window.fren.openDashboard();
-  // Whatever was waiting is about to be on screen.
-  if (els.dashDot) els.dashDot.hidden = true;
-});
-
 els.watch.addEventListener('click', () => window.fren.toggleObservation());
-// Yellow closes the CHAT, not fren — tucked away, still running, exactly what
-// minimise means. A × here that killed the whole app was the kind of thing you
-// only learn once, so the killing is red's job and red ASKS: main puts up the
-// same kind of dialog the dashboard's close button does.
-els.lightMin.addEventListener('click', () => setPanel(false));
+// The one light: quitting, which asks first. Closing the chat is the orb's
+// own gesture (click or right-click), and the dashboard has no door any more
+// — its settings answer to conversation now.
 els.lightQuit.addEventListener('click', () => window.fren.quit());
 
 els.form.addEventListener('submit', (e) => {
