@@ -1029,6 +1029,13 @@ const NUDGES = [
 ];
 
 let heardSomething = false;
+// Hands-free turn-taking: once they HAVE spoken, a pause this long means the
+// turn is over and fren may answer — the walkie-talkie second click stays as
+// the manual override. Long enough to think mid-sentence; short enough that
+// the conversation breathes.
+const HANDS_FREE_SILENCE_MS = 2600;
+let lastVoiceAt = 0;
+let autoSending = false;
 let silenceTimer = null;
 let nudged = false;
 
@@ -1475,7 +1482,20 @@ function listening(level) {
   if (on && !wantRecording) return;
   face.setListening(level);
   document.body.dataset.recording = on ? '1' : '0';
-  if (on && level >= SPEECH_LEVEL) heardSomething = true;
+  if (on && level >= SPEECH_LEVEL) { heardSomething = true; lastVoiceAt = performance.now(); }
+  // The turn ends on its own. They spoke, then went quiet for a beat — send
+  // it, the way a friend answers when you trail off rather than waiting for
+  // you to press something. Runs on the meter's own frames, so quiet is
+  // noticed the moment it has lasted long enough.
+  // Orb conversations only: holding the panel's mic button IS the claim to
+  // the turn, and cutting a held button off mid-thought would fight the
+  // gesture. The orb's click-to-talk has no such claim — silence is how those
+  // turns end.
+  if (on && recordingFromOrb && heardSomething && wantRecording && !autoSending &&
+      performance.now() - lastVoiceAt > HANDS_FREE_SILENCE_MS) {
+    autoSending = true;
+    stopTalkingAndSend();
+  }
   if (!on) { disarmRecordingCap(); disarmSilence(); }
 }
 
@@ -1506,6 +1526,8 @@ async function startTalking() {
   }
   wantRecording = true;
   heardSomething = false;
+  autoSending = false;
+  lastVoiceAt = 0;
   try {
     // The face brightens with the level, so it is visibly hearing YOU rather
     // than merely having changed state.
@@ -1830,7 +1852,8 @@ function learnFrom(answer) {
  * worse than none, so an undelivered thought quietly expires and the orb
  * settles back down.
  */
-const BECKON_EVERY_MS = 5000;
+const BECKON_EVERY_MS = 3500;
+let beckonBeat = false;
 const SUGGESTION_TTL_MS = 30 * 60 * 1000;
 let beckonTimer = null;
 let pendingAt = 0;
@@ -1850,7 +1873,14 @@ function startBeckoning() {
       return;
     }
     // Never over speech or reduced motion — the thought keeps, the bounce waits.
-    if (!speaking && !REDUCED.matches) face.pulse('bounce');
+    // Alternating wobble and bounce, because the owner's words were "I need to
+    // SEE the orb being willing to interrupt me" — a metronome of identical
+    // bounces fades into the desk; a fidget does not.
+    if (!speaking && !REDUCED.matches) {
+      beckonBeat = !beckonBeat;
+      if (beckonBeat && face.shake) face.shake(0.6);
+      else face.pulse('bounce');
+    }
   }, BECKON_EVERY_MS);
 }
 

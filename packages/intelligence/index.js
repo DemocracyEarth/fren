@@ -291,6 +291,16 @@ function buildSuggestRequest({ moment = 'check-in', memories = [], observations 
     'You are fren, a small quiet desktop companion deciding whether to say something UNPROMPTED.',
     'The bar: would a thoughtful friend interrupt for this? Prefer silence — most of the time',
     'the answer is {"worth": false}. Never invent activity that is not in the context.',
+    // The owner's ruling on what fren should look at. App names alone say
+    // almost nothing ("Chrome", all day) — when the browser sense is live it
+    // is the one rich thing fren can actually see, so it leads, and the app
+    // timeline is demoted to backdrop. Without the extension, the timeline is
+    // all there is, and speaking to it is better than silence about nothing.
+    browser && browser.tab
+      ? 'Their BROWSING is what you can actually see: ground anything you say in the '
+        + 'pages and the reading trail below. The app timeline is background only — '
+        + 'never make it the subject.'
+      : null,
     'If you do speak: at most two short sentences, about the SPECIFIC thing observed,',
     'phrased as an offer or an observation — never a command, never guilt, never generic',
     'productivity advice. It will be spoken aloud, so write for the ear.',
@@ -298,19 +308,22 @@ function buildSuggestRequest({ moment = 'check-in', memories = [], observations 
     'Answer with STRICT JSON, nothing else: {"worth": true|false, "message": "...", "about": "a few words naming the topic"}',
   ].filter(Boolean).join('\n\n');
 
+  // Ordered by how much fren can actually see in each: the live page and the
+  // reading trail first when the extension is connected, the app timeline as
+  // trailing backdrop. Order is emphasis in a prompt.
   const content = [
     `Current local time: ${clock(now)}`,
     `Moment: ${moment}${awayMinutes ? ` (away for about ${Math.round(awayMinutes)} minutes)` : ''}`,
     reading && reading.domain
       ? `Reading trail: mostly ${reading.domain} (${reading.kind || 'pages'}), ${reading.pages || 0} pages over ${Math.round(reading.minutes || 0)} minutes.`
       : '',
+    ...(browser && formatBrowser(browser) ? ['', formatBrowser(browser)] : []),
     '',
     'Recent activity summaries:',
     formatMemories(memories),
     '',
-    'Recent raw timeline:',
+    browser && browser.tab ? 'Background app timeline (secondary):' : 'Recent raw timeline:',
     compactObservations(observations) || '(none)',
-    ...(browser && formatBrowser(browser) ? ['', formatBrowser(browser)] : []),
   ].filter((l) => l !== null).join('\n');
   return { system, messages: [{ role: 'user', content }] };
 }

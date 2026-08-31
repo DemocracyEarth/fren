@@ -26,12 +26,15 @@ const DEFAULTS = {
   awayMinMs: 8 * 60 * 1000,          // gone this long = "away"
   backActiveMs: 60 * 1000,           // idle under this = "back"
   readingWindowMs: 45 * 60 * 1000,   // the trail considered for deep reading
-  readingSpanMs: 18 * 60 * 1000,     // sustained this long...
+  readingSpanMs: 10 * 60 * 1000,     // sustained this long...
   readingMinPages: 3,                // ...across at least this many pages...
   readingShare: 0.6,                 // ...mostly in one place
-  checkInMs: 30 * 60 * 1000,         // how often a routine look is even possible
+  checkInMs: 20 * 60 * 1000,         // how often a routine look is even possible
   checkInChance: 0.4,                // and how often it actually happens then
-  warmupMs: 10 * 60 * 1000,          // never in a session's first minutes
+  // Four minutes, down from ten. Ten meant a fren restarted over lunch was
+  // mute until you had forgotten it could speak — the warmup exists to skip
+  // the login flurry, not to make the first hour silent.
+  warmupMs: 4 * 60 * 1000,           // never in a session's first minutes
   cooldownMs: 45 * 60 * 1000,        // between ANY two suggestions
   maxPerDay: 5,
   momentCooldownMs: {                // per-moment, on top of the global one
