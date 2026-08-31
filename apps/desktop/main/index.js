@@ -1903,6 +1903,10 @@ app.whenReady().then(() => {
           if (win && !win.isDestroyed()) win.webContents.send('fren:orbLook', null);
           log('[chat-action] look back to how fren ships');
           break;
+        case 'debugLog':
+          openDebugLog();
+          log('[chat-action] opened the debug log');
+          break;
         default:
           break;
       }

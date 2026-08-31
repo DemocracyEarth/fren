@@ -62,3 +62,8 @@ test('booleans are coerced, never trusted', () => {
   assert.deepEqual(parseReply(fenced('ok', '{"do":"interrupt","on":1}')).action,
     { do: 'interrupt', on: false }, 'only true and "true" mean yes');
 });
+
+test('the debug log is a verb too', () => {
+  const { action } = parseReply(fenced('Opening my train of thought.', '{"do":"debugLog"}'));
+  assert.deepEqual(action, { do: 'debugLog' });
+});

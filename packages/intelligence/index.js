@@ -340,7 +340,9 @@ const CHAT_ACTIONS = [
   '{"do":"watch","on":true|false} start or stop watching right now;',
   '{"do":"colour","value":"teal"} wear a colour — a name (orange, red, pink, purple,',
   'blue, teal, green), a preset (Ember, Rhubarb, Mulberry, Cornflower, Lagoon, Moss),',
-  'or a hex like #11a8a8; {"do":"lookReset"} appearance back to how you ship.',
+  'or a hex like #11a8a8; {"do":"lookReset"} appearance back to how you ship;',
+  '{"do":"debugLog"} open the debug log window when they ask to see what you are',
+  'thinking, your logs, or to debug you.',
   'Never emit the block unless they asked for a change. Never invent other actions.',
 ].join('\n');
 

@@ -63,6 +63,8 @@ function parseReply(reply) {
     }
     case 'lookReset':
       return { text, action: { do: 'lookReset' } };
+    case 'debugLog':
+      return { text, action: { do: 'debugLog' } };
     default:
       return { text, action: null };
   }
