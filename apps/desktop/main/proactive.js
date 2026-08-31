@@ -18,7 +18,11 @@ const { fingerprint } = require('./patterns');
 const intelligence = require('../../../packages/intelligence');
 
 const DEFAULTS = {
-  tickMs: 30 * 1000,                 // the idle poll and moment clock
+  // Ten seconds, not thirty. Everything in a tick is local and cheap — an
+  // idle check and a trail prune — and the whole point of the clock is to
+  // catch the MOMENT: coming back to the desk reads differently ten seconds
+  // late than half a minute late. No model is consulted on a tick.
+  tickMs: 10 * 1000,                 // the idle poll and moment clock
   awayMinMs: 8 * 60 * 1000,          // gone this long = "away"
   backActiveMs: 60 * 1000,           // idle under this = "back"
   readingWindowMs: 45 * 60 * 1000,   // the trail considered for deep reading
@@ -36,7 +40,49 @@ const DEFAULTS = {
     'check-in': 60 * 60 * 1000,
   },
   maxRemembered: 40,                 // topics kept for dedup
+  maxOutcomes: 20,                   // suggestion fates kept for pacing
 };
+
+/**
+ * The pace governor: how forward fren is follows how its suggestions LAND.
+ *
+ * Every held suggestion ends one of two ways — heard (they came to hear it)
+ * or faded (it expired unheard) — and that history is the most honest signal
+ * there is about whether the interruptions are welcome right now. Warmth is a
+ * recency-weighted average of those fates in [-1, 1], and the pace knobs lerp
+ * across it: someone who keeps answering gets a fren that leans in (cooldown
+ * down to 15 minutes, up to ten a day, check-ins more likely); someone who
+ * keeps letting them fade gets one that backs off (two hours, twice a day,
+ * check-ins rare). The GATES never move — warmup, per-moment cooldowns and
+ * the thoughtful-friend bar in the meta-prompt still all fail toward silence;
+ * warmth only stretches or shrinks the waiting between them.
+ *
+ * Pure, so the tests can hold the whole curve in their hands.
+ */
+function warmthOf(outcomes = []) {
+  let sum = 0;
+  let weight = 0;
+  // Newest last in storage; newest counts most.
+  for (let i = 0; i < outcomes.length; i++) {
+    const w = Math.pow(0.8, outcomes.length - 1 - i);
+    sum += w * (outcomes[i].o === 'heard' ? 1 : -1);
+    weight += w;
+  }
+  return weight ? sum / weight : 0;
+}
+
+function paceFor(outcomes, opts = DEFAULTS) {
+  const w = warmthOf(outcomes);
+  // Piecewise-linear through the neutral point, so "no history" is exactly
+  // the shipped defaults and each end of the curve is a hand-picked bound.
+  const lerp = (cold, mid, warm) => (w >= 0 ? mid + (warm - mid) * w : mid + (mid - cold) * w);
+  return {
+    warmth: w,
+    cooldownMs: Math.round(lerp(120 * 60 * 1000, opts.cooldownMs, 15 * 60 * 1000)),
+    maxPerDay: Math.round(lerp(2, opts.maxPerDay, 10)),
+    checkInChance: lerp(0.15, opts.checkInChance, 0.7),
+  };
+}
 
 const SETTING_KEY = 'proactive';
 const dayOf = (ms) => new Date(ms).toISOString().slice(0, 10);
@@ -51,9 +97,10 @@ function loadState(memory) {
       today: Number(s.today) || 0,
       moments: s.moments && typeof s.moments === 'object' ? s.moments : {},
       topics: Array.isArray(s.topics) ? s.topics : [],
+      outcomes: Array.isArray(s.outcomes) ? s.outcomes : [],
     };
   } catch {
-    return { lastAt: 0, day: '', today: 0, moments: {}, topics: [] };
+    return { lastAt: 0, day: '', today: 0, moments: {}, topics: [], outcomes: [] };
   }
 }
 
@@ -94,11 +141,12 @@ function createProactiveWatcher({
   function gate(moment) {
     const t = now();
     const s = loadState(memory);
+    const pace = paceFor(s.outcomes, opts);
     if (!state.get().observing) return 'not watching';
     if (t - startedAt < opts.warmupMs) return 'still settling in';
     if (!canSpeak()) return 'busy talking';
-    if (t - s.lastAt < opts.cooldownMs) return 'spoke recently';
-    if (s.day === dayOf(t) && s.today >= opts.maxPerDay) return 'enough for today';
+    if (t - s.lastAt < pace.cooldownMs) return 'spoke recently';
+    if (s.day === dayOf(t) && s.today >= pace.maxPerDay) return 'enough for today';
     const last = Number(s.moments[moment]) || 0;
     if (t - last < (opts.momentCooldownMs[moment] || 0)) return 'this moment came up recently';
     return null;
@@ -165,6 +213,7 @@ function createProactiveWatcher({
       }
       const sameDay = s.day === dayOf(t);
       saveState(memory, {
+        ...s,
         lastAt: t,
         day: dayOf(t),
         today: sameDay ? s.today + 1 : 1,
@@ -217,7 +266,7 @@ function createProactiveWatcher({
 
     if (t - lastCheckInAt >= opts.checkInMs && idleMs < 2 * 60 * 1000) {
       lastCheckInAt = t;
-      if (random() <= opts.checkInChance) await consider('check-in');
+      if (random() <= paceFor(loadState(memory).outcomes, opts).checkInChance) await consider('check-in');
     }
   }
 
@@ -232,9 +281,25 @@ function createProactiveWatcher({
       timer = null;
     },
     noteBrowser,
+    /**
+     * The fate of a delivered suggestion: 'heard' or 'faded'. This is the
+     * governor's only food — the renderer reports it, the pace shifts, and
+     * nothing else has to know the feedback loop exists.
+     */
+    noteOutcome(kind) {
+      if (kind !== 'heard' && kind !== 'faded') return;
+      const s = loadState(memory);
+      saveState(memory, {
+        ...s,
+        outcomes: [...s.outcomes, { at: now(), o: kind }].slice(-opts.maxOutcomes),
+      });
+      log(`[proactive] suggestion ${kind}; warmth ${paceFor(loadState(memory).outcomes, opts).warmth.toFixed(2)}`);
+    },
+    /** The live pace, for tests and for anything curious about the mood. */
+    pace: () => paceFor(loadState(memory).outcomes, opts),
     tick,                // for tests: one turn of the clock, awaited
     consider,            // for tests and for a future "suggest me something"
   };
 }
 
-module.exports = { createProactiveWatcher, DEFAULTS, SETTING_KEY };
+module.exports = { createProactiveWatcher, DEFAULTS, SETTING_KEY, warmthOf, paceFor };
