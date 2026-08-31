@@ -972,6 +972,12 @@ app.whenReady().then(() => {
     return look;
   });
 
+  // The governor's food: the renderer says how each held suggestion ended,
+  // and fren's forwardness drifts to match. See paceFor in proactive.js.
+  ipcMain.handle('fren:suggestionOutcome', (_e, kind) => {
+    if (proactive && proactive.noteOutcome) proactive.noteOutcome(kind);
+  });
+
   ipcMain.handle('fren:setHint', (_e, open, info) => {
     if (!open) { hideHint(); return true; }
     if (state.get().panelOpen) return null;

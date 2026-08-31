@@ -187,3 +187,53 @@ test('leaving breaks the reading thread', async () => {
   const deepReads = suggestions.filter((s) => s.moment === 'deep-reading');
   assert.equal(deepReads.length, 0, 'the old trail did not survive the absence');
 });
+
+// --- the pace governor -------------------------------------------------------
+
+const { warmthOf, paceFor, DEFAULTS: PACE_DEFAULTS } = require('../main/proactive.js');
+
+test('no history is exactly the shipped pace', () => {
+  const p = paceFor([]);
+  assert.equal(p.warmth, 0);
+  assert.equal(p.cooldownMs, PACE_DEFAULTS.cooldownMs);
+  assert.equal(p.maxPerDay, PACE_DEFAULTS.maxPerDay);
+  assert.equal(p.checkInChance, PACE_DEFAULTS.checkInChance);
+});
+
+test('being heard leans in; fading backs off — inside hard bounds', () => {
+  const heard = Array.from({ length: 20 }, () => ({ at: 0, o: 'heard' }));
+  const faded = Array.from({ length: 20 }, () => ({ at: 0, o: 'faded' }));
+  const warm = paceFor(heard);
+  const cold = paceFor(faded);
+  assert.equal(warm.cooldownMs, 15 * 60 * 1000, 'all-heard reaches the floor, never below');
+  assert.equal(warm.maxPerDay, 10);
+  assert.ok(Math.abs(warm.checkInChance - 0.7) < 1e-9);
+  assert.equal(cold.cooldownMs, 120 * 60 * 1000, 'all-faded reaches the ceiling, never above');
+  assert.equal(cold.maxPerDay, 2);
+  assert.ok(Math.abs(cold.checkInChance - 0.15) < 1e-9);
+});
+
+test('recent fates outweigh old ones', () => {
+  // A long cold streak, then three warm answers: the pace should already be
+  // leaning in again — the governor forgives.
+  const history = [
+    ...Array.from({ length: 10 }, () => ({ at: 0, o: 'faded' })),
+    { at: 1, o: 'heard' }, { at: 2, o: 'heard' }, { at: 3, o: 'heard' },
+  ];
+  assert.ok(warmthOf(history) > 0, `warmth ${warmthOf(history)} should have recovered past zero`);
+  // And the mirror: warm history, cold recent — it backs off just as fast.
+  const mirror = history.map((e) => ({ at: e.at, o: e.o === 'heard' ? 'faded' : 'heard' }));
+  assert.ok(warmthOf(mirror) < 0);
+});
+
+test('the governor moves the pace, never the principle', async () => {
+  // Even at maximum warmth the warmup gate and the moment cooldowns hold: a
+  // fren that is being answered still does not speak in the first minutes.
+  // (The harness zeroes the warmup for the other tests; this one needs it.)
+  const h = harness({ options: { warmupMs: 10 * MIN } });
+  for (let i = 0; i < 20; i++) h.watcher.noteOutcome('heard');
+  const p = h.watcher.pace();
+  assert.ok(p.warmth > 0.9);
+  const got = await h.watcher.consider('check-in');
+  assert.equal(got, null, 'warmup still wins over warmth');
+});

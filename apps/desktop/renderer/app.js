@@ -1842,6 +1842,9 @@ function startBeckoning() {
       if (pendingSuggestion) {
         pendingSuggestion = null;      // stale: let it go without a word
         hintNote = null;
+        // A fade is an answer too: they saw the bouncing and chose their
+        // work. The governor backs the pace off.
+        window.fren.suggestionOutcome('faded').catch(() => {});
       }
       stopBeckoning();
       return;
@@ -1873,8 +1876,8 @@ async function onSuggestion({ message }) {
     return;
   }
   // Reserved: hold the thought and LOOK like it — the beckon keeps bouncing
-  // until it is heard. Right-clicking fren, tapping it, or asking anything
-  // delivers it.
+  // until it is heard. Right-clicking fren or tapping it delivers it; typing
+  // a question does not (sendMessage leaves a held thought held).
   hintNote = 'fren noticed something — right-click to hear it';
   startBeckoning();
 }
@@ -1886,7 +1889,13 @@ async function deliverPendingSuggestion() {
   pendingSuggestion = null;
   stopBeckoning();
   hintNote = null;                 // delivered; the card goes back to gestures
+  // Coming to hear it is the acceptance the governor learns from.
+  window.fren.suggestionOutcome('heard').catch(() => {});
   await speak(message);
+  // It said its thing; now it listens. A suggestion is a conversational move,
+  // and ending one with a closed microphone made every delivery a monologue.
+  // startTalking bails politely on its own if the moment is wrong.
+  if (voiceReady && mic) await startTalking();
   return true;
 }
 
