@@ -719,7 +719,8 @@ app.whenReady().then(() => {
   // model's own bar and the topic dedup still apply, so silence stays an
   // honest answer.
   ipcMain.handle('fren:nudge', async () => {
-    const found = await proactive.consider('check-in', {}, true);
+    const found = await proactive.nudge();
+    log(`[proactive] nudge: ${found ? 'spoke' : 'held its tongue'}`);
     return { spoke: !!found };
   });
 
@@ -1002,6 +1003,14 @@ app.whenReady().then(() => {
       { label: 'Bring fren back', click: () => recenter() },
       { label: 'Open the chat', click: () => { setPanelOpen(true); recenter(); } },
       { label: 'Open the dashboard', click: () => openDashboard() },
+      // The test lever for the proactive loop: force a look at what is on
+      // fren's mind right now, gates bypassed. If there is anything worth
+      // saying, the orb beckons; if not, nothing happens — which is also the
+      // system working.
+      { label: 'Any thoughts?', click: async () => {
+        const found = await proactive.nudge();
+        log(`[proactive] nudge: ${found ? 'spoke' : 'held its tongue'}`);
+      } },
     ]));
   }
 

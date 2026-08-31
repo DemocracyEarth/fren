@@ -302,6 +302,12 @@ async function handleGreet(provider, body, res) {
  */
 async function handleSuggest(provider, body, res) {
   const quiet = { worth: false, message: '', about: '' };
+  // The judge may run on a different model than the chat. Chat is
+  // latency-bound — someone is mid-conversation, often by voice — while a
+  // suggestion is a rare background judgment where quality is the whole
+  // point, so a slower reasoning model costs nothing felt. Unset, the
+  // configured chat model serves both.
+  const judgeModel = (process.env.FREN_SUGGEST_MODEL || '').trim() || null;
   const request = intelligence.buildSuggestRequest({
     moment: typeof body.moment === 'string' ? body.moment.slice(0, 40) : 'check-in',
     memories: Array.isArray(body.memories) ? body.memories : [],
@@ -312,7 +318,8 @@ async function handleSuggest(provider, body, res) {
     profile: body.profile && typeof body.profile === 'object' ? body.profile : null,
     soul: typeof body.soul === 'string' ? body.soul : '',
   });
-  const raw = await callProvider(provider, request, res);
+  const raw = await callProvider(provider,
+    judgeModel ? { ...request, model: judgeModel } : request, res);
   if (raw === null) return;
   try {
     const p = JSON.parse(String(raw).replace(/^```(?:json)?|```$/gm, '').trim());

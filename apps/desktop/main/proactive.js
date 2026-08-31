@@ -285,6 +285,17 @@ function createProactiveWatcher({
     },
     noteBrowser,
     /**
+     * A forced look, right now, gates bypassed — the test lever behind the
+     * Dock's "Any thoughts?" and nothing else. Reading-aware: if a browsing
+     * thread is live it is judged as deep-reading with the trail attached,
+     * so "ping me about my browser activity" can be provoked on demand.
+     */
+    nudge() {
+      const reading = readingNow();
+      return consider(reading ? 'deep-reading' : 'check-in',
+        reading ? { reading } : {}, true);
+    },
+    /**
      * The fate of a delivered suggestion: 'heard' or 'faded'. This is the
      * governor's only food — the renderer reports it, the pace shifts, and
      * nothing else has to know the feedback loop exists.
