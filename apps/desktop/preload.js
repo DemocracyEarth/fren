@@ -21,6 +21,9 @@ contextBridge.exposeInMainWorld('fren', {
   getOrbLook: () => ipcRenderer.invoke('fren:getOrbLook'),
   setOrbLook: (look) => ipcRenderer.invoke('fren:setOrbLook', look),
   onOrbLook: (fn) => ipcRenderer.on('fren:orbLook', (_e, look) => fn(look)),
+  // Eye and mouth colours — read at boot, pushed when conversation changes them.
+  getFaceColours: () => ipcRenderer.invoke('fren:getFaceColours'),
+  onFaceColours: (fn) => ipcRenderer.on('fren:faceColours', (_e, c) => fn(c)),
   // The debug window's feed: the backlog, then the live lines.
   debugLog: () => ipcRenderer.invoke('fren:debugLog'),
   onDebugLine: (fn) => ipcRenderer.on('fren:debugLine', (_e, line) => fn(line)),

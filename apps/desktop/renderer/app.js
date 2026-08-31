@@ -11,6 +11,8 @@ if (!window.fren && location.protocol !== 'file:') {
     setPanelOpen: async () => ({ side: 'left', drop: false }),
     aimPanel: async () => ({ side: 'left', drop: false }),
     setHint: async () => ({ side: 'left', drop: false }),
+    getFaceColours: async () => null,
+    onFaceColours: () => {},
     quit: async () => {},
     dragStart: async () => {},
     dragEnd: async () => ({ moved: false }),
@@ -1975,6 +1977,13 @@ scheduleWander();
     if (look) wearLook(look);
   } catch { /* the shipped look is already on */ }
   window.fren.onOrbLook(wearLook);
+  // Eye and mouth colours: worn at boot, changed by asking.
+  const wearFace = (c) => { if (face && face.setFaceColours) face.setFaceColours(c || {}); };
+  try {
+    const fc = await window.fren.getFaceColours();
+    if (fc && (fc.eyes || fc.mouth)) wearFace(fc);
+  } catch { /* the classic face is already on */ }
+  window.fren.onFaceColours(wearFace);
 
   // Restore the size fren was left at. Before the greeting, so it is already
   // the right size the first time it moves.

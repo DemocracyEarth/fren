@@ -35,6 +35,49 @@ const GLOW = [
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 /**
+ * A glow ramp in the shape of the amber one, built from any colour.
+ *
+ * The classic face is not "white features": it is a falloff — the same hue
+ * five times, dimmer and warmer wide, brighter and whiter tight, with a
+ * near-white core. Recolouring the eyes or mouth means rebuilding that
+ * structure from the chosen hue, not swapping one flat colour in.
+ */
+function hslOf(hex) {
+  const r = ((hex >> 16) & 255) / 255, g = ((hex >> 8) & 255) / 255, b = (hex & 255) / 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
+  let h = 0, s = 0;
+  if (mx !== mn) {
+    const d = mx - mn;
+    s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+    h = mx === r ? ((g - b) / d + (g < b ? 6 : 0)) : mx === g ? ((b - r) / d + 2) : ((r - g) / d + 4);
+    h /= 6;
+  }
+  return { h: h * 360, s: s * 100, l: l * 100 };
+}
+function cssHsl(h, s, l) {
+  return `hsl(${((h % 360) + 360) % 360}, ${clamp(s, 0, 100)}%, ${clamp(l, 0, 100)}%)`;
+}
+function rampFor(hex) {
+  const { h, s, l } = hslOf(hex);
+  // These passes composite ADDITIVELY: at the feature's centre all five
+  // overlap plus the core, so any ramp that drifts light lets the colour's
+  // weak channel fill up and the sum whites out — the first draft made teal
+  // eyes indistinguishable from the classic white ones. The colour survives
+  // only if the stack stays dark and saturated, core included.
+  const base = clamp(l, 30, 48);
+  return {
+    glow: [
+      cssHsl(h, s, base - 4),
+      cssHsl(h, s, base),
+      cssHsl(h, s, base + 4),
+      cssHsl(h, clamp(s, 0, 94), base + 8),
+      cssHsl(h, clamp(s, 0, 90), base + 12),
+    ],
+    core: cssHsl(h, clamp(s, 0, 92), clamp(base + 18, 0, 64)),
+  };
+}
+
+/**
  * The mouth. One path, filled AND stroked with round joins, so the outline
  * can never come to a point -- a triangular mouth is the failure mode this
  * construction exists to prevent.
@@ -73,7 +116,7 @@ function smileArc(ctx, cx, cy, wScale, curve) {
  * Draw the eyes and mouth once, in one flat colour. Called repeatedly at
  * different blur radii to build the falloff, then once sharp for the core.
  */
-function paintFeatures(ctx, p, style, lineScale) {
+function paintFeatures(ctx, p, style, lineScale, only) {
   const lidTop = clamp((p.lidTop ?? 0) + (p.blink ?? 0), 0, 1.25);
   const open = clamp(p.mouthOpen ?? 0, 0, 1);
 
@@ -83,6 +126,7 @@ function paintFeatures(ctx, p, style, lineScale) {
   ctx.lineCap = 'round';
 
   // --- eyes -----------------------------------------------------------------
+  if (only === 'mouth') { paintMouthOnly(ctx, p, open, lineScale); return; }
   for (const side of [-1, 1]) {
     const cx = 100 + side * FACE.EYE_DX;
     const cy = FACE.EYE_Y;
@@ -90,6 +134,16 @@ function paintFeatures(ctx, p, style, lineScale) {
     const lid = clamp(lidTop, 0, 1);
 
     ctx.beginPath();
+    if (lid >= 0.9) {
+      // Asleep (and the last instant of a blink): not a shrinking sliver but
+      // a soft "U" — the storybook closed eye, a rounded line bowing down.
+      // The sliver read as a half circle; its owner asked for the lashes.
+      ctx.lineWidth = 6.6 * lineScale;
+      ctx.moveTo(cx - r * 0.82, cy - r * 0.08);
+      ctx.quadraticCurveTo(cx, cy + r * 0.92, cx + r * 0.82, cy - r * 0.08);
+      ctx.stroke();
+      continue;
+    }
     if (lid <= 0.005) {
       // Fully open. A touch taller than wide -- barely measurable, reliably
       // cuter.
@@ -113,9 +167,13 @@ function paintFeatures(ctx, p, style, lineScale) {
     ctx.fill();
   }
 
-  // --- mouth ----------------------------------------------------------------
-  // Below a threshold there is no cavity to draw: a resting mouth is a line,
-  // which is what keeps the neutral face calm instead of gormlessly agape.
+  if (only === 'eyes') return;
+  paintMouthOnly(ctx, p, open, lineScale);
+}
+
+// Below a threshold there is no cavity to draw: a resting mouth is a line,
+// which is what keeps the neutral face calm instead of gormlessly agape.
+function paintMouthOnly(ctx, p, open, lineScale) {
   if (open < 0.07) {
     ctx.lineWidth = 7.8 * lineScale;
     smileArc(ctx, 100, FACE.MOUTH_Y, p.mouthW ?? 1, p.mouthCurve ?? 0.8);
@@ -133,7 +191,7 @@ function paintFeatures(ctx, p, style, lineScale) {
  * Paint the face into a canvas. `p` uses the same parameter names as the SVG
  * renderer, so one spring system can drive either.
  */
-export function drawFace(canvas, p) {
+export function drawFace(canvas, p, colours) {
   const ctx = canvas.getContext('2d');
   const S = canvas.width / 200;          // the face lives in a 200-unit box
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -154,13 +212,29 @@ export function drawFace(canvas, p) {
   // Additive, so each pass adds light rather than covering the one beneath.
   ctx.globalCompositeOperation = 'lighter';
 
-  for (const g of GLOW) {
+  // Chosen colours rebuild the amber falloff from their own hue; with none
+  // chosen the classic ramp paints both features in one pass, as ever.
+  const eyeRamp = colours && colours.eyes ? rampFor(colours.eyes) : null;
+  const mouthRamp = colours && colours.mouth ? rampFor(colours.mouth) : null;
+
+  for (let i = 0; i < GLOW.length; i++) {
+    const g = GLOW[i];
     ctx.save();
     // Canvas filters work in device pixels, so the radius has to be scaled
     // out of face units or the blur changes size with the texture.
     ctx.filter = `blur(${(g.blur * S).toFixed(2)}px)`;
     ctx.globalAlpha = g.alpha * lit;
-    paintFeatures(ctx, p, g.color, 1);
+    if (!eyeRamp && !mouthRamp) {
+      paintFeatures(ctx, p, g.color, 1);
+    } else {
+      // Custom colours stack at reduced alpha: the eyes are filled discs and
+      // every pass overlaps the whole disc, so at full strength even a dark
+      // saturated ramp sums to white. Less light, more colour.
+      if (eyeRamp) ctx.globalAlpha = g.alpha * lit * 0.55;
+      paintFeatures(ctx, p, eyeRamp ? eyeRamp.glow[i] : g.color, 1, 'eyes');
+      ctx.globalAlpha = g.alpha * lit * (mouthRamp ? 0.7 : 1);
+      paintFeatures(ctx, p, mouthRamp ? mouthRamp.glow[i] : g.color, 1, 'mouth');
+    }
     ctx.restore();
   }
 
@@ -169,7 +243,14 @@ export function drawFace(canvas, p) {
   ctx.save();
   ctx.filter = 'none';
   ctx.globalAlpha = 0.86 * lit;
-  paintFeatures(ctx, p, '#FFFFFF', 1);
+  if (!eyeRamp && !mouthRamp) {
+    paintFeatures(ctx, p, '#FFFFFF', 1);
+  } else {
+    if (eyeRamp) ctx.globalAlpha = 0.62 * lit;
+    paintFeatures(ctx, p, eyeRamp ? eyeRamp.core : '#FFFFFF', 1, 'eyes');
+    ctx.globalAlpha = (mouthRamp ? 0.72 : 0.86) * lit;
+    paintFeatures(ctx, p, mouthRamp ? mouthRamp.core : '#FFFFFF', 1, 'mouth');
+  }
   ctx.restore();
 
   ctx.globalCompositeOperation = 'source-over';

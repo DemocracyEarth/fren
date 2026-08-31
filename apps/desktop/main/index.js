@@ -1009,6 +1009,13 @@ app.whenReady().then(() => {
   // and fren's forwardness drifts to match. See paceFor in proactive.js.
   ipcMain.handle('fren:debugLog', () => debugRing.slice());
 
+  /** Eye and mouth colours as stored: 0 or absent means the classic glow. */
+  function faceColoursNow() {
+    const n = (k) => { const v = Number(memory.getSetting(k)); return Number.isFinite(v) && v > 0 ? v : 0; };
+    return { eyes: n('faceEyes'), mouth: n('faceMouth') };
+  }
+  ipcMain.handle('fren:getFaceColours', () => faceColoursNow());
+
   ipcMain.handle('fren:suggestionOutcome', (_e, kind) => {
     if (proactive && proactive.noteOutcome) proactive.noteOutcome(kind);
   });
@@ -1907,6 +1914,18 @@ app.whenReady().then(() => {
           openDebugLog();
           log('[chat-action] opened the debug log');
           break;
+        case 'faceColour': {
+          const cur = faceColoursNow();
+          const next = {
+            eyes: a.part !== 'mouth' ? a.hex : cur.eyes,
+            mouth: a.part !== 'eyes' ? a.hex : cur.mouth,
+          };
+          memory.setSetting('faceEyes', next.eyes || 0);
+          memory.setSetting('faceMouth', next.mouth || 0);
+          if (win && !win.isDestroyed()) win.webContents.send('fren:faceColours', next);
+          log(`[chat-action] face ${a.part} -> ${a.hex ? '#' + a.hex.toString(16).padStart(6, '0') : 'classic'}`);
+          break;
+        }
         default:
           break;
       }
@@ -1946,8 +1965,8 @@ app.whenReady().then(() => {
       // Parse it off, apply it through the same paths the dashboard's
       // switches used, and never let the fence reach the transcript or the
       // voice — the model already confirmed the change in its own words.
-      const { text: said, action } = parseReply(reply);
-      if (action) applyChatAction(action);
+      const { text: said, actions } = parseReply(reply);
+      for (const action of actions) applyChatAction(action);
       remember('fren', said);
       return { reply: said };
     } catch (err) {

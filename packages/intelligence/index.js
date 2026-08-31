@@ -342,7 +342,13 @@ const CHAT_ACTIONS = [
   'blue, teal, green), a preset (Ember, Rhubarb, Mulberry, Cornflower, Lagoon, Moss),',
   'or a hex like #11a8a8; {"do":"lookReset"} appearance back to how you ship;',
   '{"do":"debugLog"} open the debug log window when they ask to see what you are',
-  'thinking, your logs, or to debug you.',
+  'thinking, your logs, or to debug you;',
+  '{"do":"faceColour","part":"eyes"|"mouth"|"both","value":"white"} colour your eyes',
+  'and/or mouth — colour words, hexes, or "default" to go back to the classic glow.',
+  'For several changes at once, the fence holds one JSON ARRAY of action objects —',
+  'always exactly one fence, as the very last thing in your reply.',
+  '"Put your face/eyes/mouth back to normal" is faceColour with value "default";',
+  'lookReset is for the body\'s gradient and lights, not the face.',
   'Never emit the block unless they asked for a change. Never invent other actions.',
 ].join('\n');
 

@@ -192,6 +192,13 @@ class Orb {
     // which settled in one evening what four derivations had failed to.
     this.uGoldOff = { value: new THREE.Vector3(LOOK.goldH / 360, LOOK.goldS / 100, LOOK.goldL / 100) };
     this.uCoralOff = { value: new THREE.Vector3(LOOK.coralH / 360, LOOK.coralS / 100, LOOK.coralL / 100) };
+    // 1 while the face wears chosen colours. The features are ADDITIVE light,
+    // and light added to a fully lit body can only go toward white — a teal
+    // eye over an orange body summed to (1,1,1) exactly. Chosen colours only
+    // read if the body goes dark beneath the features, so their own light is
+    // the only light there. Zero for the classic white face, which WANTS the
+    // sum — it is what makes the glow bloom.
+    this.uFacePunch = { value: 0 };
     // Re-rolled on every shake, so no two look alike.
     this.uSeed = { value: 0 };
     this.material.onBeforeCompile = (shader) => {
@@ -200,6 +207,7 @@ class Orb {
       shader.uniforms.uSquash = this.uSquash;
       shader.uniforms.uSeed = this.uSeed;
       shader.uniforms.uGoldOff = this.uGoldOff;
+      shader.uniforms.uFacePunch = this.uFacePunch;
       shader.uniforms.uCoralOff = this.uCoralOff;
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', `#include <common>
@@ -235,10 +243,16 @@ class Orb {
        * near zero, so the hue swing quietly vanishes and asleep stays grey).
        */
       shader.fragmentShader = shader.fragmentShader
+        .replace('#include <emissivemap_fragment>', `
+          vec4 frenEm = texture2D( emissiveMap, vEmissiveMapUv );
+          float frenMask = max(frenEm.r, max(frenEm.g, frenEm.b));
+          diffuseColor.rgb *= 1.0 - uFacePunch * smoothstep(0.05, 0.45, frenMask) * 0.93;
+          totalEmissiveRadiance *= frenEm.rgb;`)
         .replace('#include <common>', `#include <common>
           varying vec3 vGradN;
           uniform vec3 uGoldOff;
           uniform vec3 uCoralOff;
+          uniform float uFacePunch;
           vec3 frenHsl(vec3 c) {
             float mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b));
             float l = (mx + mn) * 0.5, d = mx - mn, h = 0.0, s = 0.0;
@@ -274,15 +288,17 @@ class Orb {
           // corner kept coming out maroon — and these offsets were chosen by
           // eye against an sRGB reference, so sRGB is the space they mean.
           vec3 frenBase = frenHsl(pow(diffuse, vec3(1.0 / 2.2)));
-          // The stops apply to EVERYTHING the base does, recording included.
-          // The pulse used to collapse the gradient, because the original
-          // offsets rotated the top-left twenty degrees warmer and turned
-          // record red back into orange. The tuned offsets barely move the
-          // hue and carry the look in saturation — so a recording fren keeps
-          // the same body it always has, just in red, and a customised look
-          // records in its own version of red.
-          vec3 frenGold  = frenBase + uGoldOff;
-          vec3 frenCoral = frenBase + uCoralOff;
+          // The stops apply to EVERYTHING the base does, recording included —
+          // but their SATURATION component scales with the saturation the base
+          // still has. The tuned look carries +60 points of saturation in its
+          // stops, and applied to a DRAINED base that re-saturated the near-
+          // grey into vivid indigo: an asleep fren wearing colour, which is
+          // the one thing the drained grey exists to rule out. Asleep must
+          // look asleep at every look anyone can dial in, so as the base
+          // drains toward grey the stops lose their right to add colour.
+          float frenAlive = smoothstep(0.04, 0.28, frenBase.y);
+          vec3 frenGold  = frenBase + vec3(uGoldOff.x,  uGoldOff.y  * frenAlive, uGoldOff.z);
+          vec3 frenCoral = frenBase + vec3(uCoralOff.x, uCoralOff.y * frenAlive, uCoralOff.z);
           // Centre of the disc sits at the midpoint; the stops arrive just
           // before the rim, along the same up-left diagonal as the key light.
           vec3 frenNv = normalize(vGradN);
@@ -347,7 +363,7 @@ class Orb {
   }
 
   _paint() {
-    drawFace(this.faceCanvas, this.p);
+    drawFace(this.faceCanvas, this.p, this.faceColours);
     // Black everywhere the face is not: an emissive map reads RGB only, so
     // black means no emission.
     this.eqCtx.fillStyle = '#000';
@@ -514,6 +530,17 @@ class Orb {
    * Roughness and sheen are deliberately absent: the mood system owns them
    * per-expression and rewrites them every frame.
    */
+  /** Eye and mouth colours, chosen in conversation. Null means classic. */
+  setFaceColours(c) {
+    this.faceColours = {
+      eyes: c && Number.isFinite(c.eyes) && c.eyes > 0 ? c.eyes : null,
+      mouth: c && Number.isFinite(c.mouth) && c.mouth > 0 ? c.mouth : null,
+    };
+    this.uFacePunch.value = this.faceColours.eyes || this.faceColours.mouth ? 1 : 0;
+    this._paint();
+    this._wake();
+  }
+
   tune(t) {
     const look = { ...LOOK, ...(t || {}) };
     this.uGoldOff.value.set(look.goldH / 360, look.goldS / 100, look.goldL / 100);
