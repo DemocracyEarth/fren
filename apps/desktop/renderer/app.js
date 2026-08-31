@@ -1876,8 +1876,8 @@ async function onSuggestion({ message }) {
     return;
   }
   // Reserved: hold the thought and LOOK like it — the beckon keeps bouncing
-  // until it is heard. Right-clicking fren, tapping it, or asking anything
-  // delivers it.
+  // until it is heard. Right-clicking fren or tapping it delivers it; typing
+  // a question does not (sendMessage leaves a held thought held).
   hintNote = 'fren noticed something — right-click to hear it';
   startBeckoning();
 }
