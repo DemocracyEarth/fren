@@ -373,6 +373,11 @@ function buildChatRequest({ question, memories = [], observations = [], profile 
     // voice. The activity surfaces when it serves the reply, and only then.
     'Talk like a friend hanging out, not an assistant filing a report — warm,',
     'casual, spontaneous, a little playful when the moment allows it.',
+    // The chat renders Markdown; without this line the model believes it
+    // writes into a plain box and apologises for having "no code blocks".
+    'Your replies render Markdown: fenced code blocks, inline code, bold,',
+    'lists, headings. Use them whenever structure helps — always fence code.',
+    'Keep Markdown out of anything meant purely for the ear.',
     'NEVER open with a rundown of what they have been doing. Mention observed',
     'activity only when it actually serves what they asked, or when they asked',
     'what they were up to.',

@@ -185,11 +185,28 @@ function scrollDown() {
   els.messages.scrollTop = els.messages.scrollHeight;
 }
 
+/**
+ * Put text into a bubble, formatted.
+ *
+ * fren's replies are Markdown-rendered — code fenced and styled, lists as
+ * lists — through FrenMarkdown, which BUILDS NODES and never HTML strings,
+ * so a model reply can style itself but can never inject markup. The user's
+ * own bubbles stay literal text: their words are words, not documents.
+ */
+function renderBubble(bubble, text) {
+  if (window.FrenMarkdown && bubble.classList.contains('fren')) {
+    bubble.textContent = '';
+    bubble.appendChild(window.FrenMarkdown.render(text));
+  } else {
+    bubble.textContent = text;
+  }
+}
+
 function addBubble(who, text) {
   if (els.empty) els.empty.remove(), (els.empty = null);
   const bubble = document.createElement('div');
   bubble.className = 'bubble ' + who;
-  bubble.textContent = text;
+  renderBubble(bubble, text);
   els.messages.insertBefore(bubble, els.typing);
   scrollDown();
   return bubble;
@@ -303,7 +320,7 @@ async function speak(text) {
 
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (reduced) {
-      bubble.textContent = text;
+      renderBubble(bubble, text);
       finish();
       return;
     }
@@ -316,7 +333,9 @@ async function speak(text) {
     };
     const step = () => {
       // A few characters per frame keeps long answers from dragging.
-      if (cut) { bubble.textContent = text; return finish(); }
+      // The reveal types PLAIN text — half a code fence renders as chaos —
+      // and the finished reply swaps to the formatted version in finish().
+      if (cut) { renderBubble(bubble, text); return finish(); }
       i += Math.max(1, Math.round(text.length / 90));
       bubble.textContent = text.slice(0, i);
       scrollDown();
@@ -335,7 +354,7 @@ async function speak(text) {
       // want to cut in.
       if (spoken) await spoken;     // let the voice finish before settling
       cutReplyShort = null;
-      bubble.textContent = text;
+      renderBubble(bubble, text);
       face.stopTalking();
       // Settle through a reaction rather than snapping back — and not the
       // same one every time.
