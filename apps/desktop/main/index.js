@@ -466,6 +466,24 @@ function showHint(info) {
   });
 }
 
+/** The models-and-voice pane, in its own small window. */
+let settingsWin = null;
+function openSettingsWin() {
+  if (settingsWin && !settingsWin.isDestroyed()) { settingsWin.show(); return; }
+  settingsWin = new BrowserWindow({
+    width: 460,
+    height: 640,
+    title: 'fren — models & voice',
+    webPreferences: {
+      preload: path.join(__dirname, '..', 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  settingsWin.loadURL(`${SCHEME}://app/settings.html`);
+  settingsWin.on('closed', () => { settingsWin = null; });
+}
+
 /** The train of thought, in a window. Plain, monospace, live. */
 function openDebugLog() {
   if (debugWin && !debugWin.isDestroyed()) { debugWin.show(); return; }
@@ -1007,6 +1025,13 @@ app.whenReady().then(() => {
 
   // The governor's food: the renderer says how each held suggestion ended,
   // and fren's forwardness drifts to match. See paceFor in proactive.js.
+  ipcMain.handle('fren:openSettings', () => openSettingsWin());
+  // The keys door: SHOW the file, never read it. The invariant that no fren
+  // process handles key material stays intact — Finder does the revealing.
+  ipcMain.handle('fren:revealEnv', () => {
+    shell.showItemInFolder(path.join(__dirname, '..', '..', '..', '.env'));
+  });
+
   ipcMain.handle('fren:debugLog', () => debugRing.slice());
 
   /** Eye and mouth colours as stored: 0 or absent means the classic glow. */

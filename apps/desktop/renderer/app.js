@@ -31,6 +31,7 @@ const els = {
   watch: document.getElementById('watch'),
   watchSay: document.getElementById('watch-say'),
   dashDot: document.getElementById('dash-dot'),
+  gear: document.getElementById('gear'),
   lightQuit: document.getElementById('light-quit'),
   messages: document.getElementById('messages'),
   empty: document.getElementById('empty'),
@@ -1716,6 +1717,7 @@ function paintWatch() {
 
 // The panel is for talking; the big window is for reading back properly. With
 els.watch.addEventListener('click', () => window.fren.toggleObservation());
+els.gear.addEventListener('click', () => window.fren.openSettings());
 // The one light: quitting, which asks first. Closing the chat is the orb's
 // own gesture (click or right-click), and the dashboard has no door any more
 // — its settings answer to conversation now.

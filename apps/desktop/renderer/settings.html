@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' fren:; style-src 'self' 'unsafe-inline'; script-src 'self' fren:">
+<title>fren — models &amp; voice</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+         background: #F6F2E9; color: var(--ink, #1a1712); font-size: 12.5px; }
+  #panel { padding: 16px 18px 20px; }
+  h1 { font-size: 14px; margin: 0 0 4px; }
+  p.blurb { margin: 0 0 14px; color: #6b6558; font-size: 11.5px; line-height: 1.5; }
+  fieldset { border: 1px solid #ddd5c4; border-radius: 10px; margin: 0 0 12px; padding: 10px 12px 12px; }
+  legend { font-weight: 650; font-size: 11.5px; padding: 0 4px; }
+  .frow { display: grid; grid-template-columns: 110px 1fr 52px; gap: 8px; align-items: center; margin: 6px 0; }
+  .frow label { color: #4a4436; }
+  .frow input { font: inherit; padding: 5px 8px; border: 1px solid #ddd5c4; border-radius: 8px;
+                background: #fff; min-width: 0; }
+  .frow .state { font-size: 10.5px; color: #6b6558; text-align: right; }
+  .frow .state.on { color: #a05a10; font-weight: 650; }
+  .live { font-size: 11px; color: #6b6558; margin: 2px 0 8px; }
+  button { font: inherit; padding: 6px 12px; border-radius: 8px; border: 1px solid #ddd5c4;
+           background: #fff; cursor: pointer; }
+  button:hover { background: #f3ede0; }
+  .keys p { margin: 6px 0; font-size: 11.5px; line-height: 1.5; color: #4a4436; }
+</style>
+</head>
+<body>
+<div id="panel">
+  <h1>Models &amp; voice</h1>
+  <p class="blurb">Every field is optional — empty means fren uses what it ships with.
+    The placeholder shows what is running right now, so leaving a field alone is a
+    visible choice, not a blank.</p>
+
+  <fieldset>
+    <legend>The model that thinks</legend>
+    <div class="live" id="live-chat"></div>
+    <div class="frow"><label for="chatModel">model</label><input id="chatModel" spellcheck="false" autocomplete="off"><span class="state" id="s-chatModel"></span></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>The voice that speaks</legend>
+    <div class="live" id="live-voice"></div>
+    <div class="frow"><label for="voiceId">voice id</label><input id="voiceId" spellcheck="false" autocomplete="off"><span class="state" id="s-voiceId"></span></div>
+    <div class="frow"><label for="voiceModel">voice model</label><input id="voiceModel" spellcheck="false" autocomplete="off"><span class="state" id="s-voiceModel"></span></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>The ear that listens</legend>
+    <div class="live" id="live-whisper"></div>
+    <div class="frow"><label for="whisperModel">whisper model</label><input id="whisperModel" spellcheck="false" autocomplete="off"><span class="state" id="s-whisperModel"></span></div>
+    <div class="frow"><label for="whisperLang">language</label><input id="whisperLang" spellcheck="false" autocomplete="off"><span class="state" id="s-whisperLang"></span></div>
+  </fieldset>
+
+  <fieldset class="keys">
+    <legend>API keys</legend>
+    <p>Keys live in the <code>.env</code> file beside fren, and nowhere else —
+      this window cannot read or write them, on purpose: the app deletes them
+      from its own environment at startup, so no window like this one could
+      ever leak them. Edit the file, then restart fren.</p>
+    <button id="reveal" type="button">Show the .env file</button>
+  </fieldset>
+</div>
+<script src="settings-ui.js"></script>
+</body>
+</html>

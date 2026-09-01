@@ -74,6 +74,8 @@ contextBridge.exposeInMainWorld('fren', {
   greeting: () => ipcRenderer.invoke('fren:greeting'),
   getOrbScale: () => ipcRenderer.invoke('fren:getOrbScale'),
   setOrbScale: (s) => ipcRenderer.invoke('fren:setOrbScale', s),
+  openSettings: () => ipcRenderer.invoke('fren:openSettings'),
+  revealEnv: () => ipcRenderer.invoke('fren:revealEnv'),
   getProviders: () => ipcRenderer.invoke('fren:getProviders'),
   setProviders: (p) => ipcRenderer.invoke('fren:setProviders', p),
   getOrbColour: () => ipcRenderer.invoke('fren:getOrbColour'),
