@@ -922,3 +922,31 @@ button { font-family: inherit; -webkit-app-region: no-drag; cursor: pointer; }
   border-top: 1px solid rgba(26, 23, 18, 0.12);
   margin: 0.7em 0;
 }
+
+/* The gear/sliders button in the chat header. Borderless like the header's
+   other controls, the same soft ink as the logo, a gentle wash on hover —
+   never the raw platform button chrome. */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink-soft, #6E6555);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: background .18s var(--ease-soft), color .18s var(--ease-soft);
+}
+.icon-btn:hover {
+  background: rgba(var(--accent-rgb, 237, 138, 47), 0.12);
+  color: var(--orange-ink, #8F410B);
+}
+.icon-btn:active { background: rgba(var(--accent-rgb, 237, 138, 47), 0.2); }
+.icon-btn:focus-visible {
+  outline: 2px solid rgba(var(--accent-rgb, 237, 138, 47), 0.55);
+  outline-offset: 1px;
+}

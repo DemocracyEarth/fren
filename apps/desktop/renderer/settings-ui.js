@@ -20,15 +20,18 @@ async function load() {
   if (!cfg) return;
   const live = cfg.inEffect;
   el('live-chat').textContent = live
-    ? `in effect now: ${live.provider} · ${live.model}`
+    ? `${live.provider} · ${live.model}`
     : 'the gateway is not answering — saved choices still apply when it is back';
+  el('live-chat').classList.toggle('off', !live);
   el('live-voice').textContent = live && live.voice
-    ? `in effect now: ${live.voice} · ${live.voiceId || '?'} · ${live.voiceModel || '?'}`
+    ? `${live.voice} · ${live.voiceId || '?'} · ${live.voiceModel || '?'}`
     : 'no voice configured';
+  el('live-voice').classList.toggle('off', !(live && live.voice));
   const w = cfg.whisper || {};
   el('live-whisper').textContent = w.ready
     ? 'whisper is ready on this machine'
     : `whisper is not ready${w.reason ? ` — ${w.reason}` : ''}`;
+  el('live-whisper').classList.toggle('off', !w.ready);
   for (const f of FIELDS) paint(f, (cfg.chosen || {})[f]);
 }
 
