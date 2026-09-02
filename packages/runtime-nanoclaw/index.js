@@ -24,7 +24,7 @@ const { createNclClient } = require('./ncl-client');
 const { createBridge } = require('./bridge');
 const { createSupervisor } = require('./supervisor');
 const { ensureEntities, OWNER_HANDLE, GROUP_FOLDER } = require('./bootstrap');
-const { createScheduleStore, platformIdFor } = require('./schedules');
+const { createScheduleStore, platformIdFor, DEFAULT_FAILURE } = require('./schedules');
 const { createScheduleWatch, POLL_MS: SCHEDULE_WATCH_MS } = require('./schedule-watch');
 
 const CAPABILITIES = Object.freeze({
@@ -50,6 +50,8 @@ const CONNECT_TIMEOUT_MS = 30_000;
 const RESTART_BACKOFF_MS = [1000, 2000, 5000, 15000, 30000];
 const APPROVAL_OPTIONS = new Set(['approve', 'reject', 'reject_with_reason']);
 const ID_RE = /^[A-Za-z0-9_.:-]{1,120}$/;
+/** How long a scheduled run may wait on the host, across its watch windows and retries. */
+const SCHEDULE_CEILING_MS = 2 * 60 * 60 * 1000;
 
 /**
  * Unix socket paths are capped at about 104 bytes on macOS. The app data
@@ -111,6 +113,7 @@ function createNanoclawRuntime(opts) {
   const seqByRun = new Map();
   const seqByAutomation = new Map();
   const pending = new Map();      // questionId -> { kind, runId }
+  const watched = new Map();      // host row id -> FREN run id, for the turn and for watching again
   const runtimeToken = crypto.randomBytes(24).toString('hex');
   const slug = installSlug(runtimeDir);
   const socketPath = bridgeSocketPath(dataDir);
@@ -149,7 +152,7 @@ function createNanoclawRuntime(opts) {
     return { ...run, messages: run.messages.map((m) => ({ ...m })) };
   }
 
-  function finishRun(runId, statusName, error, detail) {
+  function finishRun(runId, statusName, error, detail, { fromHost = false } = {}) {
     const run = runs.get(runId);
     if (!run || isTerminal(run.status)) return;
     run.status = statusName;
@@ -159,8 +162,16 @@ function createNanoclawRuntime(opts) {
     emit({ type: 'agent.working', runId, sessionId: run.sessionId || undefined, on: false });
     emit({ type: `run.${statusName}`, runId, ...(error ? { error } : {}) });
     if (run.kind === 'schedule' && run.scheduleId) {
-      // The host's counters will move for this end a sweep later; the watch knows.
-      if (scheduleWatch && !run.synthetic) scheduleWatch.settled(run.scheduleId, runId, statusName === 'completed');
+      if (run.rowId && watched.get(run.rowId) === runId) watched.delete(run.rowId);
+      // The host's counters move for this end a sweep later. An end the host
+      // confirmed is remembered so that move is not a second record; one the
+      // watch already read off the counters needs nothing; one FREN decided on
+      // its own (a cancel, a stop) only lets go of the row, so what the host
+      // does with it is still reported.
+      if (scheduleWatch && run.rowId && !run.counted) {
+        if (fromHost) scheduleWatch.settled(run.scheduleId, run.rowId, statusName === 'completed');
+        else scheduleWatch.release(run.scheduleId, run.rowId);
+      }
       const why = error || detail;
       emit({
         type: statusName === 'completed' ? 'schedule.completed' : 'schedule.failed',
@@ -169,14 +180,6 @@ function createNanoclawRuntime(opts) {
     }
   }
 
-  /** A failed turn's reason: what the host said, else the run log, else the plain fact. */
-  async function explainFailure(run, given) {
-    if (given) return given;
-    if (run.kind === 'schedule' && run.scheduleId && schedules) {
-      try { return await schedules.failureDetail(run.scheduleId); } catch { /* the plain fact, then */ }
-    }
-    return 'the agent did not finish';
-  }
 
   function nextSeq(map, key) {
     const n = (map.get(key) || 0) + 1;
@@ -189,6 +192,11 @@ function createNanoclawRuntime(opts) {
     switch (frame.type) {
       case 'connected':
         if (state === 'degraded') setState('ready');
+        // Runs still waiting on the host are watched again on this connection.
+        for (const [rowId, runId] of watched) {
+          const run = runs.get(runId);
+          if (run && !isTerminal(run.status)) bridge.send({ type: 'watch', runId: rowId });
+        }
         return;
       case 'disconnected':
         if (state === 'ready' && !stopping) setState('degraded', { reason: 'the runtime host dropped its connection; reconnecting' });
@@ -201,10 +209,20 @@ function createNanoclawRuntime(opts) {
         return;
       }
       case 'turn': {
-        const run = runs.get(frame.runId);
+        const runId = watched.get(frame.runId) || frame.runId;
+        const run = runs.get(runId);
         if (!run) return;
-        if (frame.status === 'completed') return finishRun(frame.runId, 'completed');
-        return void explainFailure(run, frame.detail).then((why) => finishRun(frame.runId, 'failed', why));
+        if (frame.status === 'completed') return finishRun(runId, 'completed', undefined, undefined, { fromHost: true });
+        const timedOut = frame.detail === 'no acknowledgement in time';
+        if (timedOut && run.kind === 'schedule' && run.rowId && now() - run.startedAt < SCHEDULE_CEILING_MS) {
+          // The host's watch ran out, not the task: watch again. The
+          // acknowledgement or the counters end it; the host's own ceiling
+          // guarantees one of them comes.
+          bridge.send({ type: 'watch', runId: run.rowId });
+          return;
+        }
+        const why = frame.detail || (run.kind === 'schedule' ? DEFAULT_FAILURE : 'the agent did not finish');
+        return finishRun(runId, 'failed', why, undefined, { fromHost: !timedOut });
       }
       case 'provenance':
         return; // logged by the host; nothing to do beyond the deliver itself
@@ -288,24 +306,32 @@ function createNanoclawRuntime(opts) {
     const ref = schedules && schedules.refs.get(f.seriesId);
     if (!ref) return;
     const base = { scheduleId: f.seriesId, automationId: ref.automationId };
-    const open = (id, synthetic) => {
-      const run = { id, sessionId: null, kind: 'schedule', status: 'running', startedAt: now(), messages: [], scheduleId: f.seriesId, automationId: ref.automationId, ...(synthetic ? { synthetic: true } : {}) };
-      runs.set(id, run);
-      emit({ type: 'schedule.fired', ...base, runId: id });
-      emit({ type: 'run.started', runId: id });
+    const openRun = (synthetic) => {
+      const run = { id: newId('run'), sessionId: null, kind: 'schedule', status: 'running', startedAt: now(), messages: [], scheduleId: f.seriesId, automationId: ref.automationId, ...(synthetic ? { synthetic: true } : {}) };
+      runs.set(run.id, run);
+      emit({ type: 'schedule.fired', ...base, runId: run.id });
+      emit({ type: 'run.started', runId: run.id });
       return run;
     };
     switch (f.kind) {
-      case 'fired':
-        if (runs.has(f.rowId)) return;
-        open(f.rowId, false);
+      case 'fired': {
+        const already = watched.has(f.rowId) ? runs.get(watched.get(f.rowId)) : null;
+        if (already && !isTerminal(already.status)) return;
+        const run = openRun(false);
+        run.rowId = f.rowId;
+        watched.set(f.rowId, run.id);
         bridge.send({ type: 'watch', runId: f.rowId });
         return;
-      case 'settled':
-        return finishRun(f.rowId, f.ok ? 'completed' : 'failed', f.ok ? undefined : await schedules.failureDetail(f.seriesId));
+      }
+      case 'settled': {
+        const run = watched.has(f.rowId) ? runs.get(watched.get(f.rowId)) : null;
+        if (!run || isTerminal(run.status)) return;
+        run.counted = true; // observe() already took this end off the counters
+        return finishRun(run.id, f.ok ? 'completed' : 'failed', f.ok ? undefined : DEFAULT_FAILURE);
+      }
       case 'missed': {
-        const run = open(newId('run'), true);
-        return finishRun(run.id, f.ok ? 'completed' : 'failed', f.ok ? undefined : await schedules.failureDetail(f.seriesId), f.ok ? 'it ran, but sent nothing' : undefined);
+        const run = openRun(true);
+        return finishRun(run.id, f.ok ? 'completed' : 'failed', f.ok ? undefined : DEFAULT_FAILURE, f.ok ? 'it ran, but sent nothing' : undefined);
       }
       case 'paused':
         if (ref.enabled === false) return; // FREN paused it; nothing to report
@@ -413,7 +439,9 @@ function createNanoclawRuntime(opts) {
 
   function onHostExit(info) {
     if (stopping) return;
-    for (const run of runs.values()) if (!isTerminal(run.status)) finishRun(run.id, 'failed', 'the secure execution environment restarted');
+    // A run waiting on a host row keeps waiting: the host retries the row and the
+    // acknowledgement is watched for again once it is back. Chat turns end here.
+    for (const run of runs.values()) if (!isTerminal(run.status) && !(run.kind === 'schedule' && run.rowId)) finishRun(run.id, 'failed', 'the secure execution environment restarted');
     if (restarts >= RESTART_BACKOFF_MS.length) {
       setState('unavailable', { reason: 'the runtime host keeps exiting', hint: (info && info.stderr && info.stderr.slice(-3).join(' ')) || 'see logs/runtime.log' });
       return;
@@ -514,9 +542,10 @@ function createNanoclawRuntime(opts) {
       const schedule = await schedules.get(id);
       if (!schedule) throw new Error(`unknown schedule ${id}`);
       const fired = await schedules.trigger(id);
-      const run = { id: fired.runId, sessionId: null, kind: 'schedule', status: 'queued', startedAt: now(), messages: [], scheduleId: id, automationId: schedule.automationId };
+      const run = { id: newId('run'), rowId: fired.rowId, sessionId: null, kind: 'schedule', status: 'queued', startedAt: now(), messages: [], scheduleId: id, automationId: schedule.automationId };
       runs.set(run.id, run);
-      bridge.send({ type: 'watch', runId: run.id });
+      watched.set(fired.rowId, run.id);
+      bridge.send({ type: 'watch', runId: fired.rowId });
       emit({ type: 'schedule.fired', scheduleId: id, automationId: schedule.automationId, runId: run.id });
       emit({ type: 'run.started', runId: run.id });
       run.status = 'running';
@@ -570,6 +599,7 @@ function createNanoclawRuntime(opts) {
     await bridge.close();
     openByThread.clear();
     pending.clear();
+    watched.clear();
   }
 
   return rt;

@@ -20,6 +20,8 @@ const { CHANNEL } = require('./bootstrap');
 
 const platformIdFor = (automationId) => `automation:${automationId}`;
 const deliveryNameFor = (automationId) => `automation-${automationId}`;
+// The host records a failed occurrence without a word about why (a crashed
+// pre-task script, or a container that kept dying), so this is all there is.
 const DEFAULT_FAILURE = 'the run failed in the secure execution environment';
 
 function toSchedule(task, ref, extra = {}) {
@@ -33,7 +35,7 @@ function toSchedule(task, ref, extra = {}) {
     instruction: ref.instruction || task.prompt,
     deliveryName: deliveryNameFor(ref.automationId),
     enabled: !paused,
-    runs: Number(task.runs || 0),
+    runs: Number(task.runs ?? task.completed_runs ?? 0),
     failedRuns: Number(task.failed_runs || 0),
     lastRunAt: task.last_run ? Date.parse(task.last_run) || undefined : undefined,
     nextRunAt: task.next_run ? Date.parse(task.next_run) || undefined : (task.process_after ? Date.parse(task.process_after) || undefined : undefined),
@@ -56,16 +58,6 @@ function pauseNote(lines) {
   for (const line of [...(lines || [])].reverse()) {
     const m = /auto-paused after (\d+) consecutive/.exec(String(line));
     if (m) return `it failed ${m[1]} times in a row`;
-  }
-  return null;
-}
-
-/** The last thing the run log says that is not the host's pause note. */
-function failureNote(lines) {
-  for (const line of [...(lines || [])].reverse()) {
-    const text = String(line).replace(/\s+/g, ' ').trim();
-    if (!text || /auto-paused after \d+ consecutive/.test(text)) continue;
-    return text.replace(/^\[?\d{4}-\d{2}-\d{2}[ T][\d:.+Z-]+\]?\s*[-–:]?\s*/, '').slice(0, 200) || null;
   }
   return null;
 }
@@ -210,12 +202,6 @@ function createScheduleStore({ ncl, agentGroupId, log = () => {} }) {
     return detail;
   }
 
-  /** What the run log says about the latest failure, for a person. */
-  async function failureDetail(seriesId) {
-    const task = await fetchTask(seriesId).catch(() => null);
-    return (task && failureNote(logLines(task))) || DEFAULT_FAILURE;
-  }
-
   async function list() {
     const rows = await ncl.call('tasks-list', { group: agentGroupId });
     const tasks = Array.isArray(rows) ? rows : (rows && rows.items) || [];
@@ -232,10 +218,10 @@ function createScheduleStore({ ncl, agentGroupId, log = () => {} }) {
 
   async function trigger(seriesId) {
     const fired = await ncl.call('tasks-run', { id: seriesId, group: agentGroupId });
-    return { runId: fired.row_id || fired.id, seriesId: fired.series_id || seriesId };
+    return { rowId: fired.row_id || fired.id, seriesId: fired.series_id || seriesId };
   }
 
-  return { create, get, update, remove, list, trigger, failureDetail, refs, platformIdFor, deliveryNameFor };
+  return { create, get, update, remove, list, trigger, refs, platformIdFor, deliveryNameFor };
 }
 
-module.exports = { createScheduleStore, platformIdFor, deliveryNameFor, toSchedule, refFromPrompt, pauseNote, failureNote, DEFAULT_FAILURE };
+module.exports = { createScheduleStore, platformIdFor, deliveryNameFor, toSchedule, refFromPrompt, pauseNote, DEFAULT_FAILURE };

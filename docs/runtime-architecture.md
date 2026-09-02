@@ -567,7 +567,9 @@ main      : SSE → orb: speak / show bubble titled with the automation name (ex
 NanoClaw  : final text → task_log → groups/fren/tasks/<series>.md (runtime-owned run log, readable via tasks-get)
 adapter   : schedule watch (15 s, while ready): tasks-list → per series: live row id and time, runs, failed_runs, status
             · a row come due opens a run on its row id and watches it, so the fire ends exactly
-            · a counter that moves with no run open becomes a run opened and closed at once ("it ran, but sent nothing", or the run log's last line)
+            · a counter that moves with no run open becomes a run opened and closed at once ("it ran, but sent nothing"; the host records a failure without a reason)
+            · an end the host confirmed is remembered so the counters catching up are not a second record; an end FREN decided (a cancel, a stop) only lets go of the row
+            · the host's 15 min watch cap is not the task's: the row is watched again, until the acknowledgement, the counters, or a 2 h ceiling
             · a paused row whose run log carries the host's note becomes schedule.paused → Core switches the automation off, with the reason
 ```
 
@@ -992,7 +994,7 @@ gains a status block using the existing `browserBlock()` pattern.
 | Core crashes | desktop health poll (30 s) and SSE disconnect | orb dot off; chat unavailable | `start.js` shuts the pair down in dev; the packaged desktop restarts Core; on restart §11.1 step 7 and §11.2 step 7 reconcile |
 | Container crashes mid-run | NanoClaw heartbeat/claim logic | NanoClaw retries the inbound row up to 5× with backoff; the adapter sees typing stop and later resume | run stays `running` until `turn.completed` or the run timeout (10 min) marks it `failed` with "the agent stopped responding" |
 | Agent never delivers (unwrapped output) | NanoClaw nudges once; still nothing | `turn.completed` arrives with zero messages | run `completed` with a synthetic message "I finished but produced nothing to show"; logged as `run.empty` for diagnosis |
-| Scheduled fire fails | the adapter's schedule watch: the fired row's acknowledgement, or `failed_runs` moving | `automation_runs` row `failed`, with the run log's last line as the reason | NanoClaw backs off; after 8 consecutive failures it pauses the task with a note in the run log → the adapter emits `schedule.paused` → Core switches the automation off with the reason (`enabled: false`, `pausedByRuntime`), the orb says so once, the card shows why and offers Resume; resuming from FREN clears the reason and resumes the task |
+| Scheduled fire fails | the adapter's schedule watch: the fired row's acknowledgement, or `failed_runs` moving | `automation_runs` row `failed` ("the run failed in the secure execution environment": the host records no reason) | NanoClaw backs off; after 8 consecutive failures it pauses the task with a note in the run log → the adapter emits `schedule.paused` → Core switches the automation off with the reason (`enabled: false`, `pausedByRuntime`), the orb says so once, the card shows why and offers Resume; resuming from FREN clears the reason and resumes the task |
 | `fren-runtime.sock` disconnects | adapter reconnect loop (1 s → 10 s backoff) | deliveries during the gap fail loudly inside NanoClaw and are retried 3×, then marked failed | Core reconciles missed output on reconnect by asking `sessions-history` for rows newer than the last seen `seq` |
 | Upgrade tripwire refuses boot | host exits 1 with the banner on stderr | status `unavailable` with the banner | supervisor re-stamps the marker once and retries; if it still refuses, the hint says the runtime install is inconsistent |
 | Approval unanswered | broker expiry (10 min) | request `expired`; runtime told `deny` | the agent sees a rejection and continues; nothing is silently approved |

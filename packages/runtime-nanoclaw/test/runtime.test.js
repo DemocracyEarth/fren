@@ -152,7 +152,8 @@ test('a fire on the host\'s own clock becomes a run FREN watches to its end; mis
     // Caught due and failed: the run log says why.
     await host.call('fake-fire', { id: s.id, outcome: 'fail' });
     const failed = await rec.waitFor((e) => e.type === 'schedule.failed' && e.scheduleId === s.id, 5000, 'failed');
-    assert.equal(failed.detail, 'error: boom');
+    assert.equal(failed.detail, 'the run failed in the secure execution environment', 'the host records a failure without a reason; fren does not invent one');
+    assert.match(fired.runId, /^run_/, 'fren\'s run ids are its own; the host row is watched under its id');
     assert.equal(rec.events.filter((e) => e.type === 'schedule.fired' && e.scheduleId === s.id).length, 2);
     // The host's counters catch up a sweep later; let them, as they would.
     await eventually(async () => (await rt.listSchedules()).find((x) => x.id === s.id).failedRuns === 1);
@@ -210,5 +211,55 @@ test('schedules outlive Core: a fresh adapter finds them on the host with their 
     assert.equal((await second.listSchedules()).length, 0);
   } finally {
     await second.stop();
+  }
+});
+
+test('a fire whose acknowledgement never comes ends on the counters, once; a row the host retries is one attempt per time', async () => {
+  const rt = makeRuntime({ scheduleWatchMs: 100 });
+  await rt.start();
+  try {
+    const rec = recorder(rt);
+    const automationId = newId('atm');
+    const s = await rt.createSchedule({ automationId, name: 'quiet one', cron: '0 9 * * *', timezone: 'UTC', instruction: compiled(automationId, 'quiet one', 'Check the news.'), deliveryName: `automation-${automationId}` });
+    const host = hostControl(rt);
+    const firedFor = (n) => rec.events.filter((e) => e.type === 'schedule.fired' && e.scheduleId === s.id).length === n;
+
+    // No acknowledgement, only the message and the counters: the run the fire opened ends on them.
+    await host.call('fake-fire', { id: s.id, outcome: 'quiet' });
+    const fired = await rec.waitFor((e) => e.type === 'schedule.fired' && e.scheduleId === s.id, 5000, 'fired');
+    const msg = await rec.waitFor((e) => e.type === 'agent.message' && e.automationId === automationId, 5000, 'message');
+    assert.equal(msg.runId, fired.runId);
+    const done = await rec.waitFor((e) => e.type === 'schedule.completed' && e.scheduleId === s.id, 5000, 'completed on the counters');
+    assert.equal(done.runId, fired.runId);
+    // The next fire nobody saw is still reported: the counter-explained end left nothing behind to absorb it.
+    await host.call('fake-fire', { id: s.id, outcome: 'silent' });
+    const missed = await rec.waitFor((e) => e.type === 'schedule.completed' && e.scheduleId === s.id && e.runId !== done.runId, 5000, 'missed');
+    assert.equal(missed.detail, 'it ran, but sent nothing');
+    assert.ok(firedFor(2));
+
+    // The host gives the fired row a later time, then runs it: one run, kept open across the wait.
+    await host.call('fake-fire', { id: s.id, outcome: 'retry' });
+    const again = await rec.waitFor((e) => e.type === 'schedule.fired' && e.scheduleId === s.id && e.runId !== fired.runId && e.runId !== missed.runId, 5000, 'fired again');
+    const late = await rec.waitFor((e) => e.type === 'agent.message' && e.automationId === automationId && e.runId !== msg.runId, 5000, 'late message');
+    assert.equal(late.runId, again.runId, 'the message after the retry lands on the run that waited');
+    await rec.waitFor((e) => e.type === 'schedule.completed' && e.runId === again.runId, 5000, 'completed after the retry');
+    assert.ok(firedFor(3), 'a rescheduled row is not a second fire while its run is open');
+    await eventually(async () => (await rt.listSchedules()).find((x) => x.id === s.id).runs === 3);
+    await new Promise((r) => setTimeout(r, 250));
+
+    // FREN gives up on a fired run (a cancel); the host retries the row: a new attempt, a new run.
+    await host.call('fake-fire', { id: s.id, outcome: 'retry' });
+    const fourth = await rec.waitFor((e) => e.type === 'schedule.fired' && e.scheduleId === s.id && ![fired.runId, missed.runId, again.runId].includes(e.runId), 5000, 'fired a fourth time');
+    await rt.cancelRun(fourth.runId);
+    await rec.waitFor((e) => e.type === 'run.cancelled' && e.runId === fourth.runId, 2000, 'cancelled');
+    const fifth = await rec.waitFor((e) => e.type === 'schedule.fired' && e.scheduleId === s.id && ![fired.runId, missed.runId, again.runId, fourth.runId].includes(e.runId), 5000, 'fired for the retry');
+    const after = await rec.waitFor((e) => e.type === 'agent.message' && e.automationId === automationId && ![msg.runId, late.runId].includes(e.runId), 5000, 'message after the cancel');
+    assert.equal(after.runId, fifth.runId);
+    await rec.waitFor((e) => e.type === 'schedule.completed' && e.runId === fifth.runId, 5000, 'completed');
+    await new Promise((r) => setTimeout(r, 500));
+    assert.ok(firedFor(5), 'no phantom fire after the counters caught up');
+    rec.unsubscribe();
+  } finally {
+    await rt.stop();
   }
 });

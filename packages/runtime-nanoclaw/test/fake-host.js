@@ -46,8 +46,9 @@ const commands = {
   'destinations-add': (a) => { const d = { ...a }; db.destinations.push(d); db.lastDestination = a.local_name; return d; },
   'destinations-remove': (a) => { db.destinations = db.destinations.filter((d) => d.local_name !== a.local_name); return { removed: true }; },
   // The list shortens prompts like the real host's does; get returns the whole task and its run log.
-  'tasks-list': () => items(db.tasks.map((t) => { const { recent_log, ...row } = taskRow(t); return { ...row, prompt: row.prompt.length > 120 ? row.prompt.slice(0, 117) + '...' : row.prompt }; })),
-  'tasks-get': ({ id }) => { const t = db.tasks.find((x) => x.series_id === id); if (!t) throw new Error(`task not found: ${id}`); return { ...taskRow(t), completed_runs: t.runs }; },
+  'tasks-list': () => items(db.tasks.map((t) => { const { recent_log, name, ...row } = taskRow(t); return { ...row, process_after: t.next_run, prompt: row.prompt.length > 120 ? row.prompt.slice(0, 117) + '...' : row.prompt }; })),
+  // Like the real host's, get has the whole prompt, the run log and completed_runs, and none of the list's extras.
+  'tasks-get': ({ id }) => { const t = db.tasks.find((x) => x.series_id === id); if (!t) throw new Error(`task not found: ${id}`); const { runs, next_run, last_run, name, ...row } = taskRow(t); return { ...row, process_after: t.next_run, completed_runs: t.runs }; },
   'tasks-create': (a) => { const series = `${(a.name || 't').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${nid('x').slice(2)}`; const t = { destination: db.lastDestination || null, series_id: series, row_id: series, session_id: nid('ses'), name: a.name, prompt: a.prompt, recurrence: a.recurrence, status: 'pending', runs: 0, failed_runs: 0, last_run: null, next_run: new Date(Date.now() + 3600e3).toISOString(), recent_log: [] }; db.tasks.push(t); save(); return taskRow(t); },
   'tasks-update': (a) => { const t = db.tasks.find((x) => x.series_id === a.id); if (!t) throw new Error(`task not found: ${a.id}`); if (a.prompt) t.prompt = a.prompt; if (a.recurrence) t.recurrence = a.recurrence; save(); return taskRow(t); },
   'tasks-pause': ({ id }) => { const t = db.tasks.find((x) => x.series_id === id); if (!t) throw new Error(`task not found: ${id}`); t.status = 'paused'; save(); return { paused: 1 }; },
@@ -65,20 +66,32 @@ const commands = {
   'fake-fire': ({ id, outcome }) => {
     const t = db.tasks.find((x) => x.series_id === id); if (!t) throw new Error(`task not found: ${id}`);
     const rowId = t.row_id;
+    const due = () => { t.next_run = new Date(Date.now() - 1000).toISOString(); save(); };
     if (outcome === 'ok' || outcome === 'fail') {
-      t.next_run = new Date(Date.now() - 1000).toISOString(); save();
+      due();
       setTimeout(async () => {
         if (outcome === 'ok') { await runTask(t, rowId); setTimeout(() => settle(t, { ok: true }), 100); return; }
-        t.recent_log.push('2026-09-03 09:00:04 error: boom'); save();
+        // The real host records a failed occurrence without a word about why.
         send({ type: 'turn', runId: rowId, status: 'failed', sessionId: t.session_id });
         setTimeout(() => settle(t, { ok: false }), 100);
+      }, 150);
+    } else if (outcome === 'quiet') {
+      // The message arrives, the counters move, and no acknowledgement is ever reported.
+      due();
+      setTimeout(async () => { await deliverTask(t); setTimeout(() => settle(t, { ok: true }), 100); }, 150);
+    } else if (outcome === 'retry') {
+      // The host gives the same row a later time (a restart, a backoff), then runs it.
+      due();
+      setTimeout(() => {
+        t.next_run = new Date(Date.now() + 300).toISOString(); t.tries = (t.tries || 0) + 1; save();
+        setTimeout(async () => { await runTask(t, rowId); setTimeout(() => settle(t, { ok: true }), 100); }, 450);
       }, 150);
     } else if (outcome === 'silent') {
       settle(t, { ok: true });
     } else if (outcome === 'pause') {
-      t.recent_log.push(`2026-09-04 09:00:02 auto-paused after 8 consecutive script failures (host); fix the script, then \`ncl tasks resume ${id}\``);
+      t.recent_log.push(`2026-09-04 09:00 — auto-paused after 8 consecutive script failures (host); fix the script, then \`ncl tasks resume ${id}\``);
       settle(t, { ok: false, paused: true });
-    } else throw new Error('outcome must be ok, fail, silent or pause');
+    } else throw new Error('outcome must be ok, fail, quiet, retry, silent or pause');
     return { series_id: id, row_id: rowId, outcome };
   },
 };
@@ -153,12 +166,16 @@ async function onAction(f) {
   send({ type: 'turn', runId: ask.id, status: 'completed', sessionId: 'ses-1' });
 }
 
-async function runTask(t, rowId) {
+async function deliverTask(t) {
   // The agent sends to the destination the prompt names; here, the one made for this task.
   const fromDest = t.destination && /^automation-(.+)$/.exec(t.destination);
   const m = /automation-(atm_[0-9a-f]+)/.exec(t.prompt);
   const automationId = fromDest ? fromDest[1] : (m ? m[1] : 'unknown');
   await deliver({ platformId: `automation:${automationId}`, threadId: null, kind: 'chat', content: { text: `(fake) ${t.name} ran: ${t.prompt.split('\n').find((l) => l && !/^You are running|^Instruction:|^Delivery/.test(l)) || ''}`.trim() } });
+}
+
+async function runTask(t, rowId) {
+  await deliverTask(t);
   send({ type: 'turn', runId: rowId, status: 'completed', sessionId: t.session_id });
 }
 

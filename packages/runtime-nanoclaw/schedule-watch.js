@@ -19,13 +19,16 @@
  *   paused   the series is paused and the host says why: it gave up on it
  *            after repeated failures.
  *
- * Runs FREN watched to the end move the counters too, a sweep later. Each
+ * Runs the host saw to the end move the counters too, a sweep later. Each
  * such end is remembered and the next counter move it explains is absorbed,
  * so one fire is never two records. A remembered end that nothing explains
- * within ten minutes is forgotten.
+ * within ten minutes is forgotten. An end FREN decided on its own (a cancel,
+ * a stop) is only released: the row is let go of, and what the host does
+ * with it is still reported. A row the host gives a new time to (a retry
+ * after a restart, a backoff) is a new attempt, whatever ended it before.
  *
- * `observe` and `remember` are pure over a Map of readings; the loop around
- * them is `createScheduleWatch`.
+ * `observe`, `remember` and `release` are pure over a Map of readings; the
+ * loop around them is `createScheduleWatch`.
  */
 const POLL_MS = 15_000;
 /** How long a remembered end may wait for the counters to catch up. */
@@ -75,6 +78,9 @@ function observe(last, schedules, now) {
       for (; failed > 0; failed -= 1) findings.push({ kind: 'missed', seriesId, ok: false });
     }
 
+    // The same occurrence, given a new time by the host: a new attempt.
+    if (!prev.partial && prev.rowId === rowId && prev.nextRunAt !== next.nextRunAt && next.settledRow === rowId) next.settledRow = null;
+
     const due = !next.paused && next.nextRunAt !== null && next.nextRunAt <= now;
     if (due && next.open !== rowId && next.settledRow !== rowId) {
       next.open = rowId;
@@ -96,12 +102,21 @@ function observe(last, schedules, now) {
   return findings;
 }
 
-/** A run of this series ended in FREN's sight; its counter move is spoken for. */
+/** The host confirmed the end of a run of this series; its counter move is spoken for. */
 function remember(last, seriesId, rowId, ok, now) {
   const r = last.get(seriesId) || fresh();
+  if (r.settledRow === rowId) return; // observe() already took this end off the counters
   if (r.open === rowId) r.open = null;
   r.settledRow = rowId;
   r.pending.push({ at: now, ok });
+  last.set(seriesId, r);
+}
+
+/** FREN let go of a run of this series without hearing from the host; the row is not re-fired as it stands. */
+function release(last, seriesId, rowId) {
+  const r = last.get(seriesId) || fresh();
+  if (r.open === rowId) r.open = null;
+  r.settledRow = rowId;
   last.set(seriesId, r);
 }
 
@@ -138,9 +153,10 @@ function createScheduleWatch({ list, onFinding, ready = () => true, now = Date.n
       last.clear();
     },
     settled(seriesId, rowId, ok) { remember(last, seriesId, rowId, ok, now()); },
+    release(seriesId, rowId) { release(last, seriesId, rowId); },
     forget(seriesId) { last.delete(seriesId); },
     poll,
   };
 }
 
-module.exports = { observe, remember, createScheduleWatch, POLL_MS, ABSORB_MS };
+module.exports = { observe, remember, release, createScheduleWatch, POLL_MS, ABSORB_MS };

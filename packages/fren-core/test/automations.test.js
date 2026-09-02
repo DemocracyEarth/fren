@@ -12,7 +12,7 @@ function setup(opts = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fren-atm-'));
   const store = openCoreStore(path.join(dir, 'core.db'));
   const runtime = createMockRuntime({ replyDelayMs: 2, ...opts.runtime });
-  const core = createCore({ store, runtime, complete: opts.complete || null, log: () => {}, reprobeMs: 0 });
+  const core = createCore({ store, runtime, complete: opts.complete || null, log: () => {}, reprobeMs: 0, ...opts.core });
   return { store, runtime, core };
 }
 
@@ -247,4 +247,18 @@ test('a pause that happened while Core was away is found at reconcile, not undon
   assert.equal(off.runtimeState, 'scheduled');
   assert.equal((await runtime.listSchedules())[0].enabled, false, 'reconcile did not resume it');
   await second.stop();
+});
+
+test('a scheduled run is given the runtime\'s patience, not a chat turn\'s', async () => {
+  const { core, runtime } = setup({ runtime: { replyDelayMs: 120 }, core: { runTimeoutMs: 30, scheduleTimeoutMs: 5000 } });
+  await core.start();
+  await core.startRuntime();
+  const seen = [];
+  core.events.subscribe((e) => seen.push(e));
+  const a = await core.automations.create(HN);
+  const { run } = await core.automations.runNow(a.id);
+  const done = await until(() => seen.find((e) => /^automation\.run\.(completed|failed)$/.test(e.type) && e.runId === run.id));
+  assert.equal(done.type, 'automation.run.completed', 'a chat turn would have been given up on after 30 ms');
+  assert.equal(done.delivered, true);
+  await core.stop();
 });

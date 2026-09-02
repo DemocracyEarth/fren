@@ -8,8 +8,8 @@ const { once } = require('node:events');
 const { createNclClient } = require('../ncl-client');
 const { createBridge } = require('../bridge');
 const { detect, resolveDocker, pathWithDocker } = require('../container-runtime');
-const { createScheduleStore, refFromPrompt, pauseNote, failureNote } = require('../schedules');
-const { observe, remember, ABSORB_MS } = require('../schedule-watch');
+const { createScheduleStore, refFromPrompt, pauseNote } = require('../schedules');
+const { observe, remember, release, ABSORB_MS } = require('../schedule-watch');
 
 const tmpSock = (name) => path.join(fs.mkdtempSync('/tmp/frn-'), name);
 
@@ -153,7 +153,7 @@ test('schedules translate to tasks and a delivery surface, and back', async () =
   const paused = await store.update(s.id, { enabled: false, instruction: 'Check HN carefully. automation-atm_abc' });
   assert.equal(paused.enabled, false);
   assert.equal(paused.instruction, 'Check HN carefully. automation-atm_abc');
-  assert.deepEqual(await store.trigger(s.id), { runId: 'row-7', seriesId: 'morning-1a2b' });
+  assert.deepEqual(await store.trigger(s.id), { rowId: 'row-7', seriesId: 'morning-1a2b' });
 
   // A fresh store (a new Core life) recovers the automation id from the task itself.
   const again = createScheduleStore({ ncl, agentGroupId: 'ag-1', log: () => {} });
@@ -175,12 +175,11 @@ test('a task is recognised as FREN\'s by the prompt it was given, and its run lo
   assert.equal(ref.enabled, false);
   assert.equal(ref.instruction, prompt);
   assert.equal(refFromPrompt('Water the plants.', {}), null);
-  const note = '2026-09-05 09:00:02 auto-paused after 8 consecutive script failures (host); fix the script, then `ncl tasks resume x`';
-  assert.equal(pauseNote(['2026-09-04 09:00 ran fine', note]), 'it failed 8 times in a row');
-  assert.equal(pauseNote(['2026-09-04 09:00 ran fine']), null);
-  assert.equal(failureNote(['2026-09-03 09:00:04 error: feed returned 403', note]), 'error: feed returned 403');
-  assert.equal(failureNote([note]), null);
-  assert.equal(failureNote([]), null);
+  // The host's run log lines: a local stamp, an em dash, the note.
+  const note = '2026-09-05 09:00 — auto-paused after 8 consecutive script failures (host); fix the script, then `ncl tasks resume x`';
+  assert.equal(pauseNote(['2026-09-04 09:00 — Sent the five stories.', note]), 'it failed 8 times in a row');
+  assert.equal(pauseNote(['2026-09-04 09:00 — Sent the five stories.']), null);
+  assert.equal(pauseNote([]), null);
 });
 
 test('the schedule watch reads fires, ends, misses and pauses off the task list', () => {
@@ -202,8 +201,42 @@ test('the schedule watch reads fires, ends, misses and pauses off the task list'
   const paused = S({ enabled: false, runs: 3, failedRuns: 1, nextRunAt: 180000, runtimeRef: { rowId: 'row-c' }, pausedByRuntime: 'it failed 8 times in a row' });
   assert.deepEqual(observe(last, [paused], 4000), [{ kind: 'paused', seriesId: 'morning-1', detail: 'it failed 8 times in a row' }]);
   assert.deepEqual(observe(last, [paused], 5000), [], 'said once');
-  assert.deepEqual(observe(last, [S({ enabled: false, runs: 3, failedRuns: 1, nextRunAt: 180000, runtimeRef: { rowId: 'row-c' } })], 6000), [], 'paused without a note is FREN\'s own pause');
-  assert.deepEqual(observe(last, [], 7000), [], 'a series between acknowledgement and re-arm is not news');
+  assert.deepEqual(observe(last, [S({ enabled: false, runs: 3, failedRuns: 1, nextRunAt: 180000, runtimeRef: { rowId: 'row-c' } })], 6000), []);
+  assert.deepEqual(observe(last, [S({ id: 'own-1', enabled: false, nextRunAt: 180000, runtimeRef: { rowId: 'row-o' } })], 6500), [], 'paused without the host\'s note is FREN\'s own pause, never news');
+  // A series missing from one reading (between acknowledgement and re-arm) keeps its state.
+  const gap = S({ id: 'gap-1', runs: 0, nextRunAt: 7000, runtimeRef: { rowId: 'row-g' } });
+  observe(last, [gap], 6900);
+  assert.deepEqual(observe(last, [gap], 7000), [{ kind: 'fired', seriesId: 'gap-1', rowId: 'row-g' }]);
+  assert.deepEqual(observe(last, [], 7100), []);
+  assert.deepEqual(observe(last, [S({ id: 'gap-1', runs: 1, nextRunAt: 99000, runtimeRef: { rowId: 'row-h' } })], 7200), [{ kind: 'settled', seriesId: 'gap-1', rowId: 'row-g', ok: true }]);
+});
+
+test('an end the counters already explained is not remembered again; a let-go row fires again only as a new attempt', () => {
+  const last = new Map();
+  const S = (over = {}) => ({ id: 'm-1', enabled: true, runs: 0, failedRuns: 0, nextRunAt: 1000, runtimeRef: { rowId: 'row-a' }, ...over });
+  observe(last, [S()], 500);
+  observe(last, [S()], 1000); // fired
+  assert.equal(observe(last, [S({ runs: 1, nextRunAt: 90000, runtimeRef: { rowId: 'row-b' } })], 2000)[0].kind, 'settled');
+  remember(last, 'm-1', 'row-a', true, 2100); // the adapter closing that run must not plant a second explanation
+  assert.deepEqual(
+    observe(last, [S({ runs: 2, nextRunAt: 90000, runtimeRef: { rowId: 'row-b' } })], 2500),
+    [{ kind: 'missed', seriesId: 'm-1', ok: true }],
+    'the next unexplained move is reported',
+  );
+  // FREN lets go of a fired run (a cancel, a stop): the row as it stands is not fired again.
+  observe(last, [S({ runs: 2, nextRunAt: 90000, runtimeRef: { rowId: 'row-b' } })], 90000); // fired row-b
+  release(last, 'm-1', 'row-b');
+  assert.deepEqual(observe(last, [S({ runs: 2, nextRunAt: 90000, runtimeRef: { rowId: 'row-b' } })], 90100), [], 'still due, still let go of');
+  assert.deepEqual(
+    observe(last, [S({ runs: 3, nextRunAt: 180000, runtimeRef: { rowId: 'row-c' } })], 91000),
+    [{ kind: 'missed', seriesId: 'm-1', ok: true }],
+    'what the host did with it is still reported, not absorbed',
+  );
+  // The host gives the same row a later time (a retry): a new attempt, fired again when due.
+  observe(last, [S({ runs: 3, nextRunAt: 180000, runtimeRef: { rowId: 'row-c' } })], 180000); // fired row-c
+  release(last, 'm-1', 'row-c');
+  assert.deepEqual(observe(last, [S({ runs: 3, nextRunAt: 180500, runtimeRef: { rowId: 'row-c' } })], 180100), [], 'moved into the future: not due');
+  assert.deepEqual(observe(last, [S({ runs: 3, nextRunAt: 180500, runtimeRef: { rowId: 'row-c' } })], 180500), [{ kind: 'fired', seriesId: 'm-1', rowId: 'row-c' }]);
 });
 
 test('an end FREN watched explains the next counter move, so one fire is one record', () => {

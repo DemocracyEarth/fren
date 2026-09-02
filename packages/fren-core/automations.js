@@ -332,7 +332,7 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
         return true;
       }
       case 'schedule.completed':
-        if (event.runId) finishRun(event.runId, true);
+        if (event.runId) finishRun(event.runId, true, event.detail);
         return true;
       case 'schedule.failed':
         if (event.runId) finishRun(event.runId, false, event.detail);
