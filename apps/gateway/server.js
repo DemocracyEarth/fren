@@ -12,6 +12,9 @@ const { createOpenAIVisionProvider } = require('./providers/openai-vision');
 const { createDeepSeekProvider } = require('./providers/deepseek');
 const { createMockProvider } = require('./providers/mock');
 const { createElevenLabsProvider } = require('./providers/elevenlabs');
+const { createCore } = require('../../packages/fren-core');
+const { openCoreStore } = require('../../packages/fren-core/store');
+const { createMockRuntime } = require('../../packages/runtime-mock');
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -415,7 +418,7 @@ async function handleSpeak(voice, body, res) {
   }
 }
 
-async function handle(provider, voice, vision, req, res, pathname) {
+async function handle(provider, voice, vision, core, req, res, pathname) {
   if (req.method === 'GET' && pathname === '/health') {
     return send(res, 200, {
       ok: true,
@@ -429,7 +432,30 @@ async function handle(provider, voice, vision, req, res, pathname) {
       // The desktop app needs this to know whether the screen-looking toggle
       // can be offered at all.
       vision: vision ? vision.name : null,
+      // The secure execution environment, if one is wired: its state, and a
+      // kind for the About box. Never a product name in the state itself.
+      runtime: core ? core.runtimeStatus() : null,
+      runtimeKind: core ? core.runtimeKind() : null,
     });
+  }
+
+  // Core routes: runs, sessions, automations, permissions, events. Same bearer
+  // token, JSON bodies only where a method carries one, then Core's router.
+  if (core && core.owns(pathname)) {
+    if (req.headers.authorization !== `Bearer ${config.GATEWAY_TOKEN}`) {
+      return send(res, 401, { error: 'unauthorized' });
+    }
+    let body = null;
+    const hasBody = Number(req.headers['content-length'] || 0) > 0 || !!req.headers['transfer-encoding'];
+    if (hasBody && (req.method === 'POST' || req.method === 'PATCH' || req.method === 'PUT')) {
+      try {
+        body = await readJson(req);
+      } catch (err) {
+        return send(res, err.status || 400, { error: err.message });
+      }
+    }
+    const query = Object.fromEntries(new URL(req.url || '/', 'http://127.0.0.1').searchParams);
+    return core.handle(req, res, pathname, body, query);
   }
 
   if (req.method === 'POST' && (pathname === '/v1/summarize' || pathname === '/v1/chat' ||
@@ -479,7 +505,7 @@ async function handle(provider, voice, vision, req, res, pathname) {
   send(res, 404, { error: 'not found' });
 }
 
-function createServer(provider, voice = null, vision = null) {
+function createServer(provider, voice = null, vision = null, { core = null } = {}) {
   return http.createServer((req, res) => {
     const started = Date.now();
     const pathname = (req.url || '/').split('?')[0];
@@ -487,7 +513,7 @@ function createServer(provider, voice = null, vision = null) {
       // PRIVACY: method, path, status, duration only. Never log bodies.
       console.log(`[gateway] ${req.method} ${pathname} ${res.statusCode} ${Date.now() - started}ms`);
     });
-    handle(provider, voice, vision, req, res, pathname).catch((err) => {
+    handle(provider, voice, vision, core, req, res, pathname).catch((err) => {
       if (!res.headersSent) {
         send(res, 502, { error: (err && err.message) || 'internal error' });
       }
@@ -588,14 +614,46 @@ if (require.main === module) {
   const provider = pickProvider();
   const voice = pickVoice();
   const vision = pickVision();
-  const server = createServer(provider, voice, vision);
+  const core = buildCore(provider);
+  const server = createServer(provider, voice, vision, { core });
   server.listen(config.GATEWAY_PORT, '127.0.0.1', () => {
     console.log(
       `[gateway] listening on http://127.0.0.1:${config.GATEWAY_PORT} ` +
         `(provider=${provider.name}, model=${provider.model}, ` +
-        `voice=${voice ? voice.name : 'none'}, vision=${vision ? vision.name : 'none'})`
+        `voice=${voice ? voice.name : 'none'}, vision=${vision ? vision.name : 'none'}, ` +
+        `runtime=${core.runtimeKind()})`
     );
+    core.start().catch((err) => console.error(`[core] failed to start: ${err.message}`));
   });
+  let stopping = false;
+  const shutdown = () => {
+    if (stopping) return;
+    stopping = true;
+    core.stop().catch(() => {}).finally(() => process.exit(0));
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+}
+
+/**
+ * Which secure execution environment runs agents. Only the mock exists in
+ * this build; a real runtime arrives as another package that keeps the same
+ * contract, and FREN_RUNTIME picks it.
+ */
+function pickRuntime(provider) {
+  const chosen = (process.env.FREN_RUNTIME || '').toLowerCase();
+  if (chosen && chosen !== 'mock') {
+    console.warn(`[core] runtime "${chosen}" is not available in this build; using the mock runtime`);
+  } else if (!chosen && provider.name !== 'mock') {
+    console.warn('[core] no secure execution environment is wired yet; agent runs use the mock runtime');
+  }
+  return createMockRuntime({ replyDelayMs: 600 });
+}
+
+function buildCore(provider) {
+  fs.mkdirSync(config.DATA_DIR, { recursive: true });
+  const store = openCoreStore(path.join(config.DATA_DIR, 'core.db'));
+  return createCore({ store, runtime: pickRuntime(provider), log: console.log });
 }
 
 module.exports = { createServer };
