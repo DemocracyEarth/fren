@@ -263,3 +263,27 @@ test('a fire whose acknowledgement never comes ends on the counters, once; a row
     await rt.stop();
   }
 });
+
+test('an answer that beats the watch to a due row still lands on one run, the one the row opens', async () => {
+  // A slow watch: on its own it would not see the row before the answer arrives.
+  const rt = makeRuntime({ scheduleWatchMs: 5000 });
+  await rt.start();
+  try {
+    const rec = recorder(rt);
+    const automationId = newId('atm');
+    const s = await rt.createSchedule({ automationId, name: 'eager one', cron: '0 9 * * *', timezone: 'UTC', instruction: compiled(automationId, 'eager one', 'Check the news.'), deliveryName: `automation-${automationId}` });
+    await hostControl(rt).call('fake-fire', { id: s.id, outcome: 'eager' });
+    const msg = await rec.waitFor((e) => e.type === 'agent.message' && e.automationId === automationId, 5000, 'message');
+    assert.ok(msg.runId, 'the message has a run to land on');
+    const fired = rec.events.find((e) => e.type === 'schedule.fired' && e.scheduleId === s.id);
+    assert.ok(fired && rec.events.indexOf(fired) < rec.events.indexOf(msg), 'the fire was read off the task list before the message was passed on');
+    assert.equal(msg.runId, fired.runId);
+    const done = await rec.waitFor((e) => e.type === 'schedule.completed' && e.scheduleId === s.id, 5000, 'completed');
+    assert.equal(done.runId, fired.runId);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(rec.events.filter((e) => e.type === 'schedule.fired' && e.scheduleId === s.id).length, 1);
+    rec.unsubscribe();
+  } finally {
+    await rt.stop();
+  }
+});
