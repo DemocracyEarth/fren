@@ -269,15 +269,7 @@ function createNanoclawRuntime(opts) {
     if (!text && !files) return;
 
     const automationId = automationIdFrom(platformId);
-    if (automationId) {
-      // Sent to the automation's surface: the open schedule run if one is known, else on its own.
-      const run = [...runs.values()].find((r) => r.automationId === automationId && !isTerminal(r.status));
-      const seq = run ? nextSeq(seqByRun, run.id) : nextSeq(seqByAutomation, automationId);
-      const message = { seq, at: now(), text, files, final: true };
-      if (run) run.messages.push(message);
-      emit({ type: 'agent.message', ...(run ? { runId: run.id } : {}), automationId, message: { ...message } });
-      return;
-    }
+    if (automationId) return void landOnAutomation(automationId, text, files);
 
     const runId = openByThread.get(threadId) || null;
     if (!runId) {
@@ -340,6 +332,25 @@ function createNanoclawRuntime(opts) {
       default:
         return;
     }
+  }
+
+  /**
+   * Something sent to an automation's surface lands on its open run. When none
+   * is open, the task list is read right now before giving up on one: a warm
+   * container picks a due row up the moment it is due and can answer within
+   * seconds, ahead of the watch's next reading.
+   */
+  async function landOnAutomation(automationId, text, files) {
+    const openRunFor = () => [...runs.values()].find((r) => r.automationId === automationId && !isTerminal(r.status));
+    let run = openRunFor();
+    if (!run && scheduleWatch) {
+      await scheduleWatch.poll();
+      run = openRunFor();
+    }
+    const seq = run ? nextSeq(seqByRun, run.id) : nextSeq(seqByAutomation, automationId);
+    const message = { seq, at: now(), text, files, final: true };
+    if (run) run.messages.push(message);
+    emit({ type: 'agent.message', ...(run ? { runId: run.id } : {}), automationId, message: { ...message } });
   }
 
   function automationIdFrom(platformId) {

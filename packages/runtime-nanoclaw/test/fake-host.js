@@ -75,6 +75,10 @@ const commands = {
         send({ type: 'turn', runId: rowId, status: 'failed', sessionId: t.session_id });
         setTimeout(() => settle(t, { ok: false }), 100);
       }, 150);
+    } else if (outcome === 'eager') {
+      // A warm container takes the row the moment it is due and answers at once.
+      due();
+      deliverTask(t).then(() => { send({ type: 'turn', runId: rowId, status: 'completed', sessionId: t.session_id }); setTimeout(() => settle(t, { ok: true }), 100); });
     } else if (outcome === 'quiet') {
       // The message arrives, the counters move, and no acknowledgement is ever reported.
       due();
@@ -91,7 +95,7 @@ const commands = {
     } else if (outcome === 'pause') {
       t.recent_log.push(`2026-09-04 09:00 — auto-paused after 8 consecutive script failures (host); fix the script, then \`ncl tasks resume ${id}\``);
       settle(t, { ok: false, paused: true });
-    } else throw new Error('outcome must be ok, fail, quiet, retry, silent or pause');
+    } else throw new Error('outcome must be ok, fail, eager, quiet, retry, silent or pause');
     return { series_id: id, row_id: rowId, outcome };
   },
 };

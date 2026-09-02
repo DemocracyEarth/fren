@@ -123,21 +123,25 @@ function release(last, seriesId, rowId) {
 function createScheduleWatch({ list, onFinding, ready = () => true, now = Date.now, log = () => {}, intervalMs = POLL_MS }) {
   const last = new Map();
   let timer = null;
-  let busy = false;
+  let inFlight = null;
 
-  async function poll() {
-    if (busy || !ready()) return;
-    busy = true;
-    try {
-      const findings = observe(last, await list(), now());
-      for (const f of findings) {
-        try { await onFinding(f); } catch (err) { log(`[runtime] schedule ${f.kind}: ${err.message}`); }
+  /** One reading. A caller who needs it done (a delivery with no run to land on) can await it. */
+  function poll() {
+    if (inFlight) return inFlight;
+    if (!ready()) return Promise.resolve();
+    inFlight = (async () => {
+      try {
+        const findings = observe(last, await list(), now());
+        for (const f of findings) {
+          try { await onFinding(f); } catch (err) { log(`[runtime] schedule ${f.kind}: ${err.message}`); }
+        }
+      } catch (err) {
+        log(`[runtime] schedule watch: ${err.message}`);
+      } finally {
+        inFlight = null;
       }
-    } catch (err) {
-      log(`[runtime] schedule watch: ${err.message}`);
-    } finally {
-      busy = false;
-    }
+    })();
+    return inFlight;
   }
 
   return {
