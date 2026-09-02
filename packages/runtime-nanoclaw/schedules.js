@@ -6,12 +6,13 @@
  * result is sent, so a delivery's platform id names the automation), a
  * destination the agent group may send to, and a scheduled task with the
  * compiled instruction. The task id is the handle; everything else is
- * derived from the automation id and re-created if missing.
+ * derived from the automation id and re-created if missing. The host's task
+ * commands take the agent group's id (not its folder), so the store carries it.
  *
  * The host's task list is the source of truth for runs, failures and the
  * next fire; this module only translates.
  */
-const { CHANNEL, GROUP_FOLDER } = require('./bootstrap');
+const { CHANNEL } = require('./bootstrap');
 
 const platformIdFor = (automationId) => `automation:${automationId}`;
 const deliveryNameFor = (automationId) => `automation-${automationId}`;
@@ -76,7 +77,7 @@ function createScheduleStore({ ncl, agentGroupId, log = () => {} }) {
   async function create(input) {
     await ensureSurface(input.automationId);
     const task = await ncl.call('tasks-create', {
-      group: GROUP_FOLDER,
+      group: agentGroupId,
       name: input.name,
       prompt: input.instruction,
       recurrence: input.cron,
@@ -94,7 +95,7 @@ function createScheduleStore({ ncl, agentGroupId, log = () => {} }) {
     const ref = refs.get(seriesId);
     if (!ref) return null;
     try {
-      const task = await ncl.call('tasks-get', { id: seriesId, group: GROUP_FOLDER });
+      const task = await ncl.call('tasks-get', { id: seriesId, group: agentGroupId });
       return toSchedule(task, ref);
     } catch (err) {
       if (/not found/i.test(err.message)) return null;
@@ -110,20 +111,20 @@ function createScheduleStore({ ncl, agentGroupId, log = () => {} }) {
     if (patch.cron !== undefined) { fields.recurrence = patch.cron; ref.cron = patch.cron; }
     if (patch.name !== undefined) ref.name = patch.name;
     if (patch.timezone !== undefined) ref.timezone = patch.timezone;
-    if (Object.keys(fields).length) await ncl.call('tasks-update', { id: seriesId, group: GROUP_FOLDER, ...fields });
-    if (patch.enabled === false) await ncl.call('tasks-pause', { id: seriesId, group: GROUP_FOLDER });
-    if (patch.enabled === true) await ncl.call('tasks-resume', { id: seriesId, group: GROUP_FOLDER });
+    if (Object.keys(fields).length) await ncl.call('tasks-update', { id: seriesId, group: agentGroupId, ...fields });
+    if (patch.enabled === false) await ncl.call('tasks-pause', { id: seriesId, group: agentGroupId });
+    if (patch.enabled === true) await ncl.call('tasks-resume', { id: seriesId, group: agentGroupId });
     return (await get(seriesId)) || toSchedule({ series_id: seriesId, status: patch.enabled === false ? 'paused' : 'pending' }, ref);
   }
 
   async function remove(seriesId) {
     const ref = refs.get(seriesId);
     try {
-      await ncl.call('tasks-delete', { id: seriesId, group: GROUP_FOLDER });
+      await ncl.call('tasks-delete', { id: seriesId, group: agentGroupId });
     } catch (err) {
       if (/running/i.test(err.message)) {
-        await ncl.call('tasks-cancel', { id: seriesId, group: GROUP_FOLDER });
-        await ncl.call('tasks-delete', { id: seriesId, group: GROUP_FOLDER }).catch((e) => log(`[runtime] task delete after cancel: ${e.message}`));
+        await ncl.call('tasks-cancel', { id: seriesId, group: agentGroupId });
+        await ncl.call('tasks-delete', { id: seriesId, group: agentGroupId }).catch((e) => log(`[runtime] task delete after cancel: ${e.message}`));
       } else if (!/not found/i.test(err.message)) {
         throw err;
       }
@@ -133,7 +134,7 @@ function createScheduleStore({ ncl, agentGroupId, log = () => {} }) {
   }
 
   async function list() {
-    const rows = await ncl.call('tasks-list', { group: GROUP_FOLDER });
+    const rows = await ncl.call('tasks-list', { group: agentGroupId });
     const tasks = Array.isArray(rows) ? rows : (rows && rows.items) || [];
     const out = [];
     for (const task of tasks) {
@@ -155,7 +156,7 @@ function createScheduleStore({ ncl, agentGroupId, log = () => {} }) {
   }
 
   async function trigger(seriesId) {
-    const fired = await ncl.call('tasks-run', { id: seriesId, group: GROUP_FOLDER });
+    const fired = await ncl.call('tasks-run', { id: seriesId, group: agentGroupId });
     return { runId: fired.row_id || fired.id, seriesId: fired.series_id || seriesId };
   }
 
