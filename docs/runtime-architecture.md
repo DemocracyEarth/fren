@@ -1123,10 +1123,16 @@ acknowledgement; the same conversation is resumed inside the container on the
 next message; an automation created from FREN becomes a task plus a delivery
 surface, run-now wakes its own session on the next sweep tick (about a minute),
 the agent sends its result to `automation-<id>` and FREN records `READY`,
-delivered, with the run tied to the automation. Point (3) of the earlier list,
-approval cards from the host's guard, is exercised by the fake host but not yet
-by a real hold; nothing in the fren group is configured to hold today
-(`cli_scope` is disabled).
+delivered, with the run tied to the automation. A real hold was verified the same evening: with the
+group's `cli_scope` set to `group`, the agent ran `ncl groups config update`
+from its shell, the host's guard held it, `requestApproval` resolved the owner's
+DM to the `owner` surface and delivered the card, FREN raised
+`permission.requested` with scope `runtime.self_modify`, the owner approved it in
+the interface 36 seconds later, the host replayed the command with the approval
+as its grant, and the agent reported the result in a message of its own (no run
+behind it, which is why the orb now speaks unsolicited agent messages too).
+`cli_scope` stays `disabled` by default; enabling it is the `runtime.schedule`
+and `runtime.self_modify` decision the permission model describes.
 
 Deliverables: `vendor/nanoclaw` subtree + overlay (`fren` channel, `fren` gateway provider, provenance module) with upstream-style tests, `scripts/runtime-build.js`, `scripts/nanoclaw-overlay-check.js`, `packages/runtime-nanoclaw` (supervisor, `ncl` client, `fren-runtime.sock` server, bootstrap, task compiler, `container-runtime.js` probe, sandbox proxy target), the sandbox credential proxy in Core, integration test gated on `FREN_RUNTIME_INTEGRATION=1`.
 
