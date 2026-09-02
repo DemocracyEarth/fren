@@ -50,6 +50,19 @@ const RESTART_BACKOFF_MS = [1000, 2000, 5000, 15000, 30000];
 const APPROVAL_OPTIONS = new Set(['approve', 'reject', 'reject_with_reason']);
 const ID_RE = /^[A-Za-z0-9_.:-]{1,120}$/;
 
+/**
+ * Unix socket paths are capped at about 104 bytes on macOS. The app data
+ * folder fits; a deep development or test directory may not, so the socket
+ * then lives in a short private directory named after the data dir.
+ */
+function bridgeSocketPath(dataDir) {
+  const preferred = path.join(dataDir, 'fren-runtime.sock');
+  if (preferred.length <= 90) return preferred;
+  const dir = path.join('/tmp', `fren-${crypto.createHash('sha1').update(dataDir).digest('hex').slice(0, 8)}`);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return path.join(dir, 'runtime.sock');
+}
+
 function createNanoclawRuntime(opts) {
   const {
     dataDir, runtimeDir, sandboxUrl, sandboxToken, model, timezone,
@@ -76,7 +89,7 @@ function createNanoclawRuntime(opts) {
   const pending = new Map();      // questionId -> { kind, runId }
   const runtimeToken = crypto.randomBytes(24).toString('hex');
   const slug = installSlug(runtimeDir);
-  const socketPath = path.join(dataDir, 'fren-runtime.sock');
+  const socketPath = bridgeSocketPath(dataDir);
   const nclPath = path.join(runtimeDir, 'data', 'ncl.sock');
 
   const bridge = createBridge({ socketPath, token: runtimeToken, onFrame, log });
