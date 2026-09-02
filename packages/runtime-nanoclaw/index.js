@@ -36,7 +36,15 @@ const CAPABILITIES = Object.freeze({
   files: true,
 });
 
-const INSTALL_ID = 'fren';
+/**
+ * The host names its image, its containers and its labels after a hash of
+ * its own directory, in its TypeScript and in its shell build script alike.
+ * Deriving the same value here keeps the image the build produces the one
+ * the host looks for; forcing a different id would split them.
+ */
+function installSlug(runtimeDir) {
+  return crypto.createHash('sha1').update(runtimeDir).digest('hex').slice(0, 8);
+}
 const CONNECT_TIMEOUT_MS = 30_000;
 const RESTART_BACKOFF_MS = [1000, 2000, 5000, 15000, 30000];
 const APPROVAL_OPTIONS = new Set(['approve', 'reject', 'reject_with_reason']);
@@ -67,6 +75,7 @@ function createNanoclawRuntime(opts) {
   const seqByAutomation = new Map();
   const pending = new Map();      // questionId -> { kind, runId }
   const runtimeToken = crypto.randomBytes(24).toString('hex');
+  const slug = installSlug(runtimeDir);
   const socketPath = path.join(dataDir, 'fren-runtime.sock');
   const nclPath = path.join(runtimeDir, 'data', 'ncl.sock');
 
@@ -231,7 +240,7 @@ function createNanoclawRuntime(opts) {
       if (!fs.existsSync(path.join(runtimeDir, 'dist', 'index.js'))) {
         throw new RuntimeUnavailable('the runtime host is not built', 'Run: npm run runtime:build');
       }
-      const image = `nanoclaw-agent-v2-${INSTALL_ID}:latest`;
+      const image = `nanoclaw-agent-v2-${slug}:latest`;
       if (!(await probe.imagePresent(image))) {
         throw new RuntimeUnavailable('the agent image is not built', 'Run: npm run runtime:build -- --image (this takes a few minutes the first time)');
       }
@@ -262,7 +271,6 @@ function createNanoclawRuntime(opts) {
       FREN_SANDBOX_URL: sandboxUrl || '',
       FREN_SANDBOX_TOKEN: sandboxToken || '',
       NANOCLAW_GATEWAY_PROVIDER: 'fren',
-      NANOCLAW_INSTALL_ID: INSTALL_ID,
       NANOCLAW_NO_DIAGNOSTICS: '1',
       LOG_LEVEL: process.env.FREN_RUNTIME_LOG_LEVEL || 'info',
     };
@@ -447,7 +455,7 @@ function createNanoclawRuntime(opts) {
     clearTimeout(restartTimer);
     if (supervisor) await supervisor.stop();
     if (!skipContainerProbe) {
-      try { await probe.stopLabeled(`nanoclaw-install=${INSTALL_ID}`); } catch (err) { log(`[runtime] containers not stopped: ${err.message}`); }
+      try { await probe.stopLabeled(`nanoclaw-install=${slug}`); } catch (err) { log(`[runtime] containers not stopped: ${err.message}`); }
     }
     await bridge.close();
     openByThread.clear();
@@ -457,4 +465,4 @@ function createNanoclawRuntime(opts) {
   return rt;
 }
 
-module.exports = { createNanoclawRuntime, CAPABILITIES, INSTALL_ID };
+module.exports = { createNanoclawRuntime, CAPABILITIES, installSlug };
