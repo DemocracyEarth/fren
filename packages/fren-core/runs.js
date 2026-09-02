@@ -175,6 +175,7 @@ function createRunService({ store, events, getRuntime, now = Date.now, log = () 
         armTimeout(runId);
         events.emit('agent.message', {
           runId, sessionId: run.sessionId, kind: run.kind, automationId: run.automationId || event.automationId || null,
+          automationName: event.automationName || null,
           message: { seq, at: m.at || now(), text: m.text ?? null, files: m.files ?? null, card: m.card ?? null, final: !!m.final },
         });
         return true;

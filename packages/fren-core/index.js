@@ -15,6 +15,7 @@
 const { assertRuntime, RuntimeUnavailable } = require('../runtime');
 const { createEventLog } = require('./events');
 const { createRunService, httpError } = require('./runs');
+const { createAutomationService } = require('./automations');
 const { createObservationBus } = require('../observer');
 
 const REPROBE_MS = 30_000;
@@ -23,7 +24,7 @@ const HTTP_STATUS = Symbol('httpStatus');
 const accepted = (payload) => ({ ...payload, [HTTP_STATUS]: 202 });
 const PRUNE_AFTER_MS = 30 * 24 * 3600 * 1000;
 
-function createCore({ store, runtime, now = Date.now, log = console.log, reprobeMs = REPROBE_MS }) {
+function createCore({ store, runtime, complete = null, now = Date.now, log = console.log, reprobeMs = REPROBE_MS }) {
   if (runtime) assertRuntime(runtime);
   const events = createEventLog({ store, now, log });
   const observations = createObservationBus();
@@ -33,8 +34,9 @@ function createCore({ store, runtime, now = Date.now, log = console.log, reprobe
   let starting = null;
 
   const runs = createRunService({ store, events, getRuntime: () => runtime, now, log });
-  // Wired in later steps; kept as slots so the router and the bridge have one shape.
-  const services = { runs, automations: null, permissions: null };
+  const automations = createAutomationService({ store, events, getRuntime: () => runtime, runs, complete, now, log });
+  // The permission broker arrives in the next step; the slot keeps the bridge's shape.
+  const services = { runs, automations, permissions: null };
 
   function setStatus(status) {
     runtimeStatus = status;
@@ -86,6 +88,7 @@ function createCore({ store, runtime, now = Date.now, log = console.log, reprobe
     clearInterval(reprobeTimer);
     reprobeTimer = null;
     runs.interruptAll(reason);
+    automations.runtimeGone();
     if (runtime) {
       try { await runtime.stop(); } catch (err) { log(`[core] runtime stop: ${err.message}`); }
       runtimeStatus = await runtime.getStatus().catch(() => ({ state: 'stopped' }));
@@ -136,6 +139,14 @@ function createCore({ store, runtime, now = Date.now, log = console.log, reprobe
   route('GET', '/v1/runs/:id', (p) => ({ run: runs.get(p.id) }));
   route('POST', '/v1/runs/:id/cancel', async (p) => ({ run: await runs.cancel(p.id) }));
 
+  route('GET', '/v1/automations', () => ({ automations: automations.list() }));
+  route('POST', '/v1/automations', async (_p, body) => ({ ...({ automation: await automations.create(body || {}) }), [HTTP_STATUS]: 201 }));
+  route('POST', '/v1/automations/intent', async (_p, body) => automations.intent(body && body.text));
+  route('GET', '/v1/automations/:id', (p) => ({ automation: automations.get(p.id) }));
+  route('PATCH', '/v1/automations/:id', async (p, body) => ({ automation: await automations.update(p.id, body || {}) }));
+  route('DELETE', '/v1/automations/:id', async (p) => automations.remove(p.id));
+  route('POST', '/v1/automations/:id/run', async (p) => accepted(await automations.runNow(p.id)));
+
   route('POST', '/v1/observations', (_p, body) => {
     const list = Array.isArray(body && body.observations) ? body.observations : body ? [body] : [];
     let count = 0;
@@ -178,7 +189,7 @@ function createCore({ store, runtime, now = Date.now, log = console.log, reprobe
   }
 
   return {
-    events, observations, runs, services,
+    events, observations, runs, automations, services,
     handle, owns, start, stop, startRuntime, stopRuntime,
     runtimeStatus: () => runtimeStatus,
     runtimeKind: () => (runtime ? runtime.kind : null),

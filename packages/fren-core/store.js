@@ -246,9 +246,10 @@ function openCoreStore(dbPath) {
                   VALUES (?, ?, ?, ?, ?, ?)`).run(id, automationId, trigger, startedAt, status, runId);
       db.prepare('UPDATE automations SET last_run_at = ? WHERE id = ?').run(startedAt, automationId);
     },
-    updateAutomationRun(id, { status, endedAt, output, delivered }) {
+    updateAutomationRun(id, { status, endedAt, output, delivered, trigger }) {
       const sets = [];
       const args = [];
+      if (trigger !== undefined) { sets.push('trigger = ?'); args.push(trigger); }
       if (status !== undefined) { sets.push('status = ?'); args.push(status); }
       if (endedAt !== undefined) { sets.push('ended_at = ?'); args.push(endedAt); }
       if (output !== undefined) { sets.push('output = ?'); args.push(String(output).slice(0, 8000)); }

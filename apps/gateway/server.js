@@ -653,7 +653,8 @@ function pickRuntime(provider) {
 function buildCore(provider) {
   fs.mkdirSync(config.DATA_DIR, { recursive: true });
   const store = openCoreStore(path.join(config.DATA_DIR, 'core.db'));
-  return createCore({ store, runtime: pickRuntime(provider), log: console.log });
+  // The fast lane's model, for reading intent out of what someone said.
+  return createCore({ store, runtime: pickRuntime(provider), complete: (request) => provider.complete(request), log: console.log });
 }
 
 module.exports = { createServer };
