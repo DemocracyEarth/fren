@@ -1070,7 +1070,18 @@ are the vertical slice.
 
 ### Phase 0: this document (done)
 
-### Phase 1: contract, Core, mock runtime, UI (no Docker needed)
+### Phase 1: contract, Core, mock runtime, UI (no Docker needed) — done
+
+Landed on branch `nanoclaw-runtime` as eight commits after this document. What
+exists: `packages/runtime` (contract + 14 contract tests), `packages/runtime-mock`,
+`packages/shared/cron.js`, `packages/fren-core` (store with migrations, event log
+over server-sent events, runs, automations, permission broker, routes),
+`packages/observer`, `packages/permissions`, the gateway mounting Core, and the
+desktop wired end to end (event stream client, run lane in both chat surfaces,
+automation proposals and cards, approval cards, a Requests section, the
+environment's state in words). `FREN_RUNTIME` selects the runtime; only `mock`
+exists until phase 2. `docs/privacy.md`, the README and `FREN_FACTS` were
+updated in the same commit as the interface.
 
 Deliverables: `packages/runtime` (types, errors, contract tests), `packages/runtime-mock`, `packages/fren-core` (`core.db` with migrations, runs, sessions, automations, automation engine with the lifted `isDue` scheduler, permission broker, event log, SSE), `packages/observer` and `packages/permissions` (types and pure functions with tests), new routes mounted in `apps/gateway/server.js`, desktop: `state.runtime`, SSE consumer, `fren:run`, `fren:automationIntent`, `fren:automations2` list with enable/disable/delete/run-now, approval card in the panel, dashboard status block and runs section; the desktop also scrubs `FREN_VISION_API_KEY` alongside the other four keys; `docs/privacy.md` and `FREN_FACTS` updated for what an automation can now do.
 
