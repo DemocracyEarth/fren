@@ -167,7 +167,15 @@ function createRunService({ store, events, getRuntime, now = Date.now, log = () 
         return true;
       }
       case 'agent.message': {
-        if (!runId || !store.getRun(runId)) return false;
+        if (!runId || !store.getRun(runId)) {
+          // Something the agent volunteered, or a run this Core life does not
+          // know. Not a run of ours, but not nothing either.
+          if (!runId && event.message && (event.message.text || event.message.files)) {
+            events.emit('agent.message', { runId: null, sessionId: event.sessionId || null, kind: 'chat', automationId: event.automationId || null, automationName: event.automationName || null, message: { ...event.message } });
+            return true;
+          }
+          return false;
+        }
         const m = event.message || {};
         const run = store.getRun(runId);
         const seq = typeof m.seq === 'number' ? m.seq : run.messages.length + 1;

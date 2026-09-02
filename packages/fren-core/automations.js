@@ -273,6 +273,20 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
     return store.getAutomationRun(id);
   }
 
+  /**
+   * The runtime fired a schedule by itself and delivered a result without a
+   * run FREN opened. Make the run now, from the message, and close it: a fire
+   * with a result is a completed run.
+   */
+  function deliveredWithoutRun(a, message) {
+    const runId = newId('run');
+    runs.adopt({ runId, kind: 'schedule', automationId: a.id });
+    recordStart(a, runId, 'schedule');
+    runs.onRuntimeEvent({ type: 'agent.message', runId, automationId: a.id, automationName: a.name, message });
+    runs.onRuntimeEvent({ type: 'run.completed', runId });
+    finishRun(runId, true);
+  }
+
   /** Close the record for a run, once, from whichever signal arrives first. */
   function finishRun(runId, ok, detail) {
     const ar = store.getAutomationRunByRunId(runId);
@@ -325,6 +339,12 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
         if (automationId) {
           const a = store.getAutomation(automationId);
           if (a) event.automationName = a.name;
+          // A scheduled fire the runtime started on its own: no run of ours is
+          // open, but the result is real. Record it and let the person see it.
+          if (a && !run && event.message && (event.message.text || event.message.files)) {
+            deliveredWithoutRun(a, event.message);
+            return true;
+          }
         }
         return false;
       }

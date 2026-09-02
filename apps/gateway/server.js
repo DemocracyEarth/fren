@@ -15,6 +15,7 @@ const { createElevenLabsProvider } = require('./providers/elevenlabs');
 const { createCore } = require('../../packages/fren-core');
 const { openCoreStore } = require('../../packages/fren-core/store');
 const { createMockRuntime } = require('../../packages/runtime-mock');
+const { createSandboxProxy, chooseUpstream, DEFAULT_PORT: SANDBOX_PORT } = require('../../packages/fren-core/sandbox-proxy');
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -636,25 +637,53 @@ if (require.main === module) {
 }
 
 /**
- * Which secure execution environment runs agents. Only the mock exists in
- * this build; a real runtime arrives as another package that keeps the same
- * contract, and FREN_RUNTIME picks it.
+ * Which secure execution environment runs agents.
+ *
+ * FREN_RUNTIME picks: `nanoclaw` (the vendored host, isolated containers),
+ * `mock` (nothing runs; for development and demos), or `auto` — the default:
+ * the vendored host when it has been built (`npm run runtime:build`), else
+ * the mock. Whether the container runtime itself is present is the host
+ * adapter's to report, in words, through the environment's status.
  */
-function pickRuntime(provider) {
-  const chosen = (process.env.FREN_RUNTIME || '').toLowerCase();
-  if (chosen && chosen !== 'mock') {
-    console.warn(`[core] runtime "${chosen}" is not available in this build; using the mock runtime`);
-  } else if (!chosen && provider.name !== 'mock') {
-    console.warn('[core] no secure execution environment is wired yet; agent runs use the mock runtime');
+function pickRuntime(provider, { sandboxUrl, sandboxToken, model }) {
+  const chosen = (process.env.FREN_RUNTIME || 'auto').toLowerCase();
+  const runtimeDir = path.join(config.REPO_ROOT, 'vendor', 'nanoclaw');
+  const built = fs.existsSync(path.join(runtimeDir, 'dist', 'index.js'));
+  if (chosen === 'mock' || (chosen === 'auto' && (!built || provider.name === 'mock'))) {
+    if (chosen === 'auto' && !built && provider.name !== 'mock') {
+      console.warn('[core] the runtime host is not built (npm run runtime:build); agent runs use the mock runtime');
+    }
+    return createMockRuntime({ replyDelayMs: 600 });
   }
-  return createMockRuntime({ replyDelayMs: 600 });
+  const { createNanoclawRuntime } = require('../../packages/runtime-nanoclaw');
+  return createNanoclawRuntime({
+    dataDir: config.DATA_DIR, runtimeDir, sandboxUrl, sandboxToken, model,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, log: console.log,
+  });
 }
 
 function buildCore(provider) {
   fs.mkdirSync(config.DATA_DIR, { recursive: true });
   const store = openCoreStore(path.join(config.DATA_DIR, 'core.db'));
+  // The sandbox proxy: the one door a model call has out of the environment.
+  // Listening before the runtime starts, so a container never finds it absent.
+  const upstream = chooseUpstream();
+  const sandbox = createSandboxProxy({ upstream, log: console.log });
+  const sandboxPort = Number(process.env.FREN_SANDBOX_PORT) || SANDBOX_PORT;
+  sandbox.listen(sandboxPort, process.env.FREN_SANDBOX_BIND || '127.0.0.1')
+    .then(() => console.log(`[sandbox] proxy on 127.0.0.1:${sandboxPort} (upstream=${upstream.kind})`))
+    .catch((err) => console.error(`[sandbox] proxy could not listen: ${err.message}`));
+  if (upstream.kind === 'none') console.warn('[sandbox] no model credential for the environment; agents there cannot think until one is set');
+  const runtime = pickRuntime(provider, {
+    sandboxUrl: process.env.FREN_SANDBOX_URL || `http://host.docker.internal:${sandboxPort}/anthropic`,
+    sandboxToken: sandbox.token,
+    model: upstream.model,
+  });
   // The fast lane's model, for reading intent out of what someone said.
-  return createCore({ store, runtime: pickRuntime(provider), complete: (request) => provider.complete(request), log: console.log });
+  const core = createCore({ store, runtime, complete: (request) => provider.complete(request), log: console.log });
+  const stop = core.stop.bind(core);
+  core.stop = async () => { await stop(); await sandbox.close(); };
+  return core;
 }
 
 module.exports = { createServer };
