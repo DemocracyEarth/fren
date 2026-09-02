@@ -796,6 +796,13 @@ function onCoreEvent(e) {
     }
     return;
   }
+  // The secure execution environment gave up on an automation. Say so once;
+  // the reason is on its card.
+  if (e.type === 'automation.paused') {
+    if (speaking || awaitingReply) return;
+    speak(`I stopped "${e.name || 'an automation'}": ${e.detail || 'it kept failing'}. Resume it from the automations list when it is fixed.`);
+    return;
+  }
   // Something fren said on its own: an automation reporting in, or the agent
   // coming back after an approval. Read it out the way a routine is, when free.
   if (e.type === 'agent.message' && !e.runId && e.message && e.message.text) {

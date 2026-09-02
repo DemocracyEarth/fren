@@ -194,3 +194,57 @@ test('intent: the model is preferred when it answers, and checked', async () => 
   assert.equal(r.source, 'heuristic');
   await core.stop();
 });
+
+test('a schedule the runtime gives up on goes off with the reason; Resume is the only way back', async () => {
+  let clock = new Date(2026, 8, 2, 8, 0).getTime();
+  const { core, runtime, store } = setup({ runtime: { now: () => clock, pauseAfterFailures: 2 } });
+  await core.start();
+  await core.startRuntime();
+  const seen = [];
+  core.events.subscribe((e) => seen.push(e));
+  const a = await core.automations.create({ ...HN, body: { kind: 'agent', instruction: '[fail] check the news' } });
+  clock = new Date(2026, 8, 2, 9, 0).getTime();
+  assert.equal(runtime.tick(clock).length, 1);
+  await until(() => store.listAutomationRuns(a.id).some((r) => r.status === 'failed'));
+  assert.equal(store.getAutomation(a.id).enabled, true, 'one failure is a failed run, not a verdict');
+  clock = new Date(2026, 8, 3, 9, 0).getTime();
+  assert.equal(runtime.tick(clock).length, 1);
+  const paused = await until(() => seen.find((e) => e.type === 'automation.paused' && e.automationId === a.id));
+  assert.equal(paused.name, 'morning AI news');
+  assert.equal(paused.detail, 'it failed 2 times in a row');
+  const off = core.automations.get(a.id);
+  assert.equal(off.enabled, false);
+  assert.equal(off.pausedByRuntime, 'it failed 2 times in a row');
+  assert.equal(off.nextRunAt, null);
+  assert.equal(store.listAutomationRuns(a.id).filter((r) => r.status === 'failed').length, 2);
+  assert.equal(runtime.tick(new Date(2026, 8, 4, 9, 0).getTime()).length, 0, 'nothing fires while it is off');
+  const back = await core.automations.update(a.id, { enabled: true });
+  assert.equal(back.enabled, true);
+  assert.equal(back.pausedByRuntime, null);
+  assert.ok(back.nextRunAt);
+  const s = (await runtime.listSchedules())[0];
+  assert.equal(s.enabled, true);
+  assert.equal(s.pausedByRuntime, undefined);
+  await core.stop();
+});
+
+test('a pause that happened while Core was away is found at reconcile, not undone', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fren-atm-away-'));
+  const store = openCoreStore(path.join(dir, 'core.db'));
+  const runtime = createMockRuntime({ replyDelayMs: 2 });
+  const first = createCore({ store, runtime, log: () => {}, reprobeMs: 0 });
+  await first.start();
+  await first.startRuntime();
+  const a = await first.automations.create(HN);
+  await first.stop();
+  runtime.giveUp(store.getAutomation(a.id).runtimeRef.id, 'it failed 8 times in a row');
+  const second = createCore({ store, runtime, log: () => {}, reprobeMs: 0 });
+  await second.start();
+  await second.startRuntime();
+  await until(() => !store.getAutomation(a.id).enabled);
+  const off = second.automations.get(a.id);
+  assert.equal(off.pausedByRuntime, 'it failed 8 times in a row');
+  assert.equal(off.runtimeState, 'scheduled');
+  assert.equal((await runtime.listSchedules())[0].enabled, false, 'reconcile did not resume it');
+  await second.stop();
+});

@@ -8,7 +8,8 @@ const { once } = require('node:events');
 const { createNclClient } = require('../ncl-client');
 const { createBridge } = require('../bridge');
 const { detect, resolveDocker, pathWithDocker } = require('../container-runtime');
-const { createScheduleStore } = require('../schedules');
+const { createScheduleStore, refFromPrompt, pauseNote, failureNote } = require('../schedules');
+const { observe, remember, ABSORB_MS } = require('../schedule-watch');
 
 const tmpSock = (name) => path.join(fs.mkdtempSync('/tmp/frn-'), name);
 
@@ -163,4 +164,74 @@ test('schedules translate to tasks and a delivery surface, and back', async () =
   await store.remove(s.id);
   assert.equal((await store.list()).length, 0);
   assert.ok(calls.some(([c]) => c === 'messaging-groups-delete'));
+});
+
+test('a task is recognised as FREN\'s by the prompt it was given, and its run log reads as sentences', () => {
+  const prompt = 'You are running FREN\'s automation "morning AI news" on behalf of its owner.\n\nInstruction:\nCheck HN.\n\nDelivery contract: send_message to the destination named "automation-atm_00cdc1155e19b679".';
+  const ref = refFromPrompt(prompt, { recurrence: '0 9 * * *', status: 'paused', session_id: 'ses-1' });
+  assert.equal(ref.automationId, 'atm_00cdc1155e19b679');
+  assert.equal(ref.name, 'morning AI news');
+  assert.equal(ref.cron, '0 9 * * *');
+  assert.equal(ref.enabled, false);
+  assert.equal(ref.instruction, prompt);
+  assert.equal(refFromPrompt('Water the plants.', {}), null);
+  const note = '2026-09-05 09:00:02 auto-paused after 8 consecutive script failures (host); fix the script, then `ncl tasks resume x`';
+  assert.equal(pauseNote(['2026-09-04 09:00 ran fine', note]), 'it failed 8 times in a row');
+  assert.equal(pauseNote(['2026-09-04 09:00 ran fine']), null);
+  assert.equal(failureNote(['2026-09-03 09:00:04 error: feed returned 403', note]), 'error: feed returned 403');
+  assert.equal(failureNote([note]), null);
+  assert.equal(failureNote([]), null);
+});
+
+test('the schedule watch reads fires, ends, misses and pauses off the task list', () => {
+  const last = new Map();
+  const S = (over = {}) => ({ id: 'morning-1', enabled: true, runs: 2, failedRuns: 0, nextRunAt: 1000, runtimeRef: { rowId: 'row-a' }, ...over });
+  assert.deepEqual(observe(last, [S()], 500), [], 'a first reading is a baseline, history and all');
+  assert.deepEqual(observe(last, [S()], 1000), [{ kind: 'fired', seriesId: 'morning-1', rowId: 'row-a' }], 'the row came due');
+  assert.deepEqual(observe(last, [S()], 1500), [], 'still due, still the same fire');
+  assert.deepEqual(
+    observe(last, [S({ runs: 3, nextRunAt: 90000, runtimeRef: { rowId: 'row-b' } })], 2000),
+    [{ kind: 'settled', seriesId: 'morning-1', rowId: 'row-a', ok: true }],
+    'the counter moved while the fired run was open: it ended out of sight',
+  );
+  assert.deepEqual(
+    observe(last, [S({ runs: 3, failedRuns: 1, nextRunAt: 180000, runtimeRef: { rowId: 'row-c' } })], 3000),
+    [{ kind: 'missed', seriesId: 'morning-1', ok: false }],
+    'a counter moving with no run open is a fire nobody saw',
+  );
+  const paused = S({ enabled: false, runs: 3, failedRuns: 1, nextRunAt: 180000, runtimeRef: { rowId: 'row-c' }, pausedByRuntime: 'it failed 8 times in a row' });
+  assert.deepEqual(observe(last, [paused], 4000), [{ kind: 'paused', seriesId: 'morning-1', detail: 'it failed 8 times in a row' }]);
+  assert.deepEqual(observe(last, [paused], 5000), [], 'said once');
+  assert.deepEqual(observe(last, [S({ enabled: false, runs: 3, failedRuns: 1, nextRunAt: 180000, runtimeRef: { rowId: 'row-c' } })], 6000), [], 'paused without a note is FREN\'s own pause');
+  assert.deepEqual(observe(last, [], 7000), [], 'a series between acknowledgement and re-arm is not news');
+});
+
+test('an end FREN watched explains the next counter move, so one fire is one record', () => {
+  const last = new Map();
+  const S = (over = {}) => ({ id: 'morning-1', enabled: true, runs: 2, failedRuns: 0, nextRunAt: 1000, runtimeRef: { rowId: 'row-a' }, ...over });
+  observe(last, [S()], 500);
+  assert.equal(observe(last, [S()], 1000).length, 1, 'fired');
+  remember(last, 'morning-1', 'row-a', true, 1200); // the acknowledgement arrived; FREN closed the run
+  assert.deepEqual(observe(last, [S()], 1300), [], 'the same due row is not fired again while the host catches up');
+  assert.deepEqual(observe(last, [S({ runs: 3, nextRunAt: 90000, runtimeRef: { rowId: 'row-b' } })], 2000), [], 'the counter move is spoken for');
+  assert.deepEqual(
+    observe(last, [S({ runs: 4, nextRunAt: 90000, runtimeRef: { rowId: 'row-b' } })], 2500),
+    [{ kind: 'missed', seriesId: 'morning-1', ok: true }],
+    'a second move is a real fire',
+  );
+  // Two run-nows end before the host applies either: both explained, like for like.
+  remember(last, 'morning-1', 'row-x', true, 3000);
+  remember(last, 'morning-1', 'row-y', false, 3100);
+  assert.deepEqual(observe(last, [S({ runs: 5, failedRuns: 1, nextRunAt: 90000, runtimeRef: { rowId: 'row-b' } })], 3500), []);
+  // An end remembered before any reading exists is still remembered, for a while.
+  const fresh = new Map();
+  const later = ABSORB_MS * 10;
+  remember(fresh, 'x-1', 'row-z', false, 10);
+  assert.deepEqual(observe(fresh, [S({ id: 'x-1', failedRuns: 1, nextRunAt: later, runtimeRef: { rowId: 'row-q' } })], 20), []);
+  assert.deepEqual(observe(fresh, [S({ id: 'x-1', failedRuns: 2, nextRunAt: later, runtimeRef: { rowId: 'row-q' } })], 30), [], 'explained by the remembered end');
+  assert.deepEqual(
+    observe(fresh, [S({ id: 'x-1', failedRuns: 3, nextRunAt: later, runtimeRef: { rowId: 'row-q' } })], ABSORB_MS + 100),
+    [{ kind: 'missed', seriesId: 'x-1', ok: false }],
+    'nothing is explained by an end older than the absorb window',
+  );
 });

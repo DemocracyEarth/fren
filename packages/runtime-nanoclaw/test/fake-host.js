@@ -21,6 +21,10 @@ const nclPath = path.join(dataDir, 'ncl.sock');
 
 // ---- the "central DB" ------------------------------------------------------
 const db = { groups: [], users: [], roles: [], mgs: [], wirings: [], destinations: [], tasks: [] };
+// Tasks outlive a host process, like the real host's rows do.
+const tasksFile = path.join(dataDir, 'tasks.json');
+try { db.tasks = JSON.parse(fs.readFileSync(tasksFile, 'utf8')); } catch { /* first life */ }
+function save() { fs.writeFileSync(tasksFile, JSON.stringify(db.tasks)); }
 let ids = 0;
 const nid = (p) => `${p}-${(ids += 1)}`;
 const items = (list) => list;
@@ -41,19 +45,54 @@ const commands = {
   'wirings-create': (a) => { const mg = db.mgs.find((m) => m.channel_type === a.channel_type && m.platform_id === a.platform_id); const ag = db.groups.find((g) => g.folder === a.agent_group); const w = { id: nid('w'), messaging_group_id: mg.id, agent_group_id: ag.id, session_mode: a.session_mode }; db.wirings.push(w); return w; },
   'destinations-add': (a) => { const d = { ...a }; db.destinations.push(d); db.lastDestination = a.local_name; return d; },
   'destinations-remove': (a) => { db.destinations = db.destinations.filter((d) => d.local_name !== a.local_name); return { removed: true }; },
-  'tasks-list': () => items(db.tasks.map(taskRow)),
-  'tasks-get': ({ id }) => { const t = db.tasks.find((x) => x.series_id === id); if (!t) throw new Error(`task not found: ${id}`); return taskRow(t); },
-  'tasks-create': (a) => { const t = { destination: db.lastDestination || null, series_id: `${(a.name || 't').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${nid('x').slice(2)}`, session_id: nid('ses'), name: a.name, prompt: a.prompt, recurrence: a.recurrence, status: 'pending', runs: 0, failed_runs: 0, last_run: null, next_run: new Date(Date.now() + 3600e3).toISOString() }; db.tasks.push(t); return taskRow(t); },
-  'tasks-update': (a) => { const t = db.tasks.find((x) => x.series_id === a.id); if (!t) throw new Error(`task not found: ${a.id}`); if (a.prompt) t.prompt = a.prompt; if (a.recurrence) t.recurrence = a.recurrence; return taskRow(t); },
-  'tasks-pause': ({ id }) => { const t = db.tasks.find((x) => x.series_id === id); if (!t) throw new Error(`task not found: ${id}`); t.status = 'paused'; return { paused: 1 }; },
-  'tasks-resume': ({ id }) => { const t = db.tasks.find((x) => x.series_id === id); if (!t) throw new Error(`task not found: ${id}`); t.status = 'pending'; return { resumed: 1 }; },
+  // The list shortens prompts like the real host's does; get returns the whole task and its run log.
+  'tasks-list': () => items(db.tasks.map((t) => { const { recent_log, ...row } = taskRow(t); return { ...row, prompt: row.prompt.length > 120 ? row.prompt.slice(0, 117) + '...' : row.prompt }; })),
+  'tasks-get': ({ id }) => { const t = db.tasks.find((x) => x.series_id === id); if (!t) throw new Error(`task not found: ${id}`); return { ...taskRow(t), completed_runs: t.runs }; },
+  'tasks-create': (a) => { const series = `${(a.name || 't').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${nid('x').slice(2)}`; const t = { destination: db.lastDestination || null, series_id: series, row_id: series, session_id: nid('ses'), name: a.name, prompt: a.prompt, recurrence: a.recurrence, status: 'pending', runs: 0, failed_runs: 0, last_run: null, next_run: new Date(Date.now() + 3600e3).toISOString(), recent_log: [] }; db.tasks.push(t); save(); return taskRow(t); },
+  'tasks-update': (a) => { const t = db.tasks.find((x) => x.series_id === a.id); if (!t) throw new Error(`task not found: ${a.id}`); if (a.prompt) t.prompt = a.prompt; if (a.recurrence) t.recurrence = a.recurrence; save(); return taskRow(t); },
+  'tasks-pause': ({ id }) => { const t = db.tasks.find((x) => x.series_id === id); if (!t) throw new Error(`task not found: ${id}`); t.status = 'paused'; save(); return { paused: 1 }; },
+  'tasks-resume': ({ id }) => { const t = db.tasks.find((x) => x.series_id === id); if (!t) throw new Error(`task not found: ${id}`); t.status = 'pending'; save(); return { resumed: 1 }; },
   'tasks-cancel': ({ id }) => ({ cancelled: id }),
-  'tasks-delete': ({ id }) => { const before = db.tasks.length; db.tasks = db.tasks.filter((x) => x.series_id !== id); if (db.tasks.length === before) throw new Error(`task not found: ${id}`); return { deleted: true }; },
-  'tasks-run': ({ id }) => { const t = db.tasks.find((x) => x.series_id === id); if (!t) throw new Error(`task not found: ${id}`); const rowId = `${id}-run-${nid('r')}`; t.runs += 1; t.last_run = new Date().toISOString(); setTimeout(() => runTask(t, rowId), 20); return { series_id: id, row_id: rowId, status: 'pending' }; },
+  'tasks-delete': ({ id }) => { const before = db.tasks.length; db.tasks = db.tasks.filter((x) => x.series_id !== id); if (db.tasks.length === before) throw new Error(`task not found: ${id}`); save(); return { deleted: true }; },
+  // Run-now inserts a due row the list hides behind the future one; the counters move once it is acknowledged.
+  'tasks-run': ({ id }) => { const t = db.tasks.find((x) => x.series_id === id); if (!t) throw new Error(`task not found: ${id}`); const rowId = `${id}-run-${nid('r')}`; setTimeout(() => runTask(t, rowId).then(() => settle(t, { ok: true })), 20); return { series_id: id, row_id: rowId, status: 'pending' }; },
+  /**
+   * Test-only: a fire on the host's own clock. 'ok' and 'fail' make the live
+   * row due, run it, acknowledge it and re-arm the series; 'silent' and
+   * 'pause' re-arm without any of that, as a fire nobody watched would look
+   * a sweep later.
+   */
+  'fake-fire': ({ id, outcome }) => {
+    const t = db.tasks.find((x) => x.series_id === id); if (!t) throw new Error(`task not found: ${id}`);
+    const rowId = t.row_id;
+    if (outcome === 'ok' || outcome === 'fail') {
+      t.next_run = new Date(Date.now() - 1000).toISOString(); save();
+      setTimeout(async () => {
+        if (outcome === 'ok') { await runTask(t, rowId); setTimeout(() => settle(t, { ok: true }), 100); return; }
+        t.recent_log.push('2026-09-03 09:00:04 error: boom'); save();
+        send({ type: 'turn', runId: rowId, status: 'failed', sessionId: t.session_id });
+        setTimeout(() => settle(t, { ok: false }), 100);
+      }, 150);
+    } else if (outcome === 'silent') {
+      settle(t, { ok: true });
+    } else if (outcome === 'pause') {
+      t.recent_log.push(`2026-09-04 09:00:02 auto-paused after 8 consecutive script failures (host); fix the script, then \`ncl tasks resume ${id}\``);
+      settle(t, { ok: false, paused: true });
+    } else throw new Error('outcome must be ok, fail, silent or pause');
+    return { series_id: id, row_id: rowId, outcome };
+  },
 };
 function taskRow(t) { return { ...t }; }
+/** The sweep after an acknowledgement: counters move, the next occurrence is armed. */
+function settle(t, { ok, paused = false }) {
+  if (ok) { t.runs += 1; t.last_run = new Date().toISOString(); } else t.failed_runs += 1;
+  t.row_id = `${t.series_id}-${nid('row')}`;
+  t.next_run = new Date(Date.now() + 3600e3).toISOString();
+  if (paused) t.status = 'paused';
+  save();
+}
 
-net.createServer((socket) => {
+const nclServer = net.createServer((socket) => {
   let buffer = '';
   socket.setEncoding('utf8');
   socket.on('data', (chunk) => {
@@ -72,7 +111,9 @@ net.createServer((socket) => {
       socket.end(JSON.stringify({ id: frame.id, ok: false, error: { code: 'handler-error', message: err.message } }) + '\n');
     }
   });
-}).listen(nclPath);
+});
+try { fs.unlinkSync(nclPath); } catch { /* first life */ }
+nclServer.listen(nclPath);
 
 // ---- the bridge side --------------------------------------------------------
 const link = net.createConnection(corePath);

@@ -25,6 +25,7 @@ const { createBridge } = require('./bridge');
 const { createSupervisor } = require('./supervisor');
 const { ensureEntities, OWNER_HANDLE, GROUP_FOLDER } = require('./bootstrap');
 const { createScheduleStore, platformIdFor } = require('./schedules');
+const { createScheduleWatch, POLL_MS: SCHEDULE_WATCH_MS } = require('./schedule-watch');
 
 const CAPABILITIES = Object.freeze({
   tokenStreaming: false,
@@ -89,6 +90,7 @@ function createNanoclawRuntime(opts) {
     dataDir, runtimeDir, sandboxUrl, sandboxToken, model, timezone,
     now = Date.now, log = console.log, probe = containerRuntime,
     hostCommand = null, skipContainerProbe = false, connectTimeoutMs = CONNECT_TIMEOUT_MS,
+    scheduleWatchMs = SCHEDULE_WATCH_MS,
   } = opts;
   if (!dataDir || !runtimeDir) throw new Error('the runtime needs dataDir and runtimeDir');
 
@@ -118,6 +120,7 @@ function createNanoclawRuntime(opts) {
   const ncl = createNclClient({ socketPath: nclPath });
   let supervisor = null;
   let schedules = null;
+  let scheduleWatch = null;
 
   // ------------------------------------------------------------ events
   function emit(event) {
@@ -146,7 +149,7 @@ function createNanoclawRuntime(opts) {
     return { ...run, messages: run.messages.map((m) => ({ ...m })) };
   }
 
-  function finishRun(runId, statusName, error) {
+  function finishRun(runId, statusName, error, detail) {
     const run = runs.get(runId);
     if (!run || isTerminal(run.status)) return;
     run.status = statusName;
@@ -156,11 +159,23 @@ function createNanoclawRuntime(opts) {
     emit({ type: 'agent.working', runId, sessionId: run.sessionId || undefined, on: false });
     emit({ type: `run.${statusName}`, runId, ...(error ? { error } : {}) });
     if (run.kind === 'schedule' && run.scheduleId) {
+      // The host's counters will move for this end a sweep later; the watch knows.
+      if (scheduleWatch && !run.synthetic) scheduleWatch.settled(run.scheduleId, runId, statusName === 'completed');
+      const why = error || detail;
       emit({
         type: statusName === 'completed' ? 'schedule.completed' : 'schedule.failed',
-        scheduleId: run.scheduleId, automationId: run.automationId, runId, ...(error ? { detail: error } : {}),
+        scheduleId: run.scheduleId, automationId: run.automationId, runId, ...(why ? { detail: why } : {}),
       });
     }
+  }
+
+  /** A failed turn's reason: what the host said, else the run log, else the plain fact. */
+  async function explainFailure(run, given) {
+    if (given) return given;
+    if (run.kind === 'schedule' && run.scheduleId && schedules) {
+      try { return await schedules.failureDetail(run.scheduleId); } catch { /* the plain fact, then */ }
+    }
+    return 'the agent did not finish';
   }
 
   function nextSeq(map, key) {
@@ -188,9 +203,8 @@ function createNanoclawRuntime(opts) {
       case 'turn': {
         const run = runs.get(frame.runId);
         if (!run) return;
-        if (frame.status === 'completed') finishRun(frame.runId, 'completed');
-        else finishRun(frame.runId, 'failed', frame.detail || 'the agent did not finish');
-        return;
+        if (frame.status === 'completed') return finishRun(frame.runId, 'completed');
+        return void explainFailure(run, frame.detail).then((why) => finishRun(frame.runId, 'failed', why));
       }
       case 'provenance':
         return; // logged by the host; nothing to do beyond the deliver itself
@@ -261,6 +275,45 @@ function createNanoclawRuntime(opts) {
     const message = { seq: nextSeq(seqByRun, runId), at: now(), text, files, final: true };
     run.messages.push(message);
     emit({ type: 'agent.message', runId, message: { ...message } });
+  }
+
+  /**
+   * What the schedule watch found on the host's task list. A fire the host
+   * started on its own becomes a run like one FREN started, watched to its
+   * acknowledgement; a fire that came and went becomes a run opened and
+   * closed in one breath; a pause becomes the event Core switches the
+   * automation off with.
+   */
+  async function onFinding(f) {
+    const ref = schedules && schedules.refs.get(f.seriesId);
+    if (!ref) return;
+    const base = { scheduleId: f.seriesId, automationId: ref.automationId };
+    const open = (id, synthetic) => {
+      const run = { id, sessionId: null, kind: 'schedule', status: 'running', startedAt: now(), messages: [], scheduleId: f.seriesId, automationId: ref.automationId, ...(synthetic ? { synthetic: true } : {}) };
+      runs.set(id, run);
+      emit({ type: 'schedule.fired', ...base, runId: id });
+      emit({ type: 'run.started', runId: id });
+      return run;
+    };
+    switch (f.kind) {
+      case 'fired':
+        if (runs.has(f.rowId)) return;
+        open(f.rowId, false);
+        bridge.send({ type: 'watch', runId: f.rowId });
+        return;
+      case 'settled':
+        return finishRun(f.rowId, f.ok ? 'completed' : 'failed', f.ok ? undefined : await schedules.failureDetail(f.seriesId));
+      case 'missed': {
+        const run = open(newId('run'), true);
+        return finishRun(run.id, f.ok ? 'completed' : 'failed', f.ok ? undefined : await schedules.failureDetail(f.seriesId), f.ok ? 'it ran, but sent nothing' : undefined);
+      }
+      case 'paused':
+        if (ref.enabled === false) return; // FREN paused it; nothing to report
+        emit({ type: 'schedule.paused', ...base, detail: f.detail });
+        return;
+      default:
+        return;
+    }
   }
 
   function automationIdFrom(platformId) {
@@ -353,6 +406,8 @@ function createNanoclawRuntime(opts) {
     agentGroupId = entities.agentGroupId;
     writePersona(null);
     schedules = createScheduleStore({ ncl, agentGroupId, log });
+    scheduleWatch = createScheduleWatch({ list: () => schedules.list(), onFinding, ready: () => state === 'ready', now, log, intervalMs: scheduleWatchMs });
+    scheduleWatch.start();
     log(`[runtime] host ready (${Object.entries(entities.steps).map(([k, v]) => `${k}: ${v}`).join(', ')})`);
   }
 
@@ -451,7 +506,7 @@ function createNanoclawRuntime(opts) {
       return schedules.create(input);
     },
     async updateSchedule(id, patch) { requireReady(); if (patch.cron) parseCron(patch.cron); return schedules.update(id, patch); },
-    async deleteSchedule(id) { if (state !== 'ready') return; await schedules.remove(id); },
+    async deleteSchedule(id) { if (state !== 'ready') return; await schedules.remove(id); if (scheduleWatch) scheduleWatch.forget(id); },
     async listSchedules() { return state === 'ready' ? schedules.list() : []; },
 
     async triggerSchedule(id) {
@@ -507,6 +562,7 @@ function createNanoclawRuntime(opts) {
 
   async function teardown() {
     clearTimeout(restartTimer);
+    if (scheduleWatch) { scheduleWatch.stop(); scheduleWatch = null; }
     if (supervisor) await supervisor.stop();
     if (!skipContainerProbe) {
       try { await probe.stopLabeled(`nanoclaw-install=${slug}`); } catch (err) { log(`[runtime] containers not stopped: ${err.message}`); }
