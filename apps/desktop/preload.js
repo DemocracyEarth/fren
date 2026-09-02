@@ -75,4 +75,24 @@ contextBridge.exposeInMainWorld('fren', {
   onOrbColour: (cb) => ipcRenderer.on('fren:orbColour', (_e, hex) => cb(hex)),
   getWakeOnLaunch: () => ipcRenderer.invoke('fren:getWakeOnLaunch'),
   setWakeOnLaunch: (on) => ipcRenderer.invoke('fren:setWakeOnLaunch', on),
+  // The secure execution environment: ask fren through it (the answer arrives
+  // as events, not as the return value), stop a run, and read its status.
+  run: (text) => ipcRenderer.invoke('fren:run', text),
+  cancelRun: (id) => ipcRenderer.invoke('fren:cancelRun', id),
+  runtimeStatus: () => ipcRenderer.invoke('fren:runtimeStatus'),
+  // Everything Core reports, to every window: runs, messages, automations,
+  // permission requests, the environment's state.
+  onCoreEvent: (cb) => ipcRenderer.on('fren:coreEvent', (_e, ev) => cb(ev)),
+  // Automations that run an agent in the secure execution environment. The
+  // older script automations keep their own calls above.
+  automationIntent: (text) => ipcRenderer.invoke('fren:automationIntent', text),
+  agentAutomations: () => ipcRenderer.invoke('fren:agentAutomations'),
+  createAgentAutomation: (spec) => ipcRenderer.invoke('fren:createAgentAutomation', spec),
+  patchAgentAutomation: (id, patch) => ipcRenderer.invoke('fren:patchAgentAutomation', id, patch),
+  deleteAgentAutomation: (id) => ipcRenderer.invoke('fren:deleteAgentAutomation', id),
+  runAgentAutomation: (id) => ipcRenderer.invoke('fren:runAgentAutomation', id),
+  // What an agent asked to be allowed to do, and the answer. An unanswered
+  // request is a no.
+  permissionRequests: (status) => ipcRenderer.invoke('fren:permissionRequests', status),
+  decidePermission: (id, decision, opts) => ipcRenderer.invoke('fren:decidePermission', id, decision, opts),
 });

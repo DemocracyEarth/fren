@@ -120,7 +120,10 @@ function render(next) {
   state = next;
   paintPanel();
   els.gatewayDot.classList.toggle('down', !state.gatewayOk);
-  els.gatewayDot.title = state.gatewayOk ? 'connected' : 'gateway unreachable';
+  els.gatewayDot.title = !state.gatewayOk ? 'gateway unreachable'
+    : state.runtime === 'ready' ? 'connected · secure execution environment ready'
+    : `connected · secure execution environment ${state.runtime}${state.runtimeHint ? ` — ${state.runtimeHint}` : ''}`;
+  document.body.dataset.runtime = state.runtime || 'unavailable';
   // The most important fact in the window, in words. The orb says it too, but
   // the orb may be behind whatever you are working on.
   document.body.dataset.watching = state.observing ? '1' : '0';
@@ -614,6 +617,63 @@ async function tryRoutine(text) {
   return true;
 }
 
+/**
+ * Ask Core whether that was an automation. If it was, propose it — the
+ * schedule and the task in words — and only create it when they keep it.
+ * Returns 'kept', 'declined', or 'no' (not an automation).
+ *
+ * A proposal before creation is deliberate: a routine only asks a question,
+ * an automation runs an agent with tools. That deserves a look first.
+ */
+async function tryAutomation(text) {
+  let intent = null;
+  try { intent = await window.fren.automationIntent(text); } catch { return 'no'; }
+  if (!intent || intent.error || !intent.isAutomation) return 'no';
+  const kept = await proposeAutomation(intent);
+  if (!kept) return 'declined';
+  const res = await window.fren.createAgentAutomation({
+    name: intent.name,
+    trigger: { type: 'schedule', cron: intent.cron },
+    body: { kind: 'agent', instruction: intent.instruction },
+    // The internet is the one thing the environment reaches today; saying so
+    // on the automation is what lets the broker allow it without asking.
+    permissions: ['network.request'],
+    source: 'user',
+  });
+  if (!res || res.error) {
+    await speak(`I could not set that up${res && res.error ? `: ${res.error}` : ''}.`);
+    return 'kept';
+  }
+  await speak(
+    `Done — ${intent.describe}, I'll do this: ${intent.instruction}\n\n` +
+    'It is under Automations in the full window, where you can run it now, pause it, or delete it. ' +
+    'What it finds arrives here.'
+  );
+  return 'kept';
+}
+
+/** The proposal, with two chips. Resolves true when they keep it. */
+function proposeAutomation(intent) {
+  return new Promise((resolve) => {
+    const bubble = addBubble('fren',
+      `${intent.describe[0].toUpperCase() + intent.describe.slice(1)}: ${intent.instruction} Keep it?`);
+    const row = document.createElement('div');
+    row.className = 'chips';
+    const keep = document.createElement('button');
+    keep.className = 'chip';
+    keep.textContent = 'Keep it';
+    const no = document.createElement('button');
+    no.className = 'chip';
+    no.textContent = 'Just answer me';
+    const done = (value) => { row.remove(); resolve(value); };
+    keep.addEventListener('click', () => done(true));
+    no.addEventListener('click', () => done(false));
+    row.append(keep, no);
+    bubble.append(row);
+    scrollDown();
+  });
+}
+
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 /** "every weekday at 09:00", in words. */
@@ -625,6 +685,123 @@ function describeWhen(r) {
   if (set === '0,6') return `at weekends at ${time}`;
   if (r.days.length === 1) return `every ${DAY_NAMES[r.days[0]]} at ${time}`;
   return `on ${r.days.map((d) => DAY_NAMES[d].slice(0, 3)).join(', ')} at ${time}`;
+}
+
+/**
+ * Runs in flight, by id: each knows what to do with a message and with the
+ * end. Events for anything else are not ours to answer.
+ */
+const liveRuns = new Map();
+const RUN_WAIT_MS = 10 * 60 * 1000;
+
+/** Ask through the runtime; fall back to the fast lane if it refuses. */
+async function askThroughRuntime(question, thinkingTimer) {
+  const res = await window.fren.run(question);
+  if (!res || res.error || !res.runId) {
+    const fallback = await window.fren.chat(question);
+    clearTimeout(thinkingTimer);
+    showTyping(false);
+    await speak((fallback && fallback.reply) || '(no reply)');
+    return;
+  }
+  await new Promise((resolve) => {
+    let chain = Promise.resolve();
+    let said = 0;
+    const timer = setTimeout(() => end('That took too long, so I stopped waiting.'), RUN_WAIT_MS);
+    function end(error) {
+      if (!liveRuns.has(res.runId)) return;
+      liveRuns.delete(res.runId);
+      clearTimeout(timer);
+      clearTimeout(thinkingTimer);
+      chain.then(() => {
+        showTyping(false);
+        if (error) addBubble('fren', error);
+        else if (!said) addBubble('fren', 'I finished, but had nothing to show for it.');
+        resolve();
+      });
+    }
+    liveRuns.set(res.runId, {
+      message(m) {
+        if (!m || !m.text) return;
+        said += 1;
+        clearTimeout(thinkingTimer);
+        showTyping(false);
+        // One at a time, in order, spoken like any other reply.
+        chain = chain.then(() => speak(m.text));
+      },
+      end,
+    });
+  });
+}
+
+/** Cards on screen for open requests, by request id. */
+const permissionCards = new Map();
+
+/**
+ * An agent asked for something. The question, in words, with two chips.
+ * The panel opens if it is closed: a question nobody can see is a no in ten
+ * minutes, and that should be a choice rather than an accident.
+ */
+async function showPermissionCard(request) {
+  if (!request || permissionCards.has(request.id)) return;
+  const what = request.description && request.scope !== 'unknown'
+    ? `wants to ${request.description}`
+    : (request.title || 'wants permission');
+  const bubble = addBubble('fren', `Something I'm running ${what}. ${request.question || ''}`.trim());
+  const row = document.createElement('div');
+  row.className = 'chips';
+  const allow = document.createElement('button');
+  allow.className = 'chip';
+  allow.textContent = 'Allow';
+  const deny = document.createElement('button');
+  deny.className = 'chip';
+  deny.textContent = "Don't";
+  const settle = async (decision) => {
+    allow.disabled = deny.disabled = true;
+    const res = await window.fren.decidePermission(request.id, decision, {});
+    if (res && res.error) { addBubble('fren', res.error); }
+    permissionCards.delete(request.id);
+    row.remove();
+  };
+  allow.addEventListener('click', () => settle('approve'));
+  deny.addEventListener('click', () => settle('deny'));
+  row.append(allow, deny);
+  bubble.append(row);
+  permissionCards.set(request.id, row);
+  scrollDown();
+  if (!state.panelOpen) await setPanel(true);
+}
+
+/** Everything Core reports. Only what concerns this window is acted on. */
+function onCoreEvent(e) {
+  if (!e || typeof e !== 'object') return;
+  if (e.type === 'permission.requested') return void showPermissionCard(e.request);
+  if (/^permission\.(approved|denied|expired)$/.test(e.type) && e.request) {
+    // Answered elsewhere (the full window), or ran out of time: take the chips
+    // away and say what happened.
+    const row = permissionCards.get(e.request.id);
+    if (row) {
+      permissionCards.delete(e.request.id);
+      row.remove();
+      if (e.type === 'permission.expired') addBubble('fren', 'Nobody answered, so I took that as a no.');
+    }
+    return;
+  }
+  const live = e.runId ? liveRuns.get(e.runId) : null;
+  if (live) {
+    if (e.type === 'agent.message') return live.message(e.message);
+    if (e.type === 'run.completed' || e.type === 'run.cancelled') return live.end(null);
+    if (e.type === 'run.failed' || e.type === 'run.interrupted') {
+      return live.end(e.error ? `Something went wrong: ${e.error}` : 'Something went wrong.');
+    }
+    return;
+  }
+  // An automation reported in. Read it out the way a routine is, when free.
+  if (e.type === 'agent.message' && e.automationId && e.message && e.message.text) {
+    if (speaking || awaitingReply) return;
+    addBubble('user', e.automationName || 'automation');
+    speak(e.message.text);
+  }
 }
 
 /** Something said while fren was still busy. Answered next, never dropped. */
@@ -649,8 +826,14 @@ async function sendMessage(text) {
   // If fren asked something, this is the answer — see if it taught anything.
   learnFrom(question);
   // "every weekday at nine, tell me what I did" is not a question to answer
-  // once — it is a routine to set up.
-  if (looksScheduled(question) && await tryRoutine(question)) return;
+  // once — it is a routine to set up. With the secure execution environment
+  // ready it can be more than a question: an automation that DOES something.
+  if (looksScheduled(question)) {
+    const verdict = state.runtime === 'ready' ? await tryAutomation(question) : 'no';
+    if (verdict === 'kept') return;
+    if (verdict === 'no' && await tryRoutine(question)) return;
+    // 'declined': they wanted an answer, not a job. Answer.
+  }
   awaitingReply = true;
   els.send.disabled = true;
   showTyping(true);
@@ -664,17 +847,23 @@ async function sendMessage(text) {
   const thinkingTimer = setTimeout(() => setFace('thinking'), 420);
 
   try {
-    const res = await window.fren.chat(question);
-    clearTimeout(thinkingTimer);
-    const reply = typeof res === 'string' ? res : (res && res.reply) || '(no reply)';
-    showTyping(false);
-    // Belt and braces. The audio guard above should make speak() always
-    // settle, but `awaitingReply` gates the microphone, so a bug anywhere in
-    // the speaking path must not be able to disable voice input permanently.
-    await Promise.race([
-      speak(reply),
-      new Promise((r) => setTimeout(r, 90_000)),
-    ]);
+    if (state.runtime === 'ready') {
+      // Through the secure execution environment: fren can act, not only
+      // answer. Its words arrive as events, one message at a time.
+      await askThroughRuntime(question, thinkingTimer);
+    } else {
+      const res = await window.fren.chat(question);
+      clearTimeout(thinkingTimer);
+      const reply = typeof res === 'string' ? res : (res && res.reply) || '(no reply)';
+      showTyping(false);
+      // Belt and braces. The audio guard above should make speak() always
+      // settle, but `awaitingReply` gates the microphone, so a bug anywhere in
+      // the speaking path must not be able to disable voice input permanently.
+      await Promise.race([
+        speak(reply),
+        new Promise((r) => setTimeout(r, 90_000)),
+      ]);
+    }
   } catch (err) {
     clearTimeout(thinkingTimer);
     showTyping(false);
@@ -1983,6 +2172,7 @@ scheduleWander();
     addBubble('user', name);
     await speak(text);
   });
+  window.fren.onCoreEvent(onCoreEvent);
   window.fren.onStateChanged(render);          // subscribe before the first fetch
   render(await window.fren.getState());
   setFace(emotionFor(state), { immediate: true });

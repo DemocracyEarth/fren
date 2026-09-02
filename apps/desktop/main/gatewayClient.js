@@ -1,6 +1,7 @@
 // Thin HTTP client for the local LLM gateway. The desktop app never talks to
 // a model provider directly and never holds provider credentials.
 const { config } = require('../../../packages/shared');
+const { createEventStream } = require('./coreEvents');
 
 /**
  * What the user chose, merged into every request that goes out.
@@ -34,7 +35,10 @@ async function request(pathname, { method = 'GET', body, timeoutMs = 60_000 } = 
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`gateway ${pathname} -> ${res.status} ${text.slice(0, 200)}`);
+    // Core answers with { error } — surface that sentence, not the status.
+    let detail = text.slice(0, 200);
+    try { detail = JSON.parse(text).error || detail; } catch { /* keep the text */ }
+    throw new Error(`gateway ${pathname} -> ${res.status} ${detail}`);
   }
   return res.json();
 }
@@ -62,9 +66,24 @@ async function speak(text) {
   return Buffer.from(await res.arrayBuffer());
 }
 
+/**
+ * Core's push channel. Resumable: pass `since: 'latest'` to skip history, and
+ * the stream itself remembers where it got to across reconnects.
+ */
+function openEvents({ since = 'latest', onEvent, onStatus }) {
+  return createEventStream({
+    url: `${config.GATEWAY_URL}/v1/events`,
+    token: config.GATEWAY_TOKEN,
+    since,
+    onEvent,
+    onStatus,
+  });
+}
+
 module.exports = {
   speak,
   setOverrides,
+  openEvents,
   health: () => request('/health', { timeoutMs: 3_000 }),
   summarize: (observations) =>
     request('/v1/summarize', { method: 'POST', body: { observations } }),
@@ -80,4 +99,23 @@ module.exports = {
   // Short: a greeting that arrives after the user has started working is not a
   // greeting. Better to miss it than to interrupt with a late hello.
   greet: (payload) => request('/v1/greet', { method: 'POST', body: payload, timeoutMs: 8_000 }),
+
+  // ---- FREN Core: runs and the secure execution environment ----------------
+  runtimeStatus: () => request('/v1/runtime/status', { timeoutMs: 5_000 }),
+  // Accepted, not answered: the answer arrives as events.
+  startRun: (payload) => request('/v1/runs', { method: 'POST', body: payload, timeoutMs: 15_000 }),
+  getRun: (id) => request(`/v1/runs/${encodeURIComponent(id)}`, { timeoutMs: 10_000 }),
+  cancelRun: (id) => request(`/v1/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: {}, timeoutMs: 10_000 }),
+
+  // ---- FREN Core: automations that run an agent -----------------------------
+  automationIntent: (text) => request('/v1/automations/intent', { method: 'POST', body: { text }, timeoutMs: 30_000 }),
+  agentAutomations: () => request('/v1/automations', { timeoutMs: 10_000 }),
+  createAgentAutomation: (spec) => request('/v1/automations', { method: 'POST', body: spec, timeoutMs: 15_000 }),
+  patchAgentAutomation: (id, patch) => request(`/v1/automations/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch, timeoutMs: 15_000 }),
+  deleteAgentAutomation: (id) => request(`/v1/automations/${encodeURIComponent(id)}`, { method: 'DELETE', timeoutMs: 15_000 }),
+  runAgentAutomation: (id) => request(`/v1/automations/${encodeURIComponent(id)}/run`, { method: 'POST', body: {}, timeoutMs: 15_000 }),
+
+  // ---- FREN Core: permission requests ---------------------------------------
+  permissionRequests: (status) => request(`/v1/permissions/requests${status ? `?status=${encodeURIComponent(status)}` : ''}`, { timeoutMs: 10_000 }),
+  decidePermission: (id, body) => request(`/v1/permissions/requests/${encodeURIComponent(id)}/decision`, { method: 'POST', body, timeoutMs: 15_000 }),
 };

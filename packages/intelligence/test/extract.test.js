@@ -67,7 +67,7 @@ test('a question gets an honest reply drawn only from stated facts', () => {
   assert.match(r.system, /Facts you may use to answer a question, and nothing beyond them/);
   assert.match(r.system, /CAN raise something it noticed on its own/);
   assert.match(r.system, /never captures keystrokes/);
-  assert.match(r.system, /does not act on your behalf/);
+  assert.match(r.system, /acts on your behalf only inside a secure execution environment/);
 });
 
 test('a correction names the field it fixes', () => {

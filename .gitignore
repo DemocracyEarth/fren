@@ -6,3 +6,13 @@ node_modules/
 # Benchmark scratch: copies of face.js at other commits, generated on demand.
 dev/bench/face-*.js
 dev/bench/svg-*.html
+
+# The vendored runtime's per-install state and build output. Its own
+# .gitignore says the same; this is so nobody has to know that.
+vendor/nanoclaw/node_modules/
+vendor/nanoclaw/dist/
+vendor/nanoclaw/data/
+vendor/nanoclaw/groups/*
+vendor/nanoclaw/logs/
+vendor/nanoclaw/store/
+vendor/nanoclaw/.env

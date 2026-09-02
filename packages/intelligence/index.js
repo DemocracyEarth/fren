@@ -886,7 +886,7 @@ const FREN_FACTS = [
   'It summarises that activity every couple of minutes, and looks across hours of those summaries for a workflow you repeat.',
   'It CAN raise something it noticed on its own, without being asked — that is what the "when to speak up" question decides.',
   'It listens only while you hold the orb; speech is transcribed on your own machine.',
-  'It suggests things. It does not act on your behalf.',
+  'It suggests things. It acts on your behalf only inside a secure execution environment, only for what you asked, and it shows you what it did.',
 ].join(' ');
 
 /**
@@ -1004,7 +1004,158 @@ function buildPatternRequest({ memories = [] } = {}) {
   };
 }
 
+
+// ---------------------------------------------------------------- automations
+
+const AUTOMATION_INTENT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['isAutomation', 'name', 'cron', 'instruction', 'reason'],
+  properties: {
+    isAutomation: {
+      type: 'boolean',
+      description: 'True only when they are asking for something to be DONE repeatedly at a time.',
+    },
+    name: { type: 'string', description: 'Three or four words naming it, e.g. "morning AI news".' },
+    cron: {
+      type: 'string',
+      description: 'Five-field cron in their local time: minute hour day-of-month month day-of-week. ' +
+                   '"0 9 * * *" is every day at 09:00; "0 9 * * 1-5" is weekdays; "30 18 * * fri" is Fridays at 18:30.',
+    },
+    instruction: {
+      type: 'string',
+      description: 'The task, as an instruction to an assistant that can browse the web and work in its ' +
+                   'own workspace. Imperative, self-contained, with the schedule words removed.',
+    },
+    reason: { type: 'string', description: 'If isAutomation is false, one short sentence saying why.' },
+  },
+};
+
+/**
+ * Read an automation out of something someone said.
+ *
+ * The routine prompt's older sibling: a routine asks fren a question at a
+ * time; an automation gives an agent a TASK at a time. "every morning at 9,
+ * check Hacker News and give me the five most interesting AI stories" is a
+ * time (a cron line) and an instruction ("Check Hacker News and report…").
+ * The same rule about refusing applies: a question is not a job.
+ */
+function buildAutomationIntentRequest({ text, now = Date.now() } = {}) {
+  const d = new Date(now);
+  return {
+    system: [
+      'You decide whether someone is asking fren, a desktop companion that can act for them through',
+      'an isolated assistant, to set up something that should happen REPEATEDLY at a time.',
+      '',
+      'An automation is a task done again and again at a time: "every morning at 9, check Hacker',
+      'News and give me the five most interesting AI stories"; "each Friday at six, summarise the',
+      'week\'s commits". A one-off request is NOT an automation, and neither is a question about the',
+      'past. If in doubt, isAutomation is false — turning an ordinary question into a daily job is',
+      'far more annoying than missing one.',
+      '',
+      'When it IS one, write "cron" as five-field cron in their local time, and "instruction" as a',
+      'task for an assistant that can browse the web, read and write in its own workspace, and run',
+      'commands there: imperative, self-contained, second person to the assistant, the schedule',
+      'words removed. "every morning at 9, check Hacker News and give me the five most interesting',
+      'AI stories" becomes cron "0 9 * * *" and instruction "Check Hacker News and report the five',
+      'most interesting AI stories, with a one-line reason each."',
+      '',
+      'Unstated minute is 0. Unstated days means every day. "Morning" without an hour is 9,',
+      '"afternoon" is 14, "evening" is 18 — but prefer an hour they actually said.',
+      `For reference, it is currently ${d.toTimeString().slice(0, 5)} on a ` +
+      `${d.toLocaleDateString(undefined, { weekday: 'long' })}.`,
+      '',
+      'Return JSON only.',
+    ].join('\n'),
+    messages: [{ role: 'user', content: String(text || '') }],
+    schema: AUTOMATION_INTENT_SCHEMA,
+  };
+}
+
+const HOUR_WORDS = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  eleven: 11, twelve: 12, noon: 12, midday: 12, midnight: 0,
+};
+const DAY_WORDS = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+
+/**
+ * The deterministic reading of a schedule, for when there is no model (mock
+ * mode) or the model could not be read. It only says yes when the words leave
+ * little room: a repetition word AND a time or part of day.
+ */
+function heuristicIntent(text) {
+  const raw = String(text || '').trim();
+  const lower = raw.toLowerCase();
+  const none = (reason) => ({ isAutomation: false, name: '', cron: '', instruction: '', confident: false, reason });
+  if (!raw) return none('nothing said');
+
+  const repeats = /\b(every|each|daily|weekly|weekdays?|weekends?|mornings|evenings|afternoons|nightly)\b/.test(lower);
+  if (!repeats) return none('no repetition in the words');
+
+  // Which days.
+  let dow = '*';
+  if (/\b(weekdays?|every (week ?day|working day)|each (week ?day|working day))\b/.test(lower)) dow = '1-5';
+  else if (/\b(weekends?)\b/.test(lower)) dow = '0,6';
+  else {
+    const day = lower.match(/\b(?:every|each|on)\s+(sun|mon|tue|wed|thu|fri|sat)[a-z]*s?\b/) ||
+                lower.match(/\b(sun|mon|tue|wed|thu|fri|sat)[a-z]*days\b/);
+    if (day) dow = String(DAY_WORDS[day[1]]);
+  }
+
+  // What time.
+  let hour = null;
+  let minute = 0;
+  const clock = lower.match(/\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\b/) ||
+                lower.match(/\b(\d{1,2}):(\d{2})\s*(am|pm)?\b/);
+  if (clock) {
+    hour = Number(clock[1]);
+    minute = Number(clock[2] || 0);
+    const ampm = (clock[3] || '').replace(/\./g, '');
+    if (ampm === 'pm' && hour < 12) hour += 12;
+    if (ampm === 'am' && hour === 12) hour = 0;
+  } else {
+    const word = lower.match(/\bat\s+(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|noon|midday|midnight)\b/);
+    if (word) hour = HOUR_WORDS[word[1]];
+  }
+  let part = null;
+  if (/\bmornings?\b/.test(lower)) part = 9;
+  else if (/\bafternoons?\b/.test(lower)) part = 14;
+  else if (/\bevenings?\b/.test(lower)) part = 18;
+  else if (/\bnights?\b|\bnightly\b/.test(lower)) part = 21;
+  if (hour === null && part !== null) hour = part;
+  else if (hour !== null && part !== null && part >= 12 && hour < 12 && !clock?.[3]) hour += 12; // "at 6 in the evening"
+  if (hour === null || hour > 23 || minute > 59) return none('no time of day');
+
+  // The instruction is what is left once the schedule words are taken out.
+  let instruction = raw
+    .replace(/\b(every|each)\s+(single\s+)?(day|morning|afternoon|evening|night|weekday|working day|week ?day|weekend|sun|mon|tue|wed|thu|fri|sat)[a-z]*s?\b/gi, '')
+    .replace(/\b(daily|weekly|nightly|weekdays|weekends|mornings|evenings|afternoons)\b/gi, '')
+    .replace(/\b(in the|at)\s+(morning|afternoon|evening|night)\b/gi, '')
+    .replace(/\bat\s+(\d{1,2})(:\d{2})?\s*(am|pm|a\.m\.|p\.m\.)?\b/gi, '')
+    .replace(/\bat\s+(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|noon|midday|midnight)\b/gi, '')
+    .replace(/^\s*(please|can you|could you|would you|i want you to|i'd like you to)\s+/i, '')
+    .replace(/\s*,\s*,/g, ',')
+    .replace(/^[\s,]+|[\s,]+$/g, '')
+    .replace(/\s{2,}/g, ' ');
+  if (!instruction) return none('a time, but nothing to do at it');
+  instruction = instruction[0].toUpperCase() + instruction.slice(1);
+  if (!/[.!?]$/.test(instruction)) instruction += '.';
+  const words = instruction.replace(/[^a-z0-9 ]/gi, '').split(/\s+/).filter((w) => w.length > 2 && !/^(the|and|for|with|from|that|this|give|tell|show)$/i.test(w));
+  const name = words.slice(0, 4).join(' ').toLowerCase() || 'automation';
+  return {
+    isAutomation: true,
+    name,
+    cron: `${minute} ${hour} * * ${dow}`,
+    instruction,
+    confident: true,
+    reason: '',
+  };
+}
+
 module.exports = {
+  buildAutomationIntentRequest,
+  heuristicIntent,
+  AUTOMATION_INTENT_SCHEMA,
   compactObservations,
   buildSummarizeRequest,
   parseSummary,

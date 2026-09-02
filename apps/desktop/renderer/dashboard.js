@@ -20,9 +20,13 @@ const els = {
   patternCount: document.getElementById('side-pattern-count'),
   autoCount: document.getElementById('side-auto-count'),
   routineCount: document.getElementById('side-routine-count'),
+  requestCount: document.getElementById('side-request-count'),
   status: document.querySelector('#side-status span'),
   statusBtn: document.getElementById('side-status'),
 };
+
+// The last state main pushed. The chat picks its lane from it.
+let lastState = null;
 
 const pad = (n) => String(n).padStart(2, '0');
 const hhmm = (ms) => {
@@ -260,26 +264,35 @@ async function showAutomations() {
 
   let list = [];
   try { list = await window.fren.automations(); } catch { list = []; }
+  // The ones that run an agent in the secure execution environment.
+  let agents = [];
+  try {
+    const res = await window.fren.agentAutomations();
+    agents = Array.isArray(res) ? res : [];
+  } catch { agents = []; }
 
   // Drafts that have not been kept yet still live on the suggestion.
   const all = await suggestions();
   const unkept = all.filter((x) => x.draft && x.draft.script &&
     !list.some((a) => a.suggestionId === x.id));
 
-  els.subtitle.textContent = list.length || unkept.length
-    ? `${list.length} kept${unkept.length ? `, ${unkept.length} drafted` : ''}`
-    : 'Nothing drafted yet';
+  const total = list.length + agents.length;
+  els.subtitle.textContent = total || unkept.length
+    ? `${total} kept${unkept.length ? `, ${unkept.length} drafted` : ''}`
+    : 'Nothing set up yet';
 
-  if (!list.length && !unkept.length) {
+  if (!total && !unkept.length) {
     els.content.appendChild(blank(
-      'Nothing drafted yet',
-      'Ask fren to automate something it noticed and the draft appears here. ' +
-      'Nothing runs until you have read it and approved it, and nothing is ' +
-      'scheduled until it has already run once by hand.'
+      'Nothing set up yet',
+      'Tell fren "every morning at 9, check Hacker News and give me the five most ' +
+      'interesting AI stories" and it appears here. Ask it to automate something it ' +
+      'noticed and the draft appears here too; nothing scripted runs until you have ' +
+      'read it and approved it.'
     ));
     return;
   }
 
+  for (const a of agents) els.content.appendChild(agentAutomationCard(a));
   for (const a of list) els.content.appendChild(automationCard(a));
 
   for (const s of unkept) {
@@ -301,6 +314,75 @@ async function showAutomations() {
     card.append(actions);
     els.content.appendChild(card);
   }
+}
+
+/**
+ * An automation that runs an agent: what it does, when, whether it is on,
+ * whether the secure execution environment has it, and every run with what
+ * came back. Something that runs unattended should leave a record.
+ */
+function agentAutomationCard(a) {
+  const card = el('div', 'card');
+  const head = el('div', 'card-head');
+  head.append(el('b', null, a.name));
+  head.append(el('time', null, a.describe || ''));
+  card.append(head);
+  card.append(el('p', null, a.body && a.body.instruction ? a.body.instruction : ''));
+
+  const gates = el('div', 'gates');
+  gates.append(gate('On', a.enabled, a.pausedByRuntime ? a.pausedByRuntime : ''));
+  gates.append(gate('In the secure environment', a.runtimeState === 'scheduled',
+    a.runtimeState === 'waiting' ? 'waiting for it' : ''));
+  card.append(gates);
+
+  const actions = el('div', 'row-actions');
+  const runBtn = el('button', 'mini primary', 'Run now');
+  runBtn.addEventListener('click', async () => {
+    runBtn.disabled = true;
+    runBtn.textContent = 'Starting…';
+    const res = await window.fren.runAgentAutomation(a.id);
+    if (res && res.error) {
+      runBtn.disabled = false;
+      runBtn.textContent = 'Run now';
+      return alertInline(card, res.error);
+    }
+    alertInline(card, 'Running. What it finds will appear below, and in the chat.');
+  });
+  actions.append(runBtn);
+  const toggle = el('button', 'mini', a.enabled ? 'Pause' : 'Resume');
+  toggle.addEventListener('click', async () => {
+    const res = await window.fren.patchAgentAutomation(a.id, { enabled: !a.enabled, expectedRevision: a.revision });
+    if (res && res.error) return alertInline(card, res.error);
+    showAutomations();
+    refreshCounts();
+  });
+  actions.append(toggle);
+  const del = el('button', 'mini danger', 'Delete');
+  del.addEventListener('click', async () => {
+    await window.fren.deleteAgentAutomation(a.id);
+    showAutomations();
+    refreshCounts();
+  });
+  actions.append(del);
+  card.append(actions);
+
+  if (a.enabled && a.nextRunAt) card.append(el('p', 'caveat', whenNext(a.nextRunAt)));
+
+  if (a.runs && a.runs.length) {
+    const d = el('details', 'last');
+    d.append(el('summary', null, `${a.runs.length} recent run${a.runs.length === 1 ? '' : 's'}`));
+    for (const r of a.runs) {
+      const line = el('div', 'run');
+      line.append(el('span', `dot ${r.status === 'started' ? 'started' : r.status}`, ''));
+      line.append(el('span', null,
+        `${new Date(r.startedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ` +
+        `${hhmm(r.startedAt)} · ${r.trigger} · ${r.status === 'started' ? 'running' : r.status}`));
+      d.append(line);
+      if (r.output) d.append(el('pre', 'run-out', r.output));
+    }
+    card.append(d);
+  }
+  return card;
 }
 
 /**
@@ -456,6 +538,84 @@ function whenNext(ts) {
   return `Next: ${d.toLocaleDateString(undefined, { weekday: 'short' })} at ${time}`;
 }
 
+/**
+ * What an agent asked to be allowed to do. Open ones first, with the two
+ * answers; then what was decided, by whom, and why — including what fren
+ * decided on its own from a standing grant, because that should be visible.
+ */
+async function showRequests() {
+  current = { kind: 'requests' };
+  markActive();
+  els.title.textContent = 'Requests';
+  els.content.textContent = '';
+
+  let list = [];
+  try {
+    const res = await window.fren.permissionRequests('');
+    list = Array.isArray(res) ? res : [];
+  } catch { list = []; }
+  const open = list.filter((r) => r.status === 'open');
+  const done = list.filter((r) => r.status !== 'open').slice(0, 30);
+
+  els.subtitle.textContent = open.length
+    ? `${open.length} waiting for you`
+    : 'Nothing waiting. An unanswered request becomes a no after ten minutes.';
+
+  if (!list.length) {
+    els.content.appendChild(blank(
+      'Nothing asked yet',
+      'When something fren is running wants to do more than it was allowed, the ' +
+      'question appears here and in the chat. Nothing is approved by silence.'
+    ));
+    return;
+  }
+
+  for (const r of open) {
+    const card = el('div', 'card');
+    const head = el('div', 'card-head');
+    head.append(el('b', null, r.description || r.title || 'permission'));
+    head.append(el('time', null, hhmm(r.createdAt)));
+    card.append(head);
+    if (r.title && r.title !== r.description) card.append(el('p', null, r.title));
+    if (r.question) card.append(el('p', null, r.question));
+    const actions = el('div', 'row-actions');
+    const allow = el('button', 'mini primary', 'Allow');
+    const always = el('button', 'mini', 'Allow for this conversation');
+    const deny = el('button', 'mini danger', "Don't");
+    const settle = async (decision, remember) => {
+      allow.disabled = always.disabled = deny.disabled = true;
+      const res = await window.fren.decidePermission(r.id, decision, { remember });
+      if (res && res.error) return alertInline(card, res.error);
+      showRequests();
+      refreshCounts();
+    };
+    allow.addEventListener('click', () => settle('approve', 'once'));
+    always.addEventListener('click', () => settle('approve', 'session'));
+    deny.addEventListener('click', () => settle('deny', 'once'));
+    actions.append(allow);
+    if (r.subject && r.subject.sessionId && r.scope !== 'unknown') actions.append(always);
+    actions.append(deny);
+    card.append(actions);
+    els.content.appendChild(card);
+  }
+
+  if (done.length) {
+    const d = el('details', 'last');
+    d.append(el('summary', null, `${done.length} decided`));
+    for (const r of done) {
+      const line = el('div', 'run');
+      const dot = r.status === 'approved' ? 'ok' : (r.status === 'expired' ? 'blocked' : 'failed');
+      line.append(el('span', `dot ${dot}`, ''));
+      line.append(el('span', null,
+        `${new Date(r.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ` +
+        `${hhmm(r.createdAt)} · ${r.description || r.title || r.scope} · ${r.status}` +
+        `${r.reason ? ` — ${r.reason}` : ''}`));
+      d.append(line);
+    }
+    els.content.appendChild(d);
+  }
+}
+
 async function showRoutines() {
   current = { kind: 'routines' };
   markActive();
@@ -539,7 +699,12 @@ async function refreshCounts() {
   try { kept = await window.fren.automations(); } catch { kept = []; }
   const unkept = all.filter((x) => x.draft && x.draft.script &&
     !kept.some((a) => a.suggestionId === x.id));
-  const automations = kept.length + unkept.length;
+  let agents = 0;
+  try {
+    const res = await window.fren.agentAutomations();
+    agents = Array.isArray(res) ? res.length : 0;
+  } catch { /* none */ }
+  const automations = kept.length + unkept.length + agents;
 
   let routineCount = 0;
   try { routineCount = (await window.fren.routines()).filter((r) => r.enabled).length; } catch { /* none */ }
@@ -549,9 +714,16 @@ async function refreshCounts() {
     elm.textContent = String(n);
     elm.hidden = !n;
   };
+  let openRequests = 0;
+  try {
+    const res = await window.fren.permissionRequests('open');
+    openRequests = Array.isArray(res) ? res.length : 0;
+  } catch { /* none */ }
+
   set(els.patternCount, live);
   set(els.autoCount, automations);
   set(els.routineCount, routineCount);
+  set(els.requestCount, openRequests);
 }
 
 let cachedSuggestions = null;
@@ -1100,6 +1272,7 @@ async function showSettings() {
     },
   ));
 
+  els.content.appendChild(await runtimeBlock());
   els.content.appendChild(await browserBlock());
   els.content.appendChild(await colourPicker());
   els.content.appendChild(await lookTuner());
@@ -1111,6 +1284,43 @@ async function showSettings() {
   }
 
   await showProviderSettings();
+}
+
+/**
+ * The secure execution environment: where fren runs anything that acts on
+ * your behalf. Its state in words, and what to do when it is not there. The
+ * hint is the only place a product name is allowed to appear.
+ */
+async function runtimeBlock() {
+  const wrap = el('div', 'setting-block');
+  wrap.append(el('strong', null, 'Secure execution environment'));
+  const line = el('p', 'browser-status');
+  const WORDS = {
+    ready: 'Ready ✓',
+    starting: 'Starting…',
+    degraded: 'Recovering…',
+    stopped: 'Stopped',
+    unavailable: 'Not available',
+  };
+  const paint = (s) => {
+    line.textContent = '';
+    const st = s && s.state ? s.state : 'unavailable';
+    line.append(el('strong', st === 'ready' ? 'browser-ok' : null, WORDS[st] || st));
+    const note = s && (s.step || s.hint || s.reason);
+    if (note) line.append(el('span', null, ` — ${note}`));
+  };
+  let st = null;
+  try { st = await window.fren.runtimeStatus(); } catch { /* painted as unavailable */ }
+  paint(st && st.status);
+  window.fren.onCoreEvent((e) => {
+    if (e && e.type === 'runtime.status' && wrap.isConnected) paint(e.status);
+  });
+  wrap.append(line);
+  wrap.append(el('p', 'caveat',
+    'Anything fren does for you, rather than says to you, runs here: an isolated ' +
+    'space that cannot reach your files or accounts unless you allow it. Without ' +
+    'it fren can still talk from memory, but cannot act.'));
+  return wrap;
 }
 
 /**
@@ -1213,6 +1423,62 @@ function saidRow(role, text, ts) {
   return row;
 }
 
+/** Runs this window started, by id. */
+const liveRuns = new Map();
+
+/**
+ * Through the secure execution environment. The first message replaces the
+ * "thinking…" row; any further ones get rows of their own. Resolves with the
+ * text for that first row once the run is over.
+ */
+function askRuntime(text, pending, log) {
+  return window.fren.run(text).then((res) => {
+    if (!res || res.error || !res.runId) {
+      return window.fren.chat(text).then((r) => (r && r.reply) || '');
+    }
+    return new Promise((resolve) => {
+      let first = '';
+      const timer = setTimeout(() => end('That took too long, so I stopped waiting.'), 10 * 60 * 1000);
+      function end(error) {
+        if (!liveRuns.has(res.runId)) return;
+        liveRuns.delete(res.runId);
+        clearTimeout(timer);
+        resolve(first || error || 'I finished, but had nothing to show for it.');
+      }
+      liveRuns.set(res.runId, {
+        message(m) {
+          if (!m || !m.text) return;
+          if (!first) { first = m.text; pending.querySelector('p').textContent = m.text; return; }
+          log.appendChild(saidRow('fren', m.text, m.at || Date.now()));
+          els.content.scrollTop = els.content.scrollHeight;
+        },
+        end,
+      });
+    });
+  });
+}
+
+let refreshTimer = null;
+function onCoreEvent(e) {
+  if (!e) return;
+  // An automation changed or reported in: redraw the list if it is on screen,
+  // a moment later so a burst of events is one redraw.
+  if (/^(automation|permission)\./.test(e.type)) {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => {
+      if (current && current.kind === 'automations' && /^automation\./.test(e.type)) showAutomations();
+      if (current && current.kind === 'requests' && /^permission\./.test(e.type)) showRequests();
+      refreshCounts();
+    }, 300);
+  }
+  if (!e.runId) return;
+  const live = liveRuns.get(e.runId);
+  if (!live) return;
+  if (e.type === 'agent.message') live.message(e.message);
+  else if (e.type === 'run.completed' || e.type === 'run.cancelled') live.end(null);
+  else if (e.type === 'run.failed' || e.type === 'run.interrupted') live.end(e.error ? `Something went wrong: ${e.error}` : 'Something went wrong.');
+}
+
 /**
  * The conversation, with room to read it.
  *
@@ -1302,8 +1568,12 @@ async function showChat() {
 
     let reply = '';
     try {
-      const res = await window.fren.chat(text);
-      reply = (res && res.reply) || '';
+      if (lastState && lastState.runtime === 'ready') {
+        reply = await askRuntime(text, pending, log);
+      } else {
+        const res = await window.fren.chat(text);
+        reply = (res && res.reply) || '';
+      }
     } catch (err) {
       reply = 'I could not reach my thinking half. ' + (err && err.message ? err.message : '');
     }
@@ -1344,6 +1614,7 @@ const SECTIONS = {
   patterns: showPatterns,
   automations: showAutomations,
   routines: showRoutines,
+  requests: showRequests,
   memory: showMemory,
   settings: showSettings,
 };
@@ -1395,8 +1666,9 @@ for (const b of document.querySelectorAll('.side-item[data-section]')) {
     if (colour && window.FrenPalette) window.FrenPalette.applyAccent(colour);
   } catch { /* the default is fine */ }
 
-  window.fren.onStateChanged(paint);
-  try { paint(await window.fren.getState()); } catch { /* leave it paused */ }
+  window.fren.onStateChanged((s) => { lastState = s; paint(s); });
+  window.fren.onCoreEvent(onCoreEvent);
+  try { lastState = await window.fren.getState(); paint(lastState); } catch { /* leave it paused */ }
 
   await loadSidebar();
 

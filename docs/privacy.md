@@ -63,8 +63,27 @@ input simply does not work, rather than quietly falling back to the network.
 
 ## Running automations
 
-This is the one thing fren does that changes your machine rather than reading
-it, so the constraints are worth stating plainly.
+There are now two kinds, and they are different things.
+
+**Agent automations** run an assistant with tools inside the *secure execution
+environment*: an isolated space with its own workspace, no access to your
+files, accounts or the rest of this machine unless you grant it, and the model
+reached through fren's own proxy so no key ever enters it. One is created only
+when you keep a proposal fren shows you first, with the schedule and the task
+in words. It does not receive what fren observed about you: not the activity
+timeline, not memories, not screenshots, not browser pages. It receives the
+task, fren's persona (`SOUL.md`), and whatever it fetches itself. Today it
+can reach the internet, which is stated on each automation; a per-domain
+allowlist is planned and until then that sentence is the honest one. What it
+sends back is kept locally, listed under Automations with every run, and
+never sent anywhere by fren. An agent automation does not look at what you are
+doing, so the light does not gate it: it runs on its schedule whether fren is
+watching or paused, and stops when fren quits. If an agent asks for something
+beyond what it was granted, fren asks you, and an unanswered request is a no.
+
+**Script automations** are the older kind, and this is the one thing fren does
+that changes your machine rather than reading it, so the constraints are worth
+stating plainly.
 
 fren only runs a script that **you** read and approved, that has already run
 successfully **by hand**, and that you separately put on a schedule. Approval is
@@ -108,10 +127,19 @@ handing over that whole frame, because that is what it is.
 
 ## What leaves the machine
 
-Data leaves your machine on exactly one path: desktop app → local gateway
-(`127.0.0.1:4519`, bearer-token auth) → your chosen model provider
-(DeepSeek or Anthropic). Nothing else makes
-network requests with your data.
+Data leaves your machine through the local gateway (`127.0.0.1:4519`,
+bearer-token auth), which is the only process holding a key, to: your chosen
+model provider (DeepSeek or Anthropic); ElevenLabs, for the text of a reply,
+only when a voice key is set; and a vision endpoint, for one screenshot, only
+when you press the eye button. Nothing else in the desktop app makes network
+requests with your data.
+
+The secure execution environment is the exception, and it is stated rather
+than hidden: when a chat request or an automation runs there, the assistant
+inside talks to the model provider through the gateway's proxy and can fetch
+pages from the internet on its own. It gets the task and `SOUL.md`, never your
+observations, memories, screenshots or browser pages. See "Running
+automations".
 
 **Sent (only this):**
 
@@ -129,6 +157,8 @@ network requests with your data.
 | Transcribed text of what you said (never the audio) | When you use push-to-talk |
 | The contents of `SOUL.md` and `USER.md` | With every chat message, once you have completed first-run setup |
 | The text of fren's reply, to ElevenLabs | Only when a voice key is configured |
+| What you typed, and `SOUL.md`, to the assistant in the secure execution environment; from there, to the model provider | When a chat request runs through the environment (the dot in the chat header says when it is ready) |
+| An automation's task, and whatever pages the assistant fetches to do it | When an agent automation runs |
 
 Chat context is drawn from what was captured earlier: asking a question while
 paused still sends recent history that was recorded while fren was lit.
@@ -332,9 +362,10 @@ change it, open the Memory pane and untick **"Wake up when you launch me"** — 
 interview — or
 just use the watching control in the menu to pause the session you are in.
 
-One consequence worth naming: scheduled automations only run while fren is
-watching, so a fren that starts awake can run a due automation shortly after
-launch, where before it needed you to wake it first. Scheduled runs are held for
+One consequence worth naming: scheduled script automations only run while
+fren is watching, so a fren that starts awake can run a due automation shortly
+after launch, where before it needed you to wake it first. (Agent automations
+are not gated by the light; see "Running automations".) Scheduled runs are held for
 the first two minutes after launch so there is time to pause, and all three
 execution gates still apply — see "Running automations" above.
 
