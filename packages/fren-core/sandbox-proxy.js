@@ -12,8 +12,11 @@
  * Upstream is Anthropic's API, or any endpoint that speaks the same protocol
  * (DeepSeek publishes one at /anthropic). Which one is chosen once, at
  * start, from what keys exist; the environment's group is told the matching
- * model name.
+ * model name, and when the upstream serves one model the proxy enforces it:
+ * an agent harness that asks for a model by its own default name still gets
+ * an answer instead of a 404.
  */
+const MAX_JSON_BODY = 32 * 1024 * 1024;
 const http = require('node:http');
 const https = require('node:https');
 const crypto = require('node:crypto');
@@ -71,25 +74,50 @@ function createSandboxProxy({ upstream, token = crypto.randomBytes(16).toString(
     const agent = target.protocol === 'https:' ? https : http;
     const doRequest = requestImpl || agent.request.bind(agent);
     const started = Date.now();
-    const out = doRequest({
-      protocol: target.protocol, hostname: target.hostname, port: target.port || undefined,
-      path: target.pathname + target.search, method: req.method, headers,
-    }, (up) => {
-      res.writeHead(up.statusCode || 502, up.headers);
-      up.pipe(res);
-      up.on('end', () => log(`[sandbox] ${req.method} ${target.pathname} ${up.statusCode} ${Date.now() - started}ms`));
-    });
-    out.on('error', (err) => {
-      log(`[sandbox] upstream error: ${err.message}`);
-      if (!res.headersSent) {
-        res.writeHead(502, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ error: 'the model provider could not be reached' }));
-      } else {
-        res.destroy();
-      }
-    });
-    req.pipe(out);
-    req.on('aborted', () => out.destroy());
+    const forward = (body) => {
+      if (body !== null) headers['content-length'] = String(Buffer.byteLength(body));
+      const out = doRequest({
+        protocol: target.protocol, hostname: target.hostname, port: target.port || undefined,
+        path: target.pathname + target.search, method: req.method, headers,
+      }, (up) => {
+        res.writeHead(up.statusCode || 502, up.headers);
+        up.pipe(res);
+        up.on('end', () => log(`[sandbox] ${req.method} ${target.pathname} ${up.statusCode} ${Date.now() - started}ms`));
+      });
+      out.on('error', (err) => {
+        log(`[sandbox] upstream error: ${err.message}`);
+        if (!res.headersSent) {
+          res.writeHead(502, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: 'the model provider could not be reached' }));
+        } else {
+          res.destroy();
+        }
+      });
+      if (body !== null) out.end(body);
+      else req.pipe(out);
+      req.on('aborted', () => out.destroy());
+    };
+    // An upstream that serves one model gets that model, whatever was asked.
+    const isJson = /json/i.test(String(req.headers['content-type'] || ''));
+    if (upstream.model && isJson && (req.method === 'POST' || req.method === 'PUT')) {
+      const chunks = [];
+      let size = 0;
+      req.on('data', (c) => { size += c.length; if (size <= MAX_JSON_BODY) chunks.push(c); });
+      req.on('end', () => {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        let body = raw;
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object' && parsed.model !== upstream.model) {
+            parsed.model = upstream.model;
+            body = JSON.stringify(parsed);
+          }
+        } catch { /* not JSON after all: forward as is */ }
+        forward(body);
+      });
+      return;
+    }
+    forward(null);
   });
 
   return {

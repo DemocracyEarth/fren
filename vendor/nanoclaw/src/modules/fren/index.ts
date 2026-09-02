@@ -26,6 +26,21 @@ import { onHostShutdown } from '../../host-lifecycle.js';
 import { frenLink } from './link.js';
 
 const WATCH_POLL_MS = 1000;
+
+/**
+ * The router stores an inbound id as `<id>:<agentGroupId>`; the container's
+ * acknowledgement and every reply's in_reply_to carry that suffixed form.
+ * Core knows the bare id it minted, so both sides are compared by prefix.
+ */
+function bareId(stored: string | null | undefined): string | null {
+  if (!stored) return null;
+  const i = stored.indexOf(':');
+  return i < 0 ? stored : stored.slice(0, i);
+}
+
+function sameId(stored: string, bare: string): boolean {
+  return stored === bare || stored.startsWith(bare + ':');
+}
 const WATCH_MAX_MS = 15 * 60 * 1000;
 
 interface Watch {
@@ -97,7 +112,7 @@ async function settle(w: Watch, s: { agentGroupId: string; sessionId: string }):
   let status: string | null = null;
   try {
     const found = await withExistingMailboxSession(s.agentGroupId, s.sessionId, (mailbox) => {
-      const ack = mailbox.getTerminalProcessingAcks().find((a) => a.messageId === w.runId);
+      const ack = mailbox.getTerminalProcessingAcks().find((a) => sameId(a.messageId, w.runId));
       return ack ? ack.status : null;
     });
     status = found ?? null;
@@ -120,7 +135,7 @@ async function settle(w: Watch, s: { agentGroupId: string; sessionId: string }):
 /** Every delivered message, tied to the run it answers. */
 registerPostDeliveryHook((msg, session) => {
   if (!frenLink.isConnected()) return;
-  const inReplyTo = typeof msg.inReplyTo === 'string' ? msg.inReplyTo : null;
+  const inReplyTo = bareId(typeof msg.inReplyTo === 'string' ? msg.inReplyTo : null);
   frenLink.send({
     type: 'provenance',
     messageId: msg.id,

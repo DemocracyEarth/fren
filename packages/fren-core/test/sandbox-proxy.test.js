@@ -59,6 +59,30 @@ test('the proxy swaps the sandbox token for the real key and streams the answer'
   fake.close();
 });
 
+test('an upstream with one model gets that model whatever the agent asked for', async () => {
+  const seen = [];
+  const fake = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (d) => { body += d; });
+    req.on('end', () => { seen.push({ body: JSON.parse(body), length: req.headers['content-length'] }); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"ok":true}'); });
+  });
+  fake.listen(0, '127.0.0.1');
+  await once(fake, 'listening');
+  const upstream = { kind: 'deepseek', baseUrl: `http://127.0.0.1:${fake.address().port}`, headers: { 'x-api-key': 'sk-d' }, model: 'deepseek-chat' };
+  const proxy = createSandboxProxy({ upstream, token: 't', log: () => {} });
+  const addr = await proxy.listen(0);
+  const res = await fetch(`http://127.0.0.1:${addr.port}/anthropic/v1/messages`, {
+    method: 'POST', headers: { authorization: 'Bearer t', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-haiku-4-5', max_tokens: 10, messages: [] }),
+  });
+  assert.equal(res.status, 200);
+  assert.equal(seen[0].body.model, 'deepseek-chat');
+  assert.equal(seen[0].body.max_tokens, 10);
+  assert.equal(Number(seen[0].length), Buffer.byteLength(JSON.stringify(seen[0].body)));
+  await proxy.close();
+  fake.close();
+});
+
 test('without a credential the proxy says so instead of forwarding', async () => {
   const proxy = createSandboxProxy({ upstream: chooseUpstream({}), token: 't', log: () => {} });
   const addr = await proxy.listen(0);

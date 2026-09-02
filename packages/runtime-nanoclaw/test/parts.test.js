@@ -126,7 +126,7 @@ test('schedules translate to tasks and a delivery surface, and back', async () =
   assert.equal(dest.local_name, 'automation-atm_abc');
   assert.equal(dest.target_id, 'mg1');
   const task = calls.find(([c]) => c === 'tasks-create')[1];
-  assert.equal(task.group, 'fren');
+  assert.equal(task.group, 'ag-1', 'the task commands take the agent group id');
   assert.equal(task.recurrence, '0 9 * * *');
 
   const paused = await store.update(s.id, { enabled: false, instruction: 'Check HN carefully. automation-atm_abc' });

@@ -23,7 +23,7 @@ const containerRuntime = require('./container-runtime');
 const { createNclClient } = require('./ncl-client');
 const { createBridge } = require('./bridge');
 const { createSupervisor } = require('./supervisor');
-const { ensureEntities, OWNER_HANDLE } = require('./bootstrap');
+const { ensureEntities, OWNER_HANDLE, GROUP_FOLDER } = require('./bootstrap');
 const { createScheduleStore, platformIdFor } = require('./schedules');
 
 const CAPABILITIES = Object.freeze({
@@ -36,11 +36,53 @@ const CAPABILITIES = Object.freeze({
   files: true,
 });
 
-const INSTALL_ID = 'fren';
+/**
+ * The host names its image, its containers and its labels after a hash of
+ * its own directory, in its TypeScript and in its shell build script alike.
+ * Deriving the same value here keeps the image the build produces the one
+ * the host looks for; forcing a different id would split them.
+ */
+function installSlug(runtimeDir) {
+  return crypto.createHash('sha1').update(runtimeDir).digest('hex').slice(0, 8);
+}
 const CONNECT_TIMEOUT_MS = 30_000;
 const RESTART_BACKOFF_MS = [1000, 2000, 5000, 15000, 30000];
 const APPROVAL_OPTIONS = new Set(['approve', 'reject', 'reject_with_reason']);
 const ID_RE = /^[A-Za-z0-9_.:-]{1,120}$/;
+
+/**
+ * Unix socket paths are capped at about 104 bytes on macOS. The app data
+ * folder fits; a deep development or test directory may not, so the socket
+ * then lives in a short private directory named after the data dir.
+ */
+function bridgeSocketPath(dataDir) {
+  const preferred = path.join(dataDir, 'fren-runtime.sock');
+  if (preferred.length <= 90) return preferred;
+  const dir = path.join('/tmp', `fren-${crypto.createHash('sha1').update(dataDir).digest('hex').slice(0, 8)}`);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return path.join(dir, 'runtime.sock');
+}
+
+/**
+ * What the agent is told it is, before anything FREN's owner wrote. The host
+ * composes its own contract around this file at every spawn; this file is the
+ * one place FREN's voice enters the container. Never names the host.
+ */
+function composePersona(persona) {
+  return [
+    '# fren',
+    '',
+    'You are fren, a small desktop companion that lives on this person\'s computer. When you act for',
+    'them you do it from an isolated workspace with your own tools; the person sees what you send',
+    'back and nothing else. You are fren: not an agent of the software that hosts you, and you do',
+    'not describe that software or its internals unless asked directly.',
+    '',
+    'Be brief and warm. Say what you did, not how. If you could not do something, say what stopped',
+    'you in one sentence.',
+    '',
+    ...(persona ? ['What your owner wrote about who you are:', '', String(persona).trim(), ''] : []),
+  ].join('\n');
+}
 
 function createNanoclawRuntime(opts) {
   const {
@@ -58,6 +100,7 @@ function createNanoclawRuntime(opts) {
   let restartTimer = null;
   let stopping = false;
   let agentGroupId = null;
+  let personaText = null;
 
   const listeners = new Set();
   const sessions = new Map();     // id -> Session
@@ -67,7 +110,8 @@ function createNanoclawRuntime(opts) {
   const seqByAutomation = new Map();
   const pending = new Map();      // questionId -> { kind, runId }
   const runtimeToken = crypto.randomBytes(24).toString('hex');
-  const socketPath = path.join(dataDir, 'fren-runtime.sock');
+  const slug = installSlug(runtimeDir);
+  const socketPath = bridgeSocketPath(dataDir);
   const nclPath = path.join(runtimeDir, 'data', 'ncl.sock');
 
   const bridge = createBridge({ socketPath, token: runtimeToken, onFrame, log });
@@ -223,6 +267,22 @@ function createNanoclawRuntime(opts) {
     return platformId.startsWith('automation:') ? platformId.slice('automation:'.length) : null;
   }
 
+  /** Write the standing instructions when they changed. Takes effect at the next spawn. */
+  function writePersona(persona) {
+    const text = composePersona(persona);
+    if (text === personaText) return;
+    const dir = path.join(runtimeDir, 'groups', GROUP_FOLDER);
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, 'instructions.prepend.md');
+      const current = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+      if (current !== text) fs.writeFileSync(file, text);
+      personaText = text;
+    } catch (err) {
+      log(`[runtime] persona not written: ${err.message}`);
+    }
+  }
+
   // -------------------------------------------------------- lifecycle
   async function ensureHostReady() {
     if (!skipContainerProbe) {
@@ -231,7 +291,7 @@ function createNanoclawRuntime(opts) {
       if (!fs.existsSync(path.join(runtimeDir, 'dist', 'index.js'))) {
         throw new RuntimeUnavailable('the runtime host is not built', 'Run: npm run runtime:build');
       }
-      const image = `nanoclaw-agent-v2-${INSTALL_ID}:latest`;
+      const image = `nanoclaw-agent-v2-${slug}:latest`;
       if (!(await probe.imagePresent(image))) {
         throw new RuntimeUnavailable('the agent image is not built', 'Run: npm run runtime:build -- --image (this takes a few minutes the first time)');
       }
@@ -262,7 +322,6 @@ function createNanoclawRuntime(opts) {
       FREN_SANDBOX_URL: sandboxUrl || '',
       FREN_SANDBOX_TOKEN: sandboxToken || '',
       NANOCLAW_GATEWAY_PROVIDER: 'fren',
-      NANOCLAW_INSTALL_ID: INSTALL_ID,
       NANOCLAW_NO_DIAGNOSTICS: '1',
       LOG_LEVEL: process.env.FREN_RUNTIME_LOG_LEVEL || 'info',
     };
@@ -291,6 +350,7 @@ function createNanoclawRuntime(opts) {
     await Promise.all([bridge.waitForPeer(connectTimeoutMs), waitForNcl(connectTimeoutMs)]);
     const entities = await ensureEntities({ ncl, timezone, model, log });
     agentGroupId = entities.agentGroupId;
+    writePersona(null);
     schedules = createScheduleStore({ ncl, agentGroupId, log });
     log(`[runtime] host ready (${Object.entries(entities.steps).map(([k, v]) => `${k}: ${v}`).join(', ')})`);
   }
@@ -352,6 +412,7 @@ function createNanoclawRuntime(opts) {
     async createSession({ name, persona }) {
       requireReady();
       const id = ID_RE.test(String(name || '')) ? String(name) : `s-${crypto.createHash('sha1').update(String(name || 'session')).digest('hex').slice(0, 12)}`;
+      if (persona) writePersona(persona);
       if (!sessions.has(id)) sessions.set(id, { id, name: String(name || id), createdAt: now(), runtimeRef: { thread: id, persona: persona ? true : false } });
       return { ...sessions.get(id) };
     },
@@ -447,7 +508,7 @@ function createNanoclawRuntime(opts) {
     clearTimeout(restartTimer);
     if (supervisor) await supervisor.stop();
     if (!skipContainerProbe) {
-      try { await probe.stopLabeled(`nanoclaw-install=${INSTALL_ID}`); } catch (err) { log(`[runtime] containers not stopped: ${err.message}`); }
+      try { await probe.stopLabeled(`nanoclaw-install=${slug}`); } catch (err) { log(`[runtime] containers not stopped: ${err.message}`); }
     }
     await bridge.close();
     openByThread.clear();
@@ -457,4 +518,4 @@ function createNanoclawRuntime(opts) {
   return rt;
 }
 
-module.exports = { createNanoclawRuntime, CAPABILITIES, INSTALL_ID };
+module.exports = { createNanoclawRuntime, CAPABILITIES, installSlug };
