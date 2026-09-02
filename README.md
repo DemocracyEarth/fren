@@ -278,9 +278,11 @@ An agent automation runs in isolation: its own workspace, no access to your
 files or accounts unless you grant it, and the model reached through fren's
 own proxy so no key ever enters the environment. It does not receive what fren
 observed about you. Today the environment can reach the internet; that is
-stated on the automation and in [docs/privacy.md](docs/privacy.md). This
-build ships a mock environment for development; the real one is the next
-phase of the plan in `docs/runtime-architecture.md`.
+stated on the automation and in [docs/privacy.md](docs/privacy.md). The
+environment is the vendored runtime host in `vendor/nanoclaw`: build it with
+`npm run runtime:build -- --image` while Docker Desktop is running, and fren
+picks it up on the next start. Without it (or with `FREN_RUNTIME=mock`) a mock
+environment stands in, so the whole loop can be tried with nothing installed.
 
 ## Running an automation
 

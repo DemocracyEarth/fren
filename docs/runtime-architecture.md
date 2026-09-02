@@ -1087,7 +1087,30 @@ Deliverables: `packages/runtime` (types, errors, contract tests), `packages/runt
 
 Exit criteria: with `FREN_LLM_PROVIDER=mock`, a user can chat through the runtime (bubbles arrive as events), say "every morning at 9 …", confirm, see the automation listed, toggle it, run it now, see its result, and answer a permission card the mock raises. All 15 milestone steps pass against the mock except 7 ("executes in a Docker container").
 
-### Phase 2: NanoClaw runtime (Docker and a provider key needed)
+### Phase 2: NanoClaw runtime (Docker and a provider key needed) — code complete, container run unverified
+
+Landed as three commits. `vendor/nanoclaw` is the subtree at `5c3082a1` with the
+three overlay files and three barrel lines (typechecked; upstream's suites still
+pass); `scripts/runtime-build.js`, `scripts/nanoclaw-overlay-check.js` and
+`scripts/nanoclaw-sync.sh` exist; `packages/runtime-nanoclaw` implements the
+contract over the host's two sockets; Core runs the sandbox credential proxy;
+`FREN_RUNTIME=auto` selects the host when it is built. The contract suite runs
+against the adapter through a fake host that speaks both sockets
+(`packages/runtime-nanoclaw/test/fake-host.js`), so the adapter's behaviour is
+tested on a machine with no container runtime. On this machine the gateway
+reports `unavailable: no container runtime is installed` with the install hint,
+which is the designed outcome.
+
+What only a real container run can verify, in order: (1) the exact argument
+names the `ncl` resources accept for the bootstrap calls in
+`packages/runtime-nanoclaw/bootstrap.js` and `schedules.js` (written from the
+resource definitions; a wrong flag surfaces as `invalid-args` in the runtime log);
+(2) that a messaging group created with `is_group: 1` and a per-thread wiring
+gives one host session per FREN session; (3) that `ensureUserDm('fren:owner')`
+lands approval cards on the `owner` surface; (4) that the Claude Agent SDK inside
+the container accepts the proxy's base URL and DeepSeek's Anthropic-compatible
+endpoint end to end; (5) the agent image build via `npm run runtime:build -- --image`.
+Each is a one-line fix if wrong, and none changes the product layer.
 
 Deliverables: `vendor/nanoclaw` subtree + overlay (`fren` channel, `fren` gateway provider, provenance module) with upstream-style tests, `scripts/runtime-build.js`, `scripts/nanoclaw-overlay-check.js`, `packages/runtime-nanoclaw` (supervisor, `ncl` client, `fren-runtime.sock` server, bootstrap, task compiler, `container-runtime.js` probe, sandbox proxy target), the sandbox credential proxy in Core, integration test gated on `FREN_RUNTIME_INTEGRATION=1`.
 
