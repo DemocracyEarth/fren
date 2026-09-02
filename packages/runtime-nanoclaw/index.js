@@ -23,7 +23,7 @@ const containerRuntime = require('./container-runtime');
 const { createNclClient } = require('./ncl-client');
 const { createBridge } = require('./bridge');
 const { createSupervisor } = require('./supervisor');
-const { ensureEntities, OWNER_HANDLE } = require('./bootstrap');
+const { ensureEntities, OWNER_HANDLE, GROUP_FOLDER } = require('./bootstrap');
 const { createScheduleStore, platformIdFor } = require('./schedules');
 
 const CAPABILITIES = Object.freeze({
@@ -63,6 +63,27 @@ function bridgeSocketPath(dataDir) {
   return path.join(dir, 'runtime.sock');
 }
 
+/**
+ * What the agent is told it is, before anything FREN's owner wrote. The host
+ * composes its own contract around this file at every spawn; this file is the
+ * one place FREN's voice enters the container. Never names the host.
+ */
+function composePersona(persona) {
+  return [
+    '# fren',
+    '',
+    'You are fren, a small desktop companion that lives on this person\'s computer. When you act for',
+    'them you do it from an isolated workspace with your own tools; the person sees what you send',
+    'back and nothing else. You are fren: not an agent of the software that hosts you, and you do',
+    'not describe that software or its internals unless asked directly.',
+    '',
+    'Be brief and warm. Say what you did, not how. If you could not do something, say what stopped',
+    'you in one sentence.',
+    '',
+    ...(persona ? ['What your owner wrote about who you are:', '', String(persona).trim(), ''] : []),
+  ].join('\n');
+}
+
 function createNanoclawRuntime(opts) {
   const {
     dataDir, runtimeDir, sandboxUrl, sandboxToken, model, timezone,
@@ -79,6 +100,7 @@ function createNanoclawRuntime(opts) {
   let restartTimer = null;
   let stopping = false;
   let agentGroupId = null;
+  let personaText = null;
 
   const listeners = new Set();
   const sessions = new Map();     // id -> Session
@@ -245,6 +267,22 @@ function createNanoclawRuntime(opts) {
     return platformId.startsWith('automation:') ? platformId.slice('automation:'.length) : null;
   }
 
+  /** Write the standing instructions when they changed. Takes effect at the next spawn. */
+  function writePersona(persona) {
+    const text = composePersona(persona);
+    if (text === personaText) return;
+    const dir = path.join(runtimeDir, 'groups', GROUP_FOLDER);
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, 'instructions.prepend.md');
+      const current = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+      if (current !== text) fs.writeFileSync(file, text);
+      personaText = text;
+    } catch (err) {
+      log(`[runtime] persona not written: ${err.message}`);
+    }
+  }
+
   // -------------------------------------------------------- lifecycle
   async function ensureHostReady() {
     if (!skipContainerProbe) {
@@ -312,6 +350,7 @@ function createNanoclawRuntime(opts) {
     await Promise.all([bridge.waitForPeer(connectTimeoutMs), waitForNcl(connectTimeoutMs)]);
     const entities = await ensureEntities({ ncl, timezone, model, log });
     agentGroupId = entities.agentGroupId;
+    writePersona(null);
     schedules = createScheduleStore({ ncl, agentGroupId, log });
     log(`[runtime] host ready (${Object.entries(entities.steps).map(([k, v]) => `${k}: ${v}`).join(', ')})`);
   }
@@ -373,6 +412,7 @@ function createNanoclawRuntime(opts) {
     async createSession({ name, persona }) {
       requireReady();
       const id = ID_RE.test(String(name || '')) ? String(name) : `s-${crypto.createHash('sha1').update(String(name || 'session')).digest('hex').slice(0, 12)}`;
+      if (persona) writePersona(persona);
       if (!sessions.has(id)) sessions.set(id, { id, name: String(name || id), createdAt: now(), runtimeRef: { thread: id, persona: persona ? true : false } });
       return { ...sessions.get(id) };
     },

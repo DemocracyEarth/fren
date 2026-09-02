@@ -117,20 +117,34 @@ function createScheduleStore({ ncl, agentGroupId, log = () => {} }) {
     return (await get(seriesId)) || toSchedule({ series_id: seriesId, status: patch.enabled === false ? 'paused' : 'pending' }, ref);
   }
 
+  /** The host refuses to delete a task whose container is running: cancel now, delete when it is done. */
   async function remove(seriesId) {
     const ref = refs.get(seriesId);
     try {
       await ncl.call('tasks-delete', { id: seriesId, group: agentGroupId });
     } catch (err) {
       if (/running/i.test(err.message)) {
-        await ncl.call('tasks-cancel', { id: seriesId, group: agentGroupId });
-        await ncl.call('tasks-delete', { id: seriesId, group: agentGroupId }).catch((e) => log(`[runtime] task delete after cancel: ${e.message}`));
+        await ncl.call('tasks-cancel', { id: seriesId, group: agentGroupId }).catch((e) => log(`[runtime] task cancel: ${e.message}`));
+        deferDelete(seriesId, ref);
       } else if (!/not found/i.test(err.message)) {
         throw err;
       }
     }
     if (ref) await removeSurface(ref.automationId);
     refs.delete(seriesId);
+  }
+
+  function deferDelete(seriesId, ref, attempt = 0) {
+    if (attempt >= 12) { log(`[runtime] task ${seriesId} still running after a minute; left cancelled`); return; }
+    const timer = setTimeout(async () => {
+      try {
+        await ncl.call('tasks-delete', { id: seriesId, group: agentGroupId });
+      } catch (err) {
+        if (/running/i.test(err.message)) return deferDelete(seriesId, ref, attempt + 1);
+        if (!/not found/i.test(err.message)) log(`[runtime] deferred task delete: ${err.message}`);
+      }
+    }, 5000);
+    if (timer.unref) timer.unref();
   }
 
   async function list() {

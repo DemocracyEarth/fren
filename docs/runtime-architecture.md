@@ -1087,7 +1087,7 @@ Deliverables: `packages/runtime` (types, errors, contract tests), `packages/runt
 
 Exit criteria: with `FREN_LLM_PROVIDER=mock`, a user can chat through the runtime (bubbles arrive as events), say "every morning at 9 …", confirm, see the automation listed, toggle it, run it now, see its result, and answer a permission card the mock raises. All 15 milestone steps pass against the mock except 7 ("executes in a Docker container").
 
-### Phase 2: NanoClaw runtime (Docker and a provider key needed) — code complete, container run unverified
+### Phase 2: NanoClaw runtime (Docker and a provider key needed) — done, verified in a real container
 
 Landed as three commits. `vendor/nanoclaw` is the subtree at `5c3082a1` with the
 three overlay files and three barrel lines (typechecked; upstream's suites still
@@ -1101,16 +1101,32 @@ tested on a machine with no container runtime. On this machine the gateway
 reports `unavailable: no container runtime is installed` with the install hint,
 which is the designed outcome.
 
-What only a real container run can verify, in order: (1) the exact argument
-names the `ncl` resources accept for the bootstrap calls in
-`packages/runtime-nanoclaw/bootstrap.js` and `schedules.js` (written from the
-resource definitions; a wrong flag surfaces as `invalid-args` in the runtime log);
-(2) that a messaging group created with `is_group: 1` and a per-thread wiring
-gives one host session per FREN session; (3) that `ensureUserDm('fren:owner')`
-lands approval cards on the `owner` surface; (4) that the Claude Agent SDK inside
-the container accepts the proxy's base URL and DeepSeek's Anthropic-compatible
-endpoint end to end; (5) the agent image build via `npm run runtime:build -- --image`.
-Each is a one-line fix if wrong, and none changes the product layer.
+**Verified on 2026-09-02 with Docker Desktop 4.89 and a DeepSeek key only.**
+The first real run found four things, all fixed the same day: the host stores
+an inbound id as `<id>:<agentGroupId>` (the turn watcher now matches by
+prefix); the task commands take the agent group's id, not its folder; the
+vendored build names the image by a hash of the checkout path that the host's
+`NANOCLAW_INSTALL_ID` override does not follow (the adapter derives the same
+hash); and macOS caps Unix socket paths near 104 bytes (the bridge falls back
+to a short private directory). Two product gaps were closed in the same pass:
+the persona slot (`groups/fren/instructions.prepend.md`) is written from the
+persona Core passes, so the agent introduces itself as fren; and deleting an
+automation whose container is still running now cancels the task and deletes
+it once the run ends.
+
+What the run showed: bootstrap creates the group, owner, role, surface and
+wiring on the first start and finds them present on the next; a chat run
+spawns a container, reaches DeepSeek's Anthropic-compatible endpoint through
+the sandbox proxy (the proxy rewrites the requested model to `deepseek-chat`),
+delivers the reply mid-turn, and closes on the container's own
+acknowledgement; the same conversation is resumed inside the container on the
+next message; an automation created from FREN becomes a task plus a delivery
+surface, run-now wakes its own session on the next sweep tick (about a minute),
+the agent sends its result to `automation-<id>` and FREN records `READY`,
+delivered, with the run tied to the automation. Point (3) of the earlier list,
+approval cards from the host's guard, is exercised by the fake host but not yet
+by a real hold; nothing in the fren group is configured to hold today
+(`cli_scope` is disabled).
 
 Deliverables: `vendor/nanoclaw` subtree + overlay (`fren` channel, `fren` gateway provider, provenance module) with upstream-style tests, `scripts/runtime-build.js`, `scripts/nanoclaw-overlay-check.js`, `packages/runtime-nanoclaw` (supervisor, `ncl` client, `fren-runtime.sock` server, bootstrap, task compiler, `container-runtime.js` probe, sandbox proxy target), the sandbox credential proxy in Core, integration test gated on `FREN_RUNTIME_INTEGRATION=1`.
 
