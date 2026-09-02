@@ -3,14 +3,46 @@
   "name": "fren browser awareness",
   "version": "0.1.1",
   "description": "Lets fren, running on this computer, see what you are reading. Sends nothing anywhere except to fren on this machine.",
-  "permissions": ["tabs", "storage", "alarms", "scripting"],
-  "host_permissions": ["http://127.0.0.1/*", "http://*/*", "https://*/*"],
-  "background": { "service_worker": "background.js" },
+  "permissions": [
+    "tabs",
+    "storage",
+    "alarms",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["lib/extract.js", "content.js"],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "lib/extract.js",
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "fren is watching this tab",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  }
 }

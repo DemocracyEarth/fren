@@ -630,6 +630,12 @@ function currentBrowserContext() {
 }
 
 app.whenReady().then(() => {
+  // The dock/taskbar icon. In a packaged build the .icns in build/ is used by
+  // the bundle; in a dev run there is no bundle, so set it here or macOS shows
+  // Electron's own atom. Harmless if the file is missing.
+  if (process.platform === 'darwin' && app.dock) {
+    try { app.dock.setIcon(path.join(__dirname, '..', 'build', 'icon.png')); } catch { /* dev nicety only */ }
+  }
   serveRenderer();
   memory = openMemory(path.join(app.getPath('userData'), 'fren.db'));
 
