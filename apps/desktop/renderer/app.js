@@ -120,7 +120,10 @@ function render(next) {
   state = next;
   paintPanel();
   els.gatewayDot.classList.toggle('down', !state.gatewayOk);
-  els.gatewayDot.title = state.gatewayOk ? 'connected' : 'gateway unreachable';
+  els.gatewayDot.title = !state.gatewayOk ? 'gateway unreachable'
+    : state.runtime === 'ready' ? 'connected · secure execution environment ready'
+    : `connected · secure execution environment ${state.runtime}${state.runtimeHint ? ` — ${state.runtimeHint}` : ''}`;
+  document.body.dataset.runtime = state.runtime || 'unavailable';
   // The most important fact in the window, in words. The orb says it too, but
   // the orb may be behind whatever you are working on.
   document.body.dataset.watching = state.observing ? '1' : '0';
@@ -627,6 +630,73 @@ function describeWhen(r) {
   return `on ${r.days.map((d) => DAY_NAMES[d].slice(0, 3)).join(', ')} at ${time}`;
 }
 
+/**
+ * Runs in flight, by id: each knows what to do with a message and with the
+ * end. Events for anything else are not ours to answer.
+ */
+const liveRuns = new Map();
+const RUN_WAIT_MS = 10 * 60 * 1000;
+
+/** Ask through the runtime; fall back to the fast lane if it refuses. */
+async function askThroughRuntime(question, thinkingTimer) {
+  const res = await window.fren.run(question);
+  if (!res || res.error || !res.runId) {
+    const fallback = await window.fren.chat(question);
+    clearTimeout(thinkingTimer);
+    showTyping(false);
+    await speak((fallback && fallback.reply) || '(no reply)');
+    return;
+  }
+  await new Promise((resolve) => {
+    let chain = Promise.resolve();
+    let said = 0;
+    const timer = setTimeout(() => end('That took too long, so I stopped waiting.'), RUN_WAIT_MS);
+    function end(error) {
+      if (!liveRuns.has(res.runId)) return;
+      liveRuns.delete(res.runId);
+      clearTimeout(timer);
+      clearTimeout(thinkingTimer);
+      chain.then(() => {
+        showTyping(false);
+        if (error) addBubble('fren', error);
+        else if (!said) addBubble('fren', 'I finished, but had nothing to show for it.');
+        resolve();
+      });
+    }
+    liveRuns.set(res.runId, {
+      message(m) {
+        if (!m || !m.text) return;
+        said += 1;
+        clearTimeout(thinkingTimer);
+        showTyping(false);
+        // One at a time, in order, spoken like any other reply.
+        chain = chain.then(() => speak(m.text));
+      },
+      end,
+    });
+  });
+}
+
+/** Everything Core reports. Only what concerns this window is acted on. */
+function onCoreEvent(e) {
+  if (!e || typeof e !== 'object') return;
+  const live = e.runId ? liveRuns.get(e.runId) : null;
+  if (live) {
+    if (e.type === 'agent.message') return live.message(e.message);
+    if (e.type === 'run.completed' || e.type === 'run.cancelled') return live.end(null);
+    if (e.type === 'run.failed' || e.type === 'run.interrupted') {
+      return live.end(e.error ? `Something went wrong: ${e.error}` : 'Something went wrong.');
+    }
+    return;
+  }
+  // An automation reported in. Read it out the way a routine is, when free.
+  if (e.type === 'agent.message' && e.automationId && e.message && e.message.text) {
+    if (speaking || awaitingReply) return;
+    addBubble('user', e.automationName || 'automation');
+    speak(e.message.text);
+  }
+}
+
 /** Something said while fren was still busy. Answered next, never dropped. */
 let queued = null;
 
@@ -664,17 +734,23 @@ async function sendMessage(text) {
   const thinkingTimer = setTimeout(() => setFace('thinking'), 420);
 
   try {
-    const res = await window.fren.chat(question);
-    clearTimeout(thinkingTimer);
-    const reply = typeof res === 'string' ? res : (res && res.reply) || '(no reply)';
-    showTyping(false);
-    // Belt and braces. The audio guard above should make speak() always
-    // settle, but `awaitingReply` gates the microphone, so a bug anywhere in
-    // the speaking path must not be able to disable voice input permanently.
-    await Promise.race([
-      speak(reply),
-      new Promise((r) => setTimeout(r, 90_000)),
-    ]);
+    if (state.runtime === 'ready') {
+      // Through the secure execution environment: fren can act, not only
+      // answer. Its words arrive as events, one message at a time.
+      await askThroughRuntime(question, thinkingTimer);
+    } else {
+      const res = await window.fren.chat(question);
+      clearTimeout(thinkingTimer);
+      const reply = typeof res === 'string' ? res : (res && res.reply) || '(no reply)';
+      showTyping(false);
+      // Belt and braces. The audio guard above should make speak() always
+      // settle, but `awaitingReply` gates the microphone, so a bug anywhere in
+      // the speaking path must not be able to disable voice input permanently.
+      await Promise.race([
+        speak(reply),
+        new Promise((r) => setTimeout(r, 90_000)),
+      ]);
+    }
   } catch (err) {
     clearTimeout(thinkingTimer);
     showTyping(false);
@@ -1974,6 +2050,7 @@ scheduleWander();
     addBubble('user', name);
     await speak(text);
   });
+  window.fren.onCoreEvent(onCoreEvent);
   window.fren.onStateChanged(render);          // subscribe before the first fetch
   render(await window.fren.getState());
   setFace(emotionFor(state), { immediate: true });

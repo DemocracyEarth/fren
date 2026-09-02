@@ -24,6 +24,9 @@ const els = {
   statusBtn: document.getElementById('side-status'),
 };
 
+// The last state main pushed. The chat picks its lane from it.
+let lastState = null;
+
 const pad = (n) => String(n).padStart(2, '0');
 const hhmm = (ms) => {
   const d = new Date(ms);
@@ -1100,6 +1103,7 @@ async function showSettings() {
     },
   ));
 
+  els.content.appendChild(await runtimeBlock());
   els.content.appendChild(await browserBlock());
   els.content.appendChild(await colourPicker());
   els.content.appendChild(await lookTuner());
@@ -1111,6 +1115,43 @@ async function showSettings() {
   }
 
   await showProviderSettings();
+}
+
+/**
+ * The secure execution environment: where fren runs anything that acts on
+ * your behalf. Its state in words, and what to do when it is not there. The
+ * hint is the only place a product name is allowed to appear.
+ */
+async function runtimeBlock() {
+  const wrap = el('div', 'setting-block');
+  wrap.append(el('strong', null, 'Secure execution environment'));
+  const line = el('p', 'browser-status');
+  const WORDS = {
+    ready: 'Ready ✓',
+    starting: 'Starting…',
+    degraded: 'Recovering…',
+    stopped: 'Stopped',
+    unavailable: 'Not available',
+  };
+  const paint = (s) => {
+    line.textContent = '';
+    const st = s && s.state ? s.state : 'unavailable';
+    line.append(el('strong', st === 'ready' ? 'browser-ok' : null, WORDS[st] || st));
+    const note = s && (s.step || s.hint || s.reason);
+    if (note) line.append(el('span', null, ` — ${note}`));
+  };
+  let st = null;
+  try { st = await window.fren.runtimeStatus(); } catch { /* painted as unavailable */ }
+  paint(st && st.status);
+  window.fren.onCoreEvent((e) => {
+    if (e && e.type === 'runtime.status' && wrap.isConnected) paint(e.status);
+  });
+  wrap.append(line);
+  wrap.append(el('p', 'caveat',
+    'Anything fren does for you, rather than says to you, runs here: an isolated ' +
+    'space that cannot reach your files or accounts unless you allow it. Without ' +
+    'it fren can still talk from memory, but cannot act.'));
+  return wrap;
 }
 
 /**
@@ -1213,6 +1254,50 @@ function saidRow(role, text, ts) {
   return row;
 }
 
+/** Runs this window started, by id. */
+const liveRuns = new Map();
+
+/**
+ * Through the secure execution environment. The first message replaces the
+ * "thinking…" row; any further ones get rows of their own. Resolves with the
+ * text for that first row once the run is over.
+ */
+function askRuntime(text, pending, log) {
+  return window.fren.run(text).then((res) => {
+    if (!res || res.error || !res.runId) {
+      return window.fren.chat(text).then((r) => (r && r.reply) || '');
+    }
+    return new Promise((resolve) => {
+      let first = '';
+      const timer = setTimeout(() => end('That took too long, so I stopped waiting.'), 10 * 60 * 1000);
+      function end(error) {
+        if (!liveRuns.has(res.runId)) return;
+        liveRuns.delete(res.runId);
+        clearTimeout(timer);
+        resolve(first || error || 'I finished, but had nothing to show for it.');
+      }
+      liveRuns.set(res.runId, {
+        message(m) {
+          if (!m || !m.text) return;
+          if (!first) { first = m.text; pending.querySelector('p').textContent = m.text; return; }
+          log.appendChild(saidRow('fren', m.text, m.at || Date.now()));
+          els.content.scrollTop = els.content.scrollHeight;
+        },
+        end,
+      });
+    });
+  });
+}
+
+function onCoreEvent(e) {
+  if (!e || !e.runId) return;
+  const live = liveRuns.get(e.runId);
+  if (!live) return;
+  if (e.type === 'agent.message') live.message(e.message);
+  else if (e.type === 'run.completed' || e.type === 'run.cancelled') live.end(null);
+  else if (e.type === 'run.failed' || e.type === 'run.interrupted') live.end(e.error ? `Something went wrong: ${e.error}` : 'Something went wrong.');
+}
+
 /**
  * The conversation, with room to read it.
  *
@@ -1302,8 +1387,12 @@ async function showChat() {
 
     let reply = '';
     try {
-      const res = await window.fren.chat(text);
-      reply = (res && res.reply) || '';
+      if (lastState && lastState.runtime === 'ready') {
+        reply = await askRuntime(text, pending, log);
+      } else {
+        const res = await window.fren.chat(text);
+        reply = (res && res.reply) || '';
+      }
     } catch (err) {
       reply = 'I could not reach my thinking half. ' + (err && err.message ? err.message : '');
     }
@@ -1395,8 +1484,9 @@ for (const b of document.querySelectorAll('.side-item[data-section]')) {
     if (colour && window.FrenPalette) window.FrenPalette.applyAccent(colour);
   } catch { /* the default is fine */ }
 
-  window.fren.onStateChanged(paint);
-  try { paint(await window.fren.getState()); } catch { /* leave it paused */ }
+  window.fren.onStateChanged((s) => { lastState = s; paint(s); });
+  window.fren.onCoreEvent(onCoreEvent);
+  try { lastState = await window.fren.getState(); paint(lastState); } catch { /* leave it paused */ }
 
   await loadSidebar();
 

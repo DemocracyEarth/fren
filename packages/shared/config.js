@@ -41,8 +41,10 @@ module.exports = {
   BROWSER_STALE_MS: 75_000,         // no heartbeat for this long = disconnected
 
   // Gateway
-  GATEWAY_PORT: 4519,
-  GATEWAY_URL: process.env.FREN_GATEWAY_URL || 'http://127.0.0.1:4519',
+  // FREN_GATEWAY_PORT lets a second copy run beside a live one (tests, smoke
+  // checks); the URL the desktop dials follows it unless set explicitly.
+  GATEWAY_PORT: Number(process.env.FREN_GATEWAY_PORT) || 4519,
+  GATEWAY_URL: process.env.FREN_GATEWAY_URL || `http://127.0.0.1:${Number(process.env.FREN_GATEWAY_PORT) || 4519}`,
   GATEWAY_TOKEN: process.env.FREN_GATEWAY_TOKEN || 'dev-token',
   // Explicit override only — each provider falls back to its own default,
   // so switching providers doesn't require also changing the model.

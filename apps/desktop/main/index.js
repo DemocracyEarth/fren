@@ -37,6 +37,7 @@ delete process.env.ANTHROPIC_API_KEY;
 delete process.env.ANTHROPIC_AUTH_TOKEN;
 delete process.env.DEEPSEEK_API_KEY;
 delete process.env.ELEVENLABS_API_KEY;
+delete process.env.FREN_VISION_API_KEY;
 
 // The renderer is served over a custom scheme rather than loaded from disk.
 // ES modules are blocked over file:// as cross-origin, so the 3D face -- which
@@ -214,6 +215,7 @@ let lastSeenAt = null;
 // lands in the middle of a conversation that is already going.
 let lastChatAt = 0;
 let automationTimer = null;
+let coreEvents = null;      // the push channel from Core, closed on quit
 let automationTickBusy = false;
 
 const log = (...args) => console.log(...args);
@@ -562,6 +564,13 @@ function safeParse(s, fallback) {
   catch { return fallback; }
 }
 
+/** Say it to every window, not just the orb. */
+function broadcast(channel, payload) {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send(channel, payload);
+  }
+}
+
 /** The light status every window may know. Never page content. */
 function broadcastBrowserState() {
   if (!browserSensor) return;
@@ -863,9 +872,9 @@ app.whenReady().then(() => {
     });
   }
 
-  state.subscribe((s) => {
-    if (win && !win.isDestroyed()) win.webContents.send('fren:stateChanged', s);
-  });
+  // Every window: the dashboard shows the light and the environment too, and
+  // it used to hear about neither because this only reached the orb.
+  state.subscribe((s) => broadcast('fren:stateChanged', s));
 
   const checkHealth = async () => {
     try {
@@ -875,12 +884,78 @@ app.whenReady().then(() => {
       // model that can actually see; DeepSeek's chat models cannot.
       const canSee = !!(health && health.vision);
       if (state.get().canSeeScreen !== canSee) state.set({ canSeeScreen: canSee });
+      noteRuntime(health && health.runtime);
     } catch {
       if (state.get().gatewayOk) state.set({ gatewayOk: false });
+      noteRuntime(null);
     }
   };
+  /** The environment's state, only when it changed — this fires every 30 s. */
+  function noteRuntime(status) {
+    const runtime = status && status.state ? status.state : 'unavailable';
+    const runtimeHint = status ? (status.hint || status.reason || '') : '';
+    const s = state.get();
+    if (s.runtime !== runtime || s.runtimeHint !== runtimeHint) state.set({ runtime, runtimeHint });
+  }
   checkHealth();
   setInterval(checkHealth, 30_000);
+
+  // Core's push channel. Runs, automations and permission requests arrive
+  // here as they happen; main keeps the orb's busy face and the transcript in
+  // step, then hands every event to every window.
+  const workingRuns = new Set();
+  function handleCoreEvent(e) {
+    if (!e || typeof e !== 'object') return;
+    if (e.type === 'runtime.status' && e.status) {
+      noteRuntime(e.status);
+    } else if (e.type === 'agent.working' && e.runId) {
+      // Balanced per run, so a lost 'off' cannot leave fren thinking forever.
+      if (e.on && !workingRuns.has(e.runId)) { workingRuns.add(e.runId); state.beginWork(); }
+      if (!e.on && workingRuns.has(e.runId)) { workingRuns.delete(e.runId); state.endWork(); }
+    } else if (/^run\.(completed|failed|cancelled|interrupted)$/.test(e.type) && workingRuns.has(e.runId)) {
+      workingRuns.delete(e.runId);
+      state.endWork();
+    } else if (e.type === 'agent.message' && e.kind === 'chat' && e.message && e.message.text) {
+      // What the agent said in the conversation belongs in the transcript, the
+      // same as a reply from the fast lane.
+      remember('fren', e.message.text);
+    }
+    broadcast('fren:coreEvent', e);
+  }
+  coreEvents = gateway.openEvents({
+    since: 'latest',
+    onEvent: handleCoreEvent,
+    onStatus: (status, detail) => { if (status === 'disconnected') log(`[core] events ${status}${detail ? `: ${detail}` : ''}`); },
+  });
+
+  ipcMain.handle('fren:runtimeStatus', async () => {
+    try { return await gateway.runtimeStatus(); } catch (err) { return { status: { state: 'unavailable', reason: err.message }, kind: null }; }
+  });
+
+  ipcMain.handle('fren:cancelRun', async (_e, id) => {
+    try { return await gateway.cancelRun(String(id)); } catch (err) { return { error: err.message }; }
+  });
+
+  /**
+   * Ask fren through the secure execution environment. Accepted or refused
+   * right away; what it says arrives as fren:coreEvent messages for the run.
+   * Refusal is an answer too: the caller falls back to the fast lane.
+   */
+  ipcMain.handle('fren:run', async (_e, text) => {
+    const question = String(text ?? '').trim().slice(0, 4000);
+    if (!question) return { error: 'nothing to say' };
+    if (state.get().runtime !== 'ready') return { error: 'the secure execution environment is not ready' };
+    const character = soul.readContext(app.getPath('userData'));
+    try {
+      const { run } = await gateway.startRun({ text: question, persona: character.soul });
+      lastChatAt = Date.now();
+      remember('you', question);
+      return { runId: run.id };
+    } catch (err) {
+      log(`[run] refused: ${err.message}`);
+      return { error: err.message };
+    }
+  });
 
   ipcMain.handle('fren:getState', () => state.get());
 
@@ -1882,5 +1957,6 @@ app.on('before-quit', () => {
   if (curiosity) curiosity.stop();
   if (routines) routines.stop();
   if (automationTimer) clearInterval(automationTimer);
+  if (coreEvents) coreEvents.close();
   if (memory) memory.close();
 });

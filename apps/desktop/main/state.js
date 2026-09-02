@@ -12,6 +12,11 @@ const base = {
   panelBelow: false,
   panelSide: 'left',
   gatewayOk: false,
+  // The secure execution environment, where anything that acts on your behalf
+  // runs: unavailable | starting | ready | degraded | stopped. Never a product
+  // name — the hint is the one place a person is told what to install.
+  runtime: 'unavailable',
+  runtimeHint: '',
 };
 
 let busyCount = 0; // in-flight LLM work (chat, summarize)

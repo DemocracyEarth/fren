@@ -144,7 +144,8 @@ function createCore({ store, runtime, now = Date.now, log = console.log, reprobe
   });
 
   route('GET', '/v1/events', (_p, _b, query, req, res) => {
-    const since = req.headers['last-event-id'] || query.since || 0;
+    let since = req.headers['last-event-id'] || query.since || 0;
+    if (since === 'latest') since = events.lastId(); // no history, only what happens next
     events.attach(res, { since });
     return null; // the response stays open
   });

@@ -73,4 +73,12 @@ contextBridge.exposeInMainWorld('fren', {
   onOrbColour: (cb) => ipcRenderer.on('fren:orbColour', (_e, hex) => cb(hex)),
   getWakeOnLaunch: () => ipcRenderer.invoke('fren:getWakeOnLaunch'),
   setWakeOnLaunch: (on) => ipcRenderer.invoke('fren:setWakeOnLaunch', on),
+  // The secure execution environment: ask fren through it (the answer arrives
+  // as events, not as the return value), stop a run, and read its status.
+  run: (text) => ipcRenderer.invoke('fren:run', text),
+  cancelRun: (id) => ipcRenderer.invoke('fren:cancelRun', id),
+  runtimeStatus: () => ipcRenderer.invoke('fren:runtimeStatus'),
+  // Everything Core reports, to every window: runs, messages, automations,
+  // permission requests, the environment's state.
+  onCoreEvent: (cb) => ipcRenderer.on('fren:coreEvent', (_e, ev) => cb(ev)),
 });
