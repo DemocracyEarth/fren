@@ -24,3 +24,6 @@ import './interactive/index.js';
 import './permissions/index.js';
 import './agent-to-agent/index.js';
 import './self-mod/index.js';
+
+// FREN overlay: delivery provenance and turn completion, reported to FREN Core.
+import './fren/index.js';

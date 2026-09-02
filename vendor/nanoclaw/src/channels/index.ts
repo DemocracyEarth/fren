@@ -7,3 +7,6 @@
 // self-registration import below.
 
 import './cli.js';
+
+// FREN overlay: the desktop companion as a channel (FREN Core spawns this host).
+import './fren.js';

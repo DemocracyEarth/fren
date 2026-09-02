@@ -6,3 +6,6 @@
  * rewritten to install a gateway.
  */
 import './onecli.js';
+
+// FREN overlay: the gateway provider FREN Core runs this host with.
+import './fren.js';

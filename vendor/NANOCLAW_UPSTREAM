@@ -1,0 +1,5 @@
+nanocoai/nanoclaw main
+commit 5c3082a1c5d15d84a10f96f54f25459266e7037e
+version 2.3.0
+vendored 2026-09-02 via: git subtree add --prefix vendor/nanoclaw https://github.com/nanocoai/nanoclaw.git <commit> --squash
+update with: scripts/nanoclaw-sync.sh <commit>

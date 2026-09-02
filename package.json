@@ -7,7 +7,9 @@
     "start": "node start.js",
     "gateway": "node apps/gateway/server.js",
     "desktop": "electron apps/desktop",
-    "test": "node --test \"packages/shared/test/*.test.js\" \"packages/runtime/test/*.test.js\" \"packages/runtime-mock/test/*.test.js\" \"packages/fren-core/test/*.test.js\" \"packages/observer/test/*.test.js\" \"packages/permissions/test/*.test.js\" \"packages/memory/test/*.test.js\" \"packages/intelligence/test/*.test.js\" \"apps/gateway/test/*.test.js\" \"apps/desktop/test/*.test.js\" \"apps/browser-extension/test/*.test.js\""
+    "test": "node --test \"packages/shared/test/*.test.js\" \"packages/runtime/test/*.test.js\" \"packages/runtime-mock/test/*.test.js\" \"packages/fren-core/test/*.test.js\" \"packages/observer/test/*.test.js\" \"packages/permissions/test/*.test.js\" \"packages/memory/test/*.test.js\" \"packages/intelligence/test/*.test.js\" \"apps/gateway/test/*.test.js\" \"apps/desktop/test/*.test.js\" \"apps/browser-extension/test/*.test.js\"",
+    "runtime:build": "node scripts/runtime-build.js",
+    "runtime:check": "node scripts/nanoclaw-overlay-check.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1"
