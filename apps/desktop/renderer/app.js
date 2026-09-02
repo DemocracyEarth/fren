@@ -796,10 +796,11 @@ function onCoreEvent(e) {
     }
     return;
   }
-  // An automation reported in. Read it out the way a routine is, when free.
-  if (e.type === 'agent.message' && e.automationId && e.message && e.message.text) {
+  // Something fren said on its own: an automation reporting in, or the agent
+  // coming back after an approval. Read it out the way a routine is, when free.
+  if (e.type === 'agent.message' && !e.runId && e.message && e.message.text) {
     if (speaking || awaitingReply) return;
-    addBubble('user', e.automationName || 'automation');
+    if (e.automationId) addBubble('user', e.automationName || 'automation');
     speak(e.message.text);
   }
 }
