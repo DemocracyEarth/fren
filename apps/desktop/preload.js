@@ -81,4 +81,12 @@ contextBridge.exposeInMainWorld('fren', {
   // Everything Core reports, to every window: runs, messages, automations,
   // permission requests, the environment's state.
   onCoreEvent: (cb) => ipcRenderer.on('fren:coreEvent', (_e, ev) => cb(ev)),
+  // Automations that run an agent in the secure execution environment. The
+  // older script automations keep their own calls above.
+  automationIntent: (text) => ipcRenderer.invoke('fren:automationIntent', text),
+  agentAutomations: () => ipcRenderer.invoke('fren:agentAutomations'),
+  createAgentAutomation: (spec) => ipcRenderer.invoke('fren:createAgentAutomation', spec),
+  patchAgentAutomation: (id, patch) => ipcRenderer.invoke('fren:patchAgentAutomation', id, patch),
+  deleteAgentAutomation: (id) => ipcRenderer.invoke('fren:deleteAgentAutomation', id),
+  runAgentAutomation: (id) => ipcRenderer.invoke('fren:runAgentAutomation', id),
 });

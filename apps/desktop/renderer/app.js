@@ -617,6 +617,63 @@ async function tryRoutine(text) {
   return true;
 }
 
+/**
+ * Ask Core whether that was an automation. If it was, propose it — the
+ * schedule and the task in words — and only create it when they keep it.
+ * Returns 'kept', 'declined', or 'no' (not an automation).
+ *
+ * A proposal before creation is deliberate: a routine only asks a question,
+ * an automation runs an agent with tools. That deserves a look first.
+ */
+async function tryAutomation(text) {
+  let intent = null;
+  try { intent = await window.fren.automationIntent(text); } catch { return 'no'; }
+  if (!intent || intent.error || !intent.isAutomation) return 'no';
+  const kept = await proposeAutomation(intent);
+  if (!kept) return 'declined';
+  const res = await window.fren.createAgentAutomation({
+    name: intent.name,
+    trigger: { type: 'schedule', cron: intent.cron },
+    body: { kind: 'agent', instruction: intent.instruction },
+    // The internet is the one thing the environment reaches today; saying so
+    // on the automation is what lets the broker allow it without asking.
+    permissions: ['network.request'],
+    source: 'user',
+  });
+  if (!res || res.error) {
+    await speak(`I could not set that up${res && res.error ? `: ${res.error}` : ''}.`);
+    return 'kept';
+  }
+  await speak(
+    `Done — ${intent.describe}, I'll do this: ${intent.instruction}\n\n` +
+    'It is under Automations in the full window, where you can run it now, pause it, or delete it. ' +
+    'What it finds arrives here.'
+  );
+  return 'kept';
+}
+
+/** The proposal, with two chips. Resolves true when they keep it. */
+function proposeAutomation(intent) {
+  return new Promise((resolve) => {
+    const bubble = addBubble('fren',
+      `${intent.describe[0].toUpperCase() + intent.describe.slice(1)}: ${intent.instruction} Keep it?`);
+    const row = document.createElement('div');
+    row.className = 'chips';
+    const keep = document.createElement('button');
+    keep.className = 'chip';
+    keep.textContent = 'Keep it';
+    const no = document.createElement('button');
+    no.className = 'chip';
+    no.textContent = 'Just answer me';
+    const done = (value) => { row.remove(); resolve(value); };
+    keep.addEventListener('click', () => done(true));
+    no.addEventListener('click', () => done(false));
+    row.append(keep, no);
+    bubble.append(row);
+    scrollDown();
+  });
+}
+
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 /** "every weekday at 09:00", in words. */
@@ -719,8 +776,14 @@ async function sendMessage(text) {
   // If fren asked something, this is the answer — see if it taught anything.
   learnFrom(question);
   // "every weekday at nine, tell me what I did" is not a question to answer
-  // once — it is a routine to set up.
-  if (looksScheduled(question) && await tryRoutine(question)) return;
+  // once — it is a routine to set up. With the secure execution environment
+  // ready it can be more than a question: an automation that DOES something.
+  if (looksScheduled(question)) {
+    const verdict = state.runtime === 'ready' ? await tryAutomation(question) : 'no';
+    if (verdict === 'kept') return;
+    if (verdict === 'no' && await tryRoutine(question)) return;
+    // 'declined': they wanted an answer, not a job. Answer.
+  }
   awaitingReply = true;
   els.send.disabled = true;
   showTyping(true);

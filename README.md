@@ -18,8 +18,12 @@ fren's long-term loop is:
 Version 0.1 implements the loop through **SUGGEST**. fren observes, remembers,
 summarises, and looks across hours of those summaries for a workflow you repeat.
 When it finds one it either says so or lights up and waits — which of those
-depends on what you told it during setup. Proposed automations (M3) are still
-groundwork only: fren notices and suggests, it does not act.
+depends on what you told it during setup. Version 0.2 opens the **AUTOMATE**
+stage behind a runtime seam: with a secure execution environment available,
+fren can run an agent for a chat request or on a schedule ("every morning at
+9, check Hacker News…") and show you what it did. The environment is optional
+and replaceable; see [docs/runtime-architecture.md](docs/runtime-architecture.md).
+Without it fren still observes, remembers, suggests and answers from memory.
 
 Restraint is the hard part, not detection. A companion that volunteers something
 every ten minutes gets muted on day one, and a muted companion has failed
@@ -258,6 +262,25 @@ pausing fren.
 The last two answers are not about you — they define fren. They are written to
 `SOUL.md` in fren's data folder as instructions it is told to follow, and you
 can open that file, rewrite it, and have it take effect on your next message.
+
+## Agent automations
+
+With the secure execution environment ready (the dot in the chat header says
+so, and Settings explains what is missing when it is not), a sentence like
+*"every morning at 9, check Hacker News and give me the five most interesting
+AI stories"* becomes a proposal in the chat: the schedule and the task in
+words, and a **Keep it** chip. Nothing is created until you keep it. Kept
+automations live under Automations in the full window, where each can be run
+now, paused, resumed or deleted, and every run is listed with what came back.
+What an automation finds arrives in the chat, spoken like any other reply.
+
+An agent automation runs in isolation: its own workspace, no access to your
+files or accounts unless you grant it, and the model reached through fren's
+own proxy so no key ever enters the environment. It does not receive what fren
+observed about you. Today the environment can reach the internet; that is
+stated on the automation and in [docs/privacy.md](docs/privacy.md). This
+build ships a mock environment for development; the real one is the next
+phase of the plan in `docs/runtime-architecture.md`.
 
 ## Running an automation
 

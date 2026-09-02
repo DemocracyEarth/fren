@@ -876,7 +876,7 @@ const FREN_FACTS = [
   'It summarises that activity every couple of minutes, and looks across hours of those summaries for a workflow you repeat.',
   'It CAN raise something it noticed on its own, without being asked — that is what the "when to speak up" question decides.',
   'It listens only while you hold the orb; speech is transcribed on your own machine.',
-  'It suggests things. It does not act on your behalf.',
+  'It suggests things. It acts on your behalf only inside a secure execution environment, only for what you asked, and it shows you what it did.',
 ].join(' ');
 
 /**

@@ -106,4 +106,12 @@ module.exports = {
   startRun: (payload) => request('/v1/runs', { method: 'POST', body: payload, timeoutMs: 15_000 }),
   getRun: (id) => request(`/v1/runs/${encodeURIComponent(id)}`, { timeoutMs: 10_000 }),
   cancelRun: (id) => request(`/v1/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: {}, timeoutMs: 10_000 }),
+
+  // ---- FREN Core: automations that run an agent -----------------------------
+  automationIntent: (text) => request('/v1/automations/intent', { method: 'POST', body: { text }, timeoutMs: 30_000 }),
+  agentAutomations: () => request('/v1/automations', { timeoutMs: 10_000 }),
+  createAgentAutomation: (spec) => request('/v1/automations', { method: 'POST', body: spec, timeoutMs: 15_000 }),
+  patchAgentAutomation: (id, patch) => request(`/v1/automations/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch, timeoutMs: 15_000 }),
+  deleteAgentAutomation: (id) => request(`/v1/automations/${encodeURIComponent(id)}`, { method: 'DELETE', timeoutMs: 15_000 }),
+  runAgentAutomation: (id) => request(`/v1/automations/${encodeURIComponent(id)}/run`, { method: 'POST', body: {}, timeoutMs: 15_000 }),
 };

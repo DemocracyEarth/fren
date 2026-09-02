@@ -936,6 +936,19 @@ app.whenReady().then(() => {
     try { return await gateway.cancelRun(String(id)); } catch (err) { return { error: err.message }; }
   });
 
+  // Automations that run an agent: FREN's model, kept by Core. Every call is
+  // a thin pass-through with the error turned into a value the renderer can
+  // show, the same convention the script automations use.
+  const passthrough = (fn) => async (_e, ...args) => {
+    try { return await fn(...args); } catch (err) { return { error: err.message }; }
+  };
+  ipcMain.handle('fren:automationIntent', passthrough((text) => gateway.automationIntent(String(text ?? '').trim().slice(0, 2000))));
+  ipcMain.handle('fren:agentAutomations', passthrough(async () => (await gateway.agentAutomations()).automations));
+  ipcMain.handle('fren:createAgentAutomation', passthrough(async (spec) => (await gateway.createAgentAutomation(spec && typeof spec === 'object' ? spec : {})).automation));
+  ipcMain.handle('fren:patchAgentAutomation', passthrough(async (id, patch) => (await gateway.patchAgentAutomation(String(id), patch && typeof patch === 'object' ? patch : {})).automation));
+  ipcMain.handle('fren:deleteAgentAutomation', passthrough((id) => gateway.deleteAgentAutomation(String(id))));
+  ipcMain.handle('fren:runAgentAutomation', passthrough((id) => gateway.runAgentAutomation(String(id))));
+
   /**
    * Ask fren through the secure execution environment. Accepted or refused
    * right away; what it says arrives as fren:coreEvent messages for the run.

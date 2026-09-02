@@ -263,26 +263,35 @@ async function showAutomations() {
 
   let list = [];
   try { list = await window.fren.automations(); } catch { list = []; }
+  // The ones that run an agent in the secure execution environment.
+  let agents = [];
+  try {
+    const res = await window.fren.agentAutomations();
+    agents = Array.isArray(res) ? res : [];
+  } catch { agents = []; }
 
   // Drafts that have not been kept yet still live on the suggestion.
   const all = await suggestions();
   const unkept = all.filter((x) => x.draft && x.draft.script &&
     !list.some((a) => a.suggestionId === x.id));
 
-  els.subtitle.textContent = list.length || unkept.length
-    ? `${list.length} kept${unkept.length ? `, ${unkept.length} drafted` : ''}`
-    : 'Nothing drafted yet';
+  const total = list.length + agents.length;
+  els.subtitle.textContent = total || unkept.length
+    ? `${total} kept${unkept.length ? `, ${unkept.length} drafted` : ''}`
+    : 'Nothing set up yet';
 
-  if (!list.length && !unkept.length) {
+  if (!total && !unkept.length) {
     els.content.appendChild(blank(
-      'Nothing drafted yet',
-      'Ask fren to automate something it noticed and the draft appears here. ' +
-      'Nothing runs until you have read it and approved it, and nothing is ' +
-      'scheduled until it has already run once by hand.'
+      'Nothing set up yet',
+      'Tell fren "every morning at 9, check Hacker News and give me the five most ' +
+      'interesting AI stories" and it appears here. Ask it to automate something it ' +
+      'noticed and the draft appears here too; nothing scripted runs until you have ' +
+      'read it and approved it.'
     ));
     return;
   }
 
+  for (const a of agents) els.content.appendChild(agentAutomationCard(a));
   for (const a of list) els.content.appendChild(automationCard(a));
 
   for (const s of unkept) {
@@ -304,6 +313,75 @@ async function showAutomations() {
     card.append(actions);
     els.content.appendChild(card);
   }
+}
+
+/**
+ * An automation that runs an agent: what it does, when, whether it is on,
+ * whether the secure execution environment has it, and every run with what
+ * came back. Something that runs unattended should leave a record.
+ */
+function agentAutomationCard(a) {
+  const card = el('div', 'card');
+  const head = el('div', 'card-head');
+  head.append(el('b', null, a.name));
+  head.append(el('time', null, a.describe || ''));
+  card.append(head);
+  card.append(el('p', null, a.body && a.body.instruction ? a.body.instruction : ''));
+
+  const gates = el('div', 'gates');
+  gates.append(gate('On', a.enabled, a.pausedByRuntime ? a.pausedByRuntime : ''));
+  gates.append(gate('In the secure environment', a.runtimeState === 'scheduled',
+    a.runtimeState === 'waiting' ? 'waiting for it' : ''));
+  card.append(gates);
+
+  const actions = el('div', 'row-actions');
+  const runBtn = el('button', 'mini primary', 'Run now');
+  runBtn.addEventListener('click', async () => {
+    runBtn.disabled = true;
+    runBtn.textContent = 'Starting…';
+    const res = await window.fren.runAgentAutomation(a.id);
+    if (res && res.error) {
+      runBtn.disabled = false;
+      runBtn.textContent = 'Run now';
+      return alertInline(card, res.error);
+    }
+    alertInline(card, 'Running. What it finds will appear below, and in the chat.');
+  });
+  actions.append(runBtn);
+  const toggle = el('button', 'mini', a.enabled ? 'Pause' : 'Resume');
+  toggle.addEventListener('click', async () => {
+    const res = await window.fren.patchAgentAutomation(a.id, { enabled: !a.enabled, expectedRevision: a.revision });
+    if (res && res.error) return alertInline(card, res.error);
+    showAutomations();
+    refreshCounts();
+  });
+  actions.append(toggle);
+  const del = el('button', 'mini danger', 'Delete');
+  del.addEventListener('click', async () => {
+    await window.fren.deleteAgentAutomation(a.id);
+    showAutomations();
+    refreshCounts();
+  });
+  actions.append(del);
+  card.append(actions);
+
+  if (a.enabled && a.nextRunAt) card.append(el('p', 'caveat', whenNext(a.nextRunAt)));
+
+  if (a.runs && a.runs.length) {
+    const d = el('details', 'last');
+    d.append(el('summary', null, `${a.runs.length} recent run${a.runs.length === 1 ? '' : 's'}`));
+    for (const r of a.runs) {
+      const line = el('div', 'run');
+      line.append(el('span', `dot ${r.status === 'started' ? 'started' : r.status}`, ''));
+      line.append(el('span', null,
+        `${new Date(r.startedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ` +
+        `${hhmm(r.startedAt)} · ${r.trigger} · ${r.status === 'started' ? 'running' : r.status}`));
+      d.append(line);
+      if (r.output) d.append(el('pre', 'run-out', r.output));
+    }
+    card.append(d);
+  }
+  return card;
 }
 
 /**
@@ -542,7 +620,12 @@ async function refreshCounts() {
   try { kept = await window.fren.automations(); } catch { kept = []; }
   const unkept = all.filter((x) => x.draft && x.draft.script &&
     !kept.some((a) => a.suggestionId === x.id));
-  const automations = kept.length + unkept.length;
+  let agents = 0;
+  try {
+    const res = await window.fren.agentAutomations();
+    agents = Array.isArray(res) ? res.length : 0;
+  } catch { /* none */ }
+  const automations = kept.length + unkept.length + agents;
 
   let routineCount = 0;
   try { routineCount = (await window.fren.routines()).filter((r) => r.enabled).length; } catch { /* none */ }
@@ -1289,8 +1372,19 @@ function askRuntime(text, pending, log) {
   });
 }
 
+let refreshTimer = null;
 function onCoreEvent(e) {
-  if (!e || !e.runId) return;
+  if (!e) return;
+  // An automation changed or reported in: redraw the list if it is on screen,
+  // a moment later so a burst of events is one redraw.
+  if (/^automation\./.test(e.type)) {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => {
+      if (current && current.kind === 'automations') showAutomations();
+      refreshCounts();
+    }, 300);
+  }
+  if (!e.runId) return;
   const live = liveRuns.get(e.runId);
   if (!live) return;
   if (e.type === 'agent.message') live.message(e.message);
