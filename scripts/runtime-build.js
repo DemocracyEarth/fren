@@ -35,12 +35,16 @@ console.log('[runtime-build] compiling the runtime host');
 run(PNPM[0], [...PNPM[1], 'run', 'build']);
 
 if (process.argv.includes('--image')) {
-  const probe = spawnSync('docker', ['info'], { stdio: 'ignore' });
+  const { resolveDocker, pathWithDocker } = require('../packages/runtime-nanoclaw/container-runtime');
+  const found = resolveDocker();
+  const probe = found ? spawnSync(found.bin, ['info'], { stdio: 'ignore' }) : { status: 1 };
   if (probe.status !== 0) {
     console.error('[runtime-build] the container runtime is not available; skipping the agent image');
     process.exit(2);
   }
-  console.log('[runtime-build] building the agent image');
+  console.log(`[runtime-build] building the agent image (docker at ${found.bin})`);
+  // The build script shells `docker` by name.
+  process.env.PATH = pathWithDocker(process.env);
   run('bash', ['container/build.sh']);
 }
 console.log('[runtime-build] done');
