@@ -7,7 +7,7 @@ const path = require('node:path');
 const { once } = require('node:events');
 const { createNclClient } = require('../ncl-client');
 const { createBridge } = require('../bridge');
-const { detect } = require('../container-runtime');
+const { detect, resolveDocker, pathWithDocker } = require('../container-runtime');
 const { createScheduleStore } = require('../schedules');
 
 const tmpSock = (name) => path.join(fs.mkdtempSync('/tmp/frn-'), name);
@@ -71,20 +71,40 @@ test('the bridge refuses a stranger and welcomes the host', async () => {
   assert.equal(fs.existsSync(sock), false);
 });
 
+test('the docker binary is found on PATH or where the app keeps it', () => {
+  const app = '/Applications/Docker.app/Contents/Resources/bin';
+  const exists = (p) => p === `${app}/docker`;
+  const found = resolveDocker({ env: { PATH: '/usr/bin:/bin' }, platform: 'darwin', exists });
+  assert.equal(found.bin, `${app}/docker`);
+  assert.equal(found.onPath, false);
+  assert.equal(resolveDocker({ env: { PATH: '/usr/bin' }, platform: 'darwin', exists: () => false }), null);
+  const onPath = resolveDocker({ env: { PATH: '/opt/homebrew/bin:/usr/bin' }, platform: 'darwin', exists: (p) => p === '/opt/homebrew/bin/docker' });
+  assert.equal(onPath.onPath, true);
+  const brew = (p) => p === '/opt/homebrew/bin/docker';
+  assert.equal(pathWithDocker({ PATH: '/opt/homebrew/bin:/usr/bin' }, { platform: 'darwin', exists: brew }), '/opt/homebrew/bin:/usr/bin', 'already on PATH: unchanged');
+  assert.equal(pathWithDocker({ PATH: '/usr/bin' }, { platform: 'darwin', exists }), `${app}:/usr/bin`, 'found in the app: prepended');
+});
+
 test('the container runtime probe explains absence and stoppage', async () => {
   const missing = (bin, args, opts, cb) => cb(Object.assign(new Error('spawn docker ENOENT'), { code: 'ENOENT' }), '', '');
-  const r1 = await detect({ exec: missing });
+  const nowhere = () => false;
+  const r0 = await detect({ exec: missing, exists: nowhere, env: { PATH: '/usr/bin' }, platform: 'darwin' });
+  assert.equal(r0.installed, false);
+  assert.match(r0.hint, /Install Docker Desktop/);
+  const somewhere = (p) => p === '/usr/local/bin/docker';
+  const r1 = await detect({ exec: missing, exists: somewhere, env: { PATH: '/usr/local/bin' }, platform: 'darwin' });
   assert.equal(r1.installed, false);
   assert.match(r1.hint, /Install Docker Desktop/);
   const stopped = (bin, args, opts, cb) => (args[0] === 'version' ? cb(null, '28.0.1\n', '') : cb(new Error('Cannot connect to the Docker daemon'), '', ''));
-  const r2 = await detect({ exec: stopped });
+  const r2 = await detect({ exec: stopped, exists: somewhere, env: { PATH: '/usr/local/bin' }, platform: 'darwin' });
   assert.equal(r2.installed, true);
   assert.equal(r2.running, false);
   assert.match(r2.hint, /Start Docker Desktop/);
   const fine = (bin, args, opts, cb) => cb(null, '28.0.1\n', '');
-  const r3 = await detect({ exec: fine });
+  const r3 = await detect({ exec: fine, exists: somewhere, env: { PATH: '/usr/local/bin' }, platform: 'darwin' });
   assert.equal(r3.running, true);
   assert.equal(r3.hint, null);
+  assert.equal(r3.bin, '/usr/local/bin/docker');
 });
 
 test('schedules translate to tasks and a delivery surface, and back', async () => {

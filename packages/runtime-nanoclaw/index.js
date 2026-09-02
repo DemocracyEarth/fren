@@ -313,7 +313,8 @@ function createNanoclawRuntime(opts) {
 
   function hostEnv() {
     return {
-      PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin',
+      // The host shells `docker` by name; it gets the directory the probe found it in.
+      PATH: probe.pathWithDocker ? probe.pathWithDocker(process.env) : (process.env.PATH || '/usr/local/bin:/usr/bin:/bin'),
       HOME: process.env.HOME || '',
       TZ: timezone || process.env.TZ || '',
       LANG: process.env.LANG || 'en_US.UTF-8',
