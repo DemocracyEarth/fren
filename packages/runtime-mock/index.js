@@ -31,12 +31,16 @@ const CAPABILITIES = Object.freeze({
  * @param {(text: string) => boolean} [opts.asksWhen]   which inputs raise a permission request
  * @param {() => number} [opts.now]
  * @param {boolean} [opts.unavailable]   start() throws, to test the unavailable path
+ * @param {(text: string) => boolean} [opts.failsWhen]   which inputs make the turn fail
+ * @param {number} [opts.pauseAfterFailures]   failures in a row before a schedule is given up on
  */
 function createMockRuntime(opts = {}) {
   const replyDelayMs = opts.replyDelayMs ?? 5;
   const now = opts.now || Date.now;
   const reply = opts.reply || defaultReply;
   const asksWhen = opts.asksWhen || ((text) => /\[ask\]/i.test(text || ''));
+  const failsWhen = opts.failsWhen || ((text) => /\[fail\]/i.test(text || ''));
+  const pauseAfterFailures = opts.pauseAfterFailures ?? 3;
 
   let state = 'stopped';
   let since = 0;
@@ -100,6 +104,10 @@ function createMockRuntime(opts = {}) {
       };
       pendingAsks.set(request.id, { runId: run.id, input, extra });
       emit({ type: 'permission.request', request });
+      return;
+    }
+    if (failsWhen(text)) {
+      schedule(run, () => finish(run, 'failed', 'the mock was told to fail'));
       return;
     }
     schedule(run, () => {
@@ -222,7 +230,11 @@ function createMockRuntime(opts = {}) {
       }
       if (patch.enabled !== undefined) {
         schedule.enabled = !!patch.enabled;
-        if (schedule.enabled) delete schedule.pausedByRuntime;
+        if (schedule.enabled) {
+          delete schedule.pausedByRuntime;
+          schedule.streak = 0;
+          schedule.nextRunAt = nextCron(schedule.cron, now()) ?? undefined;
+        }
       }
       return { ...schedule };
     },
@@ -272,6 +284,13 @@ function createMockRuntime(opts = {}) {
      * runs it started. A real runtime's timer lives inside it; the mock's
      * lives in the test.
      */
+    /** Test-only: the runtime gives up on a schedule, as after repeated failures. */
+    giveUp(id, detail = 'it kept failing') {
+      const schedule = schedules.get(id);
+      if (!schedule) throw new Error(`unknown schedule ${id}`);
+      giveUp(schedule, detail);
+    },
+
     tick(nowMs = now()) {
       const started = [];
       for (const schedule of schedules.values()) {
@@ -293,15 +312,25 @@ function createMockRuntime(opts = {}) {
       if (e.runId !== run.id || !/^run\.(completed|failed|cancelled|interrupted)$/.test(e.type)) return;
       unsubscribe();
       const ok = e.type === 'run.completed';
-      if (!ok) schedule.failedRuns += 1;
+      if (ok) schedule.streak = 0;
+      else { schedule.failedRuns += 1; schedule.streak = (schedule.streak || 0) + 1; }
       emit({
         type: ok ? 'schedule.completed' : 'schedule.failed',
         scheduleId: schedule.id, automationId: schedule.automationId, runId: run.id,
         ...(ok ? {} : { detail: e.error || e.type }),
       });
+      // Like the real thing: enough failures in a row and the runtime gives up.
+      if (!ok && schedule.enabled && schedule.streak >= pauseAfterFailures) giveUp(schedule, `it failed ${schedule.streak} times in a row`);
     });
     setImmediate(() => begin(run, { instruction: schedule.instruction, name: schedule.name }, extra));
     return snapshot(run);
+  }
+
+  function giveUp(schedule, detail) {
+    schedule.enabled = false;
+    schedule.pausedByRuntime = detail;
+    schedule.nextRunAt = undefined;
+    emit({ type: 'schedule.paused', scheduleId: schedule.id, automationId: schedule.automationId, detail });
   }
 
   return rt;

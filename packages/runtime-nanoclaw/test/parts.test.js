@@ -8,7 +8,8 @@ const { once } = require('node:events');
 const { createNclClient } = require('../ncl-client');
 const { createBridge } = require('../bridge');
 const { detect, resolveDocker, pathWithDocker } = require('../container-runtime');
-const { createScheduleStore } = require('../schedules');
+const { createScheduleStore, refFromPrompt, pauseNote } = require('../schedules');
+const { observe, remember, release, ABSORB_MS } = require('../schedule-watch');
 
 const tmpSock = (name) => path.join(fs.mkdtempSync('/tmp/frn-'), name);
 
@@ -152,7 +153,7 @@ test('schedules translate to tasks and a delivery surface, and back', async () =
   const paused = await store.update(s.id, { enabled: false, instruction: 'Check HN carefully. automation-atm_abc' });
   assert.equal(paused.enabled, false);
   assert.equal(paused.instruction, 'Check HN carefully. automation-atm_abc');
-  assert.deepEqual(await store.trigger(s.id), { runId: 'row-7', seriesId: 'morning-1a2b' });
+  assert.deepEqual(await store.trigger(s.id), { rowId: 'row-7', seriesId: 'morning-1a2b' });
 
   // A fresh store (a new Core life) recovers the automation id from the task itself.
   const again = createScheduleStore({ ncl, agentGroupId: 'ag-1', log: () => {} });
@@ -163,4 +164,107 @@ test('schedules translate to tasks and a delivery surface, and back', async () =
   await store.remove(s.id);
   assert.equal((await store.list()).length, 0);
   assert.ok(calls.some(([c]) => c === 'messaging-groups-delete'));
+});
+
+test('a task is recognised as FREN\'s by the prompt it was given, and its run log reads as sentences', () => {
+  const prompt = 'You are running FREN\'s automation "morning AI news" on behalf of its owner.\n\nInstruction:\nCheck HN.\n\nDelivery contract: send_message to the destination named "automation-atm_00cdc1155e19b679".';
+  const ref = refFromPrompt(prompt, { recurrence: '0 9 * * *', status: 'paused', session_id: 'ses-1' });
+  assert.equal(ref.automationId, 'atm_00cdc1155e19b679');
+  assert.equal(ref.name, 'morning AI news');
+  assert.equal(ref.cron, '0 9 * * *');
+  assert.equal(ref.enabled, false);
+  assert.equal(ref.instruction, prompt);
+  assert.equal(refFromPrompt('Water the plants.', {}), null);
+  // The host's run log lines: a local stamp, an em dash, the note.
+  const note = '2026-09-05 09:00 — auto-paused after 8 consecutive script failures (host); fix the script, then `ncl tasks resume x`';
+  assert.equal(pauseNote(['2026-09-04 09:00 — Sent the five stories.', note]), 'it failed 8 times in a row');
+  assert.equal(pauseNote(['2026-09-04 09:00 — Sent the five stories.']), null);
+  assert.equal(pauseNote([]), null);
+});
+
+test('the schedule watch reads fires, ends, misses and pauses off the task list', () => {
+  const last = new Map();
+  const S = (over = {}) => ({ id: 'morning-1', enabled: true, runs: 2, failedRuns: 0, nextRunAt: 1000, runtimeRef: { rowId: 'row-a' }, ...over });
+  assert.deepEqual(observe(last, [S()], 500), [], 'a first reading is a baseline, history and all');
+  assert.deepEqual(observe(last, [S()], 1000), [{ kind: 'fired', seriesId: 'morning-1', rowId: 'row-a' }], 'the row came due');
+  assert.deepEqual(observe(last, [S()], 1500), [], 'still due, still the same fire');
+  assert.deepEqual(
+    observe(last, [S({ runs: 3, nextRunAt: 90000, runtimeRef: { rowId: 'row-b' } })], 2000),
+    [{ kind: 'settled', seriesId: 'morning-1', rowId: 'row-a', ok: true }],
+    'the counter moved while the fired run was open: it ended out of sight',
+  );
+  assert.deepEqual(
+    observe(last, [S({ runs: 3, failedRuns: 1, nextRunAt: 180000, runtimeRef: { rowId: 'row-c' } })], 3000),
+    [{ kind: 'missed', seriesId: 'morning-1', ok: false }],
+    'a counter moving with no run open is a fire nobody saw',
+  );
+  const paused = S({ enabled: false, runs: 3, failedRuns: 1, nextRunAt: 180000, runtimeRef: { rowId: 'row-c' }, pausedByRuntime: 'it failed 8 times in a row' });
+  assert.deepEqual(observe(last, [paused], 4000), [{ kind: 'paused', seriesId: 'morning-1', detail: 'it failed 8 times in a row' }]);
+  assert.deepEqual(observe(last, [paused], 5000), [], 'said once');
+  assert.deepEqual(observe(last, [S({ enabled: false, runs: 3, failedRuns: 1, nextRunAt: 180000, runtimeRef: { rowId: 'row-c' } })], 6000), []);
+  assert.deepEqual(observe(last, [S({ id: 'own-1', enabled: false, nextRunAt: 180000, runtimeRef: { rowId: 'row-o' } })], 6500), [], 'paused without the host\'s note is FREN\'s own pause, never news');
+  // A series missing from one reading (between acknowledgement and re-arm) keeps its state.
+  const gap = S({ id: 'gap-1', runs: 0, nextRunAt: 7000, runtimeRef: { rowId: 'row-g' } });
+  observe(last, [gap], 6900);
+  assert.deepEqual(observe(last, [gap], 7000), [{ kind: 'fired', seriesId: 'gap-1', rowId: 'row-g' }]);
+  assert.deepEqual(observe(last, [], 7100), []);
+  assert.deepEqual(observe(last, [S({ id: 'gap-1', runs: 1, nextRunAt: 99000, runtimeRef: { rowId: 'row-h' } })], 7200), [{ kind: 'settled', seriesId: 'gap-1', rowId: 'row-g', ok: true }]);
+});
+
+test('an end the counters already explained is not remembered again; a let-go row fires again only as a new attempt', () => {
+  const last = new Map();
+  const S = (over = {}) => ({ id: 'm-1', enabled: true, runs: 0, failedRuns: 0, nextRunAt: 1000, runtimeRef: { rowId: 'row-a' }, ...over });
+  observe(last, [S()], 500);
+  observe(last, [S()], 1000); // fired
+  assert.equal(observe(last, [S({ runs: 1, nextRunAt: 90000, runtimeRef: { rowId: 'row-b' } })], 2000)[0].kind, 'settled');
+  remember(last, 'm-1', 'row-a', true, 2100); // the adapter closing that run must not plant a second explanation
+  assert.deepEqual(
+    observe(last, [S({ runs: 2, nextRunAt: 90000, runtimeRef: { rowId: 'row-b' } })], 2500),
+    [{ kind: 'missed', seriesId: 'm-1', ok: true }],
+    'the next unexplained move is reported',
+  );
+  // FREN lets go of a fired run (a cancel, a stop): the row as it stands is not fired again.
+  observe(last, [S({ runs: 2, nextRunAt: 90000, runtimeRef: { rowId: 'row-b' } })], 90000); // fired row-b
+  release(last, 'm-1', 'row-b');
+  assert.deepEqual(observe(last, [S({ runs: 2, nextRunAt: 90000, runtimeRef: { rowId: 'row-b' } })], 90100), [], 'still due, still let go of');
+  assert.deepEqual(
+    observe(last, [S({ runs: 3, nextRunAt: 180000, runtimeRef: { rowId: 'row-c' } })], 91000),
+    [{ kind: 'missed', seriesId: 'm-1', ok: true }],
+    'what the host did with it is still reported, not absorbed',
+  );
+  // The host gives the same row a later time (a retry): a new attempt, fired again when due.
+  observe(last, [S({ runs: 3, nextRunAt: 180000, runtimeRef: { rowId: 'row-c' } })], 180000); // fired row-c
+  release(last, 'm-1', 'row-c');
+  assert.deepEqual(observe(last, [S({ runs: 3, nextRunAt: 180500, runtimeRef: { rowId: 'row-c' } })], 180100), [], 'moved into the future: not due');
+  assert.deepEqual(observe(last, [S({ runs: 3, nextRunAt: 180500, runtimeRef: { rowId: 'row-c' } })], 180500), [{ kind: 'fired', seriesId: 'm-1', rowId: 'row-c' }]);
+});
+
+test('an end FREN watched explains the next counter move, so one fire is one record', () => {
+  const last = new Map();
+  const S = (over = {}) => ({ id: 'morning-1', enabled: true, runs: 2, failedRuns: 0, nextRunAt: 1000, runtimeRef: { rowId: 'row-a' }, ...over });
+  observe(last, [S()], 500);
+  assert.equal(observe(last, [S()], 1000).length, 1, 'fired');
+  remember(last, 'morning-1', 'row-a', true, 1200); // the acknowledgement arrived; FREN closed the run
+  assert.deepEqual(observe(last, [S()], 1300), [], 'the same due row is not fired again while the host catches up');
+  assert.deepEqual(observe(last, [S({ runs: 3, nextRunAt: 90000, runtimeRef: { rowId: 'row-b' } })], 2000), [], 'the counter move is spoken for');
+  assert.deepEqual(
+    observe(last, [S({ runs: 4, nextRunAt: 90000, runtimeRef: { rowId: 'row-b' } })], 2500),
+    [{ kind: 'missed', seriesId: 'morning-1', ok: true }],
+    'a second move is a real fire',
+  );
+  // Two run-nows end before the host applies either: both explained, like for like.
+  remember(last, 'morning-1', 'row-x', true, 3000);
+  remember(last, 'morning-1', 'row-y', false, 3100);
+  assert.deepEqual(observe(last, [S({ runs: 5, failedRuns: 1, nextRunAt: 90000, runtimeRef: { rowId: 'row-b' } })], 3500), []);
+  // An end remembered before any reading exists is still remembered, for a while.
+  const fresh = new Map();
+  const later = ABSORB_MS * 10;
+  remember(fresh, 'x-1', 'row-z', false, 10);
+  assert.deepEqual(observe(fresh, [S({ id: 'x-1', failedRuns: 1, nextRunAt: later, runtimeRef: { rowId: 'row-q' } })], 20), []);
+  assert.deepEqual(observe(fresh, [S({ id: 'x-1', failedRuns: 2, nextRunAt: later, runtimeRef: { rowId: 'row-q' } })], 30), [], 'explained by the remembered end');
+  assert.deepEqual(
+    observe(fresh, [S({ id: 'x-1', failedRuns: 3, nextRunAt: later, runtimeRef: { rowId: 'row-q' } })], ABSORB_MS + 100),
+    [{ kind: 'missed', seriesId: 'x-1', ok: false }],
+    'nothing is explained by an end older than the absorb window',
+  );
 });

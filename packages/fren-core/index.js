@@ -25,7 +25,7 @@ const HTTP_STATUS = Symbol('httpStatus');
 const accepted = (payload) => ({ ...payload, [HTTP_STATUS]: 202 });
 const PRUNE_AFTER_MS = 30 * 24 * 3600 * 1000;
 
-function createCore({ store, runtime, complete = null, now = Date.now, log = console.log, reprobeMs = REPROBE_MS }) {
+function createCore({ runTimeoutMs, scheduleTimeoutMs, store, runtime, complete = null, now = Date.now, log = console.log, reprobeMs = REPROBE_MS }) {
   if (runtime) assertRuntime(runtime);
   const events = createEventLog({ store, now, log });
   const observations = createObservationBus();
@@ -34,7 +34,7 @@ function createCore({ store, runtime, complete = null, now = Date.now, log = con
   let reprobeTimer = null;
   let starting = null;
 
-  const runs = createRunService({ store, events, getRuntime: () => runtime, now, log });
+  const runs = createRunService({ store, events, getRuntime: () => runtime, now, log, runTimeoutMs, scheduleTimeoutMs });
   const automations = createAutomationService({ store, events, getRuntime: () => runtime, runs, complete, now, log });
   const permissions = createPermissionBroker({ store, events, getRuntime: () => runtime, now, log });
   const services = { runs, automations, permissions };

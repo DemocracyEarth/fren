@@ -334,6 +334,9 @@ function agentAutomationCard(a) {
   gates.append(gate('In the secure environment', a.runtimeState === 'scheduled',
     a.runtimeState === 'waiting' ? 'waiting for it' : ''));
   card.append(gates);
+  if (a.pausedByRuntime) {
+    card.append(el('p', 'caveat', `Stopped by the secure execution environment: ${a.pausedByRuntime}. Fix what it does, then resume it.`));
+  }
 
   const actions = el('div', 'row-actions');
   const runBtn = el('button', 'mini primary', 'Run now');

@@ -565,8 +565,12 @@ adapter   : ▶ Core deliver {platformId:'automation:<id>', …}
 Core      : automation_runs row (status ok, output) · emit automation.run.completed {automationId, text}
 main      : SSE → orb: speak / show bubble titled with the automation name (existing onRoutineRan UX); dashboard run history
 NanoClaw  : final text → task_log → groups/fren/tasks/<series>.md (runtime-owned run log, readable via tasks-get)
-Core      : slow poll (60 s while any automation is enabled): tasks-list → runs, failed_runs, next_run, status
-            → keeps automation_runs consistent for fires that produced no message (failed, gated, paused)
+adapter   : schedule watch (15 s, while ready): tasks-list → per series: live row id and time, runs, failed_runs, status
+            · a row come due opens a run on its row id and watches it, so the fire ends exactly
+            · a counter that moves with no run open becomes a run opened and closed at once ("it ran, but sent nothing"; the host records a failure without a reason)
+            · an end the host confirmed is remembered so the counters catching up are not a second record; an end FREN decided (a cancel, a stop) only lets go of the row
+            · the host's 15 min watch cap is not the task's: the row is watched again, until the acknowledgement, the counters, or a 2 h ceiling
+            · a paused row whose run log carries the host's note becomes schedule.paused → Core switches the automation off, with the reason
 ```
 
 ### 6.4 An approval
@@ -990,7 +994,7 @@ gains a status block using the existing `browserBlock()` pattern.
 | Core crashes | desktop health poll (30 s) and SSE disconnect | orb dot off; chat unavailable | `start.js` shuts the pair down in dev; the packaged desktop restarts Core; on restart §11.1 step 7 and §11.2 step 7 reconcile |
 | Container crashes mid-run | NanoClaw heartbeat/claim logic | NanoClaw retries the inbound row up to 5× with backoff; the adapter sees typing stop and later resume | run stays `running` until `turn.completed` or the run timeout (10 min) marks it `failed` with "the agent stopped responding" |
 | Agent never delivers (unwrapped output) | NanoClaw nudges once; still nothing | `turn.completed` arrives with zero messages | run `completed` with a synthetic message "I finished but produced nothing to show"; logged as `run.empty` for diagnosis |
-| Scheduled fire fails | `tasks-list` poll shows `failed_runs` increased | `automation_runs` row `failed` | NanoClaw backs off; after 8 consecutive failures it pauses the task → Core emits `schedule.paused`, UI shows "paused after repeated failures" with a resume button |
+| Scheduled fire fails | the adapter's schedule watch: the fired row's acknowledgement, or `failed_runs` moving | `automation_runs` row `failed` ("the run failed in the secure execution environment": the host records no reason) | NanoClaw backs off; after 8 consecutive failures it pauses the task with a note in the run log → the adapter emits `schedule.paused` → Core switches the automation off with the reason (`enabled: false`, `pausedByRuntime`), the orb says so once, the card shows why and offers Resume; resuming from FREN clears the reason and resumes the task |
 | `fren-runtime.sock` disconnects | adapter reconnect loop (1 s → 10 s backoff) | deliveries during the gap fail loudly inside NanoClaw and are retried 3×, then marked failed | Core reconciles missed output on reconnect by asking `sessions-history` for rows newer than the last seen `seq` |
 | Upgrade tripwire refuses boot | host exits 1 with the banner on stderr | status `unavailable` with the banner | supervisor re-stamps the marker once and retries; if it still refuses, the hint says the runtime install is inconsistent |
 | Approval unanswered | broker expiry (10 min) | request `expired`; runtime told `deny` | the agent sees a rejection and continues; nothing is silently approved |
@@ -1140,7 +1144,9 @@ Exit criteria: milestone steps 1–15 pass end to end with a real container; the
 
 ### Phase 3: robustness
 
-Reconciliation on reconnect (`sessions-history`), run timeouts, `schedule.paused` handling, orphan reporting, the 30 s re-probe loop, log rotation, packaging notes for `<userData>/runtime`.
+Reconciliation on reconnect (`sessions-history`), run timeouts, orphan reporting, the 30 s re-probe loop, log rotation, packaging notes for `<userData>/runtime`.
+
+Done ahead of the rest, because the milestone made the gap visible: the adapter's schedule watch (`packages/runtime-nanoclaw/schedule-watch.js`) reads the host's task list every 15 s and turns fires FREN did not start into runs (watched to their acknowledgement when caught due, opened and closed at once when only the counters tell), and the host's auto-pause into `schedule.paused`. Core treats that as the automation going off with a reason, on the event and again at reconcile if the pause happened while Core was away; a person's Resume is the only thing that clears it. The same change made schedules survive a Core restart: the task list shortens prompts, so the adapter reads the whole task to recover the automation id, instead of creating a second task.
 
 ### Phase 4: permissions beyond the guard
 

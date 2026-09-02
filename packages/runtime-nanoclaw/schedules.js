@@ -10,14 +10,21 @@
  * commands take the agent group's id (not its folder), so the store carries it.
  *
  * The host's task list is the source of truth for runs, failures and the
- * next fire; this module only translates.
+ * next fire; this module only translates. What the host does not keep (the
+ * automation id, the timezone, whether FREN itself paused the series) lives
+ * in `refs` for this Core life, and is recovered from the task's own prompt
+ * for the next one: the list shortens prompts, so recovery reads the whole
+ * task.
  */
 const { CHANNEL } = require('./bootstrap');
 
 const platformIdFor = (automationId) => `automation:${automationId}`;
 const deliveryNameFor = (automationId) => `automation-${automationId}`;
+// The host records a failed occurrence without a word about why (a crashed
+// pre-task script, or a container that kept dying), so this is all there is.
+const DEFAULT_FAILURE = 'the run failed in the secure execution environment';
 
-function toSchedule(task, ref) {
+function toSchedule(task, ref, extra = {}) {
   const paused = task.status === 'paused';
   return {
     id: task.series_id || task.id,
@@ -25,20 +32,42 @@ function toSchedule(task, ref) {
     name: task.name || ref.name || task.series_id,
     cron: task.recurrence || ref.cron,
     timezone: ref.timezone,
-    instruction: task.prompt || ref.instruction,
+    instruction: ref.instruction || task.prompt,
     deliveryName: deliveryNameFor(ref.automationId),
     enabled: !paused,
-    runs: Number(task.runs || 0),
+    runs: Number(task.runs ?? task.completed_runs ?? 0),
     failedRuns: Number(task.failed_runs || 0),
     lastRunAt: task.last_run ? Date.parse(task.last_run) || undefined : undefined,
     nextRunAt: task.next_run ? Date.parse(task.next_run) || undefined : (task.process_after ? Date.parse(task.process_after) || undefined : undefined),
-    pausedByRuntime: paused && task.paused_reason ? String(task.paused_reason) : undefined,
-    runtimeRef: { ...ref, seriesId: task.series_id || task.id, sessionId: task.session_id || ref.sessionId },
+    pausedByRuntime: paused && extra.pausedByRuntime ? String(extra.pausedByRuntime) : undefined,
+    runtimeRef: { ...ref, seriesId: task.series_id || task.id, rowId: task.row_id || task.id || undefined, sessionId: task.session_id || ref.sessionId },
   };
 }
 
+/** The automation behind a task, from the prompt FREN compiled for it. */
+function refFromPrompt(prompt, task) {
+  const text = String(prompt || '');
+  const id = (/automation-(atm_[0-9a-f]+)/.exec(text) || [])[1];
+  if (!id) return null;
+  const name = (/FREN's automation "(.+?)"/.exec(text) || [])[1];
+  return { automationId: id, name: task.name || name || id, cron: task.recurrence || '', timezone: '', instruction: text, sessionId: task.session_id, enabled: task.status !== 'paused' };
+}
+
+/** The host's note when it gives up on a series, as a sentence for a person. */
+function pauseNote(lines) {
+  for (const line of [...(lines || [])].reverse()) {
+    const m = /auto-paused after (\d+) consecutive/.exec(String(line));
+    if (m) return `it failed ${m[1]} times in a row`;
+  }
+  return null;
+}
+
 function createScheduleStore({ ncl, agentGroupId, log = () => {} }) {
-  const refs = new Map(); // seriesId -> ref (what the host does not keep: automation id, timezone)
+  const refs = new Map();    // seriesId -> ref
+  const foreign = new Set(); // series on the host that are not FREN's
+  const pauseNotes = new Map(); // seriesId -> { rowId, detail }
+
+  const logLines = (task) => (Array.isArray(task.recent_log) ? task.recent_log : []);
 
   async function ensureSurface(automationId) {
     const platformId = platformIdFor(automationId);
@@ -84,23 +113,28 @@ function createScheduleStore({ ncl, agentGroupId, log = () => {} }) {
       ...(input.overrideFireLimit ? { dangerously_override_recurrence_limit: true } : {}),
     });
     const seriesId = task.series_id || task.id;
-    const ref = { automationId: input.automationId, name: input.name, cron: input.cron, timezone: input.timezone, instruction: input.instruction, sessionId: task.session_id };
+    const ref = { automationId: input.automationId, name: input.name, cron: input.cron, timezone: input.timezone, instruction: input.instruction, sessionId: task.session_id, enabled: input.enabled !== false };
     refs.set(seriesId, ref);
-    if (input.enabled === false) await ncl.call('tasks-pause', { id: seriesId });
+    if (input.enabled === false) await ncl.call('tasks-pause', { id: seriesId, group: agentGroupId });
     const fresh = await get(seriesId);
     return fresh || toSchedule({ ...task, series_id: seriesId, status: input.enabled === false ? 'paused' : 'pending' }, ref);
+  }
+
+  async function fetchTask(seriesId) {
+    try {
+      return await ncl.call('tasks-get', { id: seriesId, group: agentGroupId });
+    } catch (err) {
+      if (/not found/i.test(err.message)) return null;
+      throw err;
+    }
   }
 
   async function get(seriesId) {
     const ref = refs.get(seriesId);
     if (!ref) return null;
-    try {
-      const task = await ncl.call('tasks-get', { id: seriesId, group: agentGroupId });
-      return toSchedule(task, ref);
-    } catch (err) {
-      if (/not found/i.test(err.message)) return null;
-      throw err;
-    }
+    const task = await fetchTask(seriesId);
+    if (!task) return null;
+    return toSchedule(task, ref, { pausedByRuntime: task.status === 'paused' ? pauseNote(logLines(task)) : null });
   }
 
   async function update(seriesId, patch) {
@@ -112,8 +146,8 @@ function createScheduleStore({ ncl, agentGroupId, log = () => {} }) {
     if (patch.name !== undefined) ref.name = patch.name;
     if (patch.timezone !== undefined) ref.timezone = patch.timezone;
     if (Object.keys(fields).length) await ncl.call('tasks-update', { id: seriesId, group: agentGroupId, ...fields });
-    if (patch.enabled === false) await ncl.call('tasks-pause', { id: seriesId, group: agentGroupId });
-    if (patch.enabled === true) await ncl.call('tasks-resume', { id: seriesId, group: agentGroupId });
+    if (patch.enabled === false) { ref.enabled = false; await ncl.call('tasks-pause', { id: seriesId, group: agentGroupId }); }
+    if (patch.enabled === true) { ref.enabled = true; pauseNotes.delete(seriesId); await ncl.call('tasks-resume', { id: seriesId, group: agentGroupId }); }
     return (await get(seriesId)) || toSchedule({ series_id: seriesId, status: patch.enabled === false ? 'paused' : 'pending' }, ref);
   }
 
@@ -132,6 +166,7 @@ function createScheduleStore({ ncl, agentGroupId, log = () => {} }) {
     }
     if (ref) await removeSurface(ref.automationId);
     refs.delete(seriesId);
+    pauseNotes.delete(seriesId);
   }
 
   function deferDelete(seriesId, ref, attempt = 0) {
@@ -147,34 +182,46 @@ function createScheduleStore({ ncl, agentGroupId, log = () => {} }) {
     if (timer.unref) timer.unref();
   }
 
+  /** A task this Core life never created: read the whole task and look for FREN's mark. */
+  async function recover(seriesId, listed) {
+    if (foreign.has(seriesId)) return null;
+    const task = (await fetchTask(seriesId)) || listed;
+    const ref = refFromPrompt(task.prompt, task);
+    if (!ref) { foreign.add(seriesId); return null; }
+    refs.set(seriesId, ref);
+    return ref;
+  }
+
+  /** Why the host paused this series, if it did. One read per paused row. */
+  async function pausedDetail(seriesId, rowId) {
+    const cached = pauseNotes.get(seriesId);
+    if (cached && cached.rowId === rowId) return cached.detail;
+    const task = await fetchTask(seriesId);
+    const detail = task ? pauseNote(logLines(task)) : null;
+    pauseNotes.set(seriesId, { rowId, detail });
+    return detail;
+  }
+
   async function list() {
     const rows = await ncl.call('tasks-list', { group: agentGroupId });
     const tasks = Array.isArray(rows) ? rows : (rows && rows.items) || [];
     const out = [];
     for (const task of tasks) {
       const seriesId = task.series_id || task.id;
-      const ref = refs.get(seriesId) || refFromTask(task);
+      const ref = refs.get(seriesId) || (await recover(seriesId, task));
       if (!ref) continue;
-      refs.set(seriesId, ref);
-      out.push(toSchedule(task, ref));
+      const pausedByRuntime = task.status === 'paused' ? await pausedDetail(seriesId, task.row_id || seriesId) : null;
+      out.push(toSchedule(task, ref, { pausedByRuntime }));
     }
     return out;
   }
 
-  /** A task this Core life never created: the automation id is in the delivery surface name, if FREN made it. */
-  function refFromTask(task) {
-    const m = /^FREN's automation "(.+?)"|automation-(atm_[0-9a-f]+)/.exec(String(task.prompt || ''));
-    const id = m && m[2];
-    if (!id) return null;
-    return { automationId: id, name: task.name || id, cron: task.recurrence || '', timezone: '', instruction: task.prompt || '', sessionId: task.session_id };
-  }
-
   async function trigger(seriesId) {
     const fired = await ncl.call('tasks-run', { id: seriesId, group: agentGroupId });
-    return { runId: fired.row_id || fired.id, seriesId: fired.series_id || seriesId };
+    return { rowId: fired.row_id || fired.id, seriesId: fired.series_id || seriesId };
   }
 
   return { create, get, update, remove, list, trigger, refs, platformIdFor, deliveryNameFor };
 }
 
-module.exports = { createScheduleStore, platformIdFor, deliveryNameFor, toSchedule };
+module.exports = { createScheduleStore, platformIdFor, deliveryNameFor, toSchedule, refFromPrompt, pauseNote, DEFAULT_FAILURE };

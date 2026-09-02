@@ -130,7 +130,7 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
   }
 
   /** Make the runtime agree with this automation. Never throws; logs. */
-  async function sync(a, { known } = {}) {
+  async function sync(a, { known, intent } = {}) {
     const rt = runtime();
     if (!rt || !ready || a.body.kind !== 'agent' || a.trigger.type !== 'schedule') return a;
     try {
@@ -138,6 +138,11 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
       const list = known || (await rt.listSchedules());
       const existing = ref && list.find((s) => s.id === ref.id);
       if (existing) {
+        if (a.enabled && !existing.enabled && existing.pausedByRuntime && intent !== 'user') {
+          // The runtime gave up on it while nobody was looking. Its verdict
+          // stands; resuming a failing automation quietly is not a fix.
+          return applyRuntimePause(a, existing.pausedByRuntime);
+        }
         const drift = existing.cron !== a.trigger.cron || existing.enabled !== a.enabled ||
           existing.name !== a.name || existing.instruction !== scheduleInputFor(a).instruction;
         if (drift) await rt.updateSchedule(ref.id, scheduleInputFor(a));
@@ -150,6 +155,13 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
       log(`[automations] could not sync "${a.name}" with the runtime: ${err.message}`);
       return a;
     }
+  }
+
+  /** The runtime stopped a schedule on its own: the automation goes off, with the reason. */
+  function applyRuntimePause(a, detail) {
+    store.updateAutomation(a.id, { enabled: false, pausedByRuntime: detail, nextRunAt: null, updatedAt: now() });
+    events.emit('automation.paused', { automationId: a.id, name: a.name, detail });
+    return store.getAutomation(a.id);
   }
 
   async function unsync(a) {
@@ -217,7 +229,7 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
       ...clean, updatedAt: now(), nextRunAt: nextRunFor(merged), bumpRevision: true,
       ...(clean.enabled === true ? { pausedByRuntime: null } : {}),
     });
-    const synced = await sync(store.getAutomation(id));
+    const synced = await sync(store.getAutomation(id), { intent: 'user' });
     events.emit('automation.updated', { automationId: id, name: synced.name, enabled: synced.enabled });
     return present(synced);
   }
@@ -294,7 +306,7 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
     const a = store.getAutomation(ar.automationId);
     const run = store.getRun(runId);
     const texts = run ? run.messages.map((m) => m.text).filter(Boolean) : [];
-    const output = texts.join('\n\n') || (ok ? '' : detail || '');
+    const output = texts.join('\n\n') || detail || '';
     store.updateAutomationRun(ar.id, { status: ok ? 'ok' : 'failed', endedAt: now(), output, delivered: texts.length > 0 });
     if (a) store.updateAutomation(a.id, { nextRunAt: nextRunFor(a) });
     events.emit(ok ? 'automation.run.completed' : 'automation.run.failed', {
@@ -320,17 +332,14 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
         return true;
       }
       case 'schedule.completed':
-        if (event.runId) finishRun(event.runId, true);
+        if (event.runId) finishRun(event.runId, true, event.detail);
         return true;
       case 'schedule.failed':
         if (event.runId) finishRun(event.runId, false, event.detail);
         return true;
       case 'schedule.paused': {
         const a = store.getAutomation(event.automationId);
-        if (a) {
-          store.updateAutomation(a.id, { pausedByRuntime: event.detail || 'paused after repeated failures' });
-          events.emit('automation.paused', { automationId: a.id, name: a.name, detail: event.detail || '' });
-        }
+        if (a && a.enabled) applyRuntimePause(a, event.detail || 'it kept failing');
         return true;
       }
       case 'agent.message': {

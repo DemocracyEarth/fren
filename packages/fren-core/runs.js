@@ -14,6 +14,8 @@
 const { newId, isTerminal } = require('../runtime');
 
 const RUN_TIMEOUT_MS = 10 * 60 * 1000;
+/** A scheduled run answers to the runtime's own clock and may work a long while in silence. */
+const SCHEDULE_TIMEOUT_MS = 60 * 60 * 1000;
 
 function httpError(status, message) {
   const err = new Error(message);
@@ -21,7 +23,7 @@ function httpError(status, message) {
   return err;
 }
 
-function createRunService({ store, events, getRuntime, now = Date.now, log = () => {}, runTimeoutMs = RUN_TIMEOUT_MS }) {
+function createRunService({ store, events, getRuntime, now = Date.now, log = () => {}, runTimeoutMs = RUN_TIMEOUT_MS, scheduleTimeoutMs = SCHEDULE_TIMEOUT_MS }) {
   const runtimeSessions = new Map(); // fren session id -> runtime session id (this runtime life)
   const timeouts = new Map();
 
@@ -61,13 +63,15 @@ function createRunService({ store, events, getRuntime, now = Date.now, log = () 
 
   function armTimeout(runId) {
     clearTimeout(timeouts.get(runId));
+    const armed = store.getRun(runId);
+    const budget = armed && armed.kind === 'schedule' ? scheduleTimeoutMs : runTimeoutMs;
     const handle = setTimeout(() => {
       timeouts.delete(runId);
       const run = store.getRun(runId);
       if (!run || isTerminal(run.status)) return;
       finish(runId, 'failed', 'the agent stopped responding');
       runtime().cancelRun(runId).catch(() => {});
-    }, runTimeoutMs);
+    }, budget);
     if (handle.unref) handle.unref();
     timeouts.set(runId, handle);
   }
