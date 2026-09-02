@@ -948,6 +948,12 @@ app.whenReady().then(() => {
   ipcMain.handle('fren:patchAgentAutomation', passthrough(async (id, patch) => (await gateway.patchAgentAutomation(String(id), patch && typeof patch === 'object' ? patch : {})).automation));
   ipcMain.handle('fren:deleteAgentAutomation', passthrough((id) => gateway.deleteAgentAutomation(String(id))));
   ipcMain.handle('fren:runAgentAutomation', passthrough((id) => gateway.runAgentAutomation(String(id))));
+  ipcMain.handle('fren:permissionRequests', passthrough(async (status) => (await gateway.permissionRequests(status ? String(status) : '')).requests));
+  ipcMain.handle('fren:decidePermission', passthrough(async (id, decision, opts) => (await gateway.decidePermission(String(id), {
+    decision: decision === 'approve' ? 'approve' : 'deny',
+    reason: opts && typeof opts.reason === 'string' ? opts.reason.slice(0, 200) : '',
+    remember: opts && opts.remember === 'session' ? 'session' : 'once',
+  })).request));
 
   /**
    * Ask fren through the secure execution environment. Accepted or refused

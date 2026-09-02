@@ -16,6 +16,7 @@ const { assertRuntime, RuntimeUnavailable } = require('../runtime');
 const { createEventLog } = require('./events');
 const { createRunService, httpError } = require('./runs');
 const { createAutomationService } = require('./automations');
+const { createPermissionBroker } = require('./permission-broker');
 const { createObservationBus } = require('../observer');
 
 const REPROBE_MS = 30_000;
@@ -35,8 +36,8 @@ function createCore({ store, runtime, complete = null, now = Date.now, log = con
 
   const runs = createRunService({ store, events, getRuntime: () => runtime, now, log });
   const automations = createAutomationService({ store, events, getRuntime: () => runtime, runs, complete, now, log });
-  // The permission broker arrives in the next step; the slot keeps the bridge's shape.
-  const services = { runs, automations, permissions: null };
+  const permissions = createPermissionBroker({ store, events, getRuntime: () => runtime, now, log });
+  const services = { runs, automations, permissions };
 
   function setStatus(status) {
     runtimeStatus = status;
@@ -89,6 +90,7 @@ function createCore({ store, runtime, complete = null, now = Date.now, log = con
     reprobeTimer = null;
     runs.interruptAll(reason);
     automations.runtimeGone();
+    permissions.runtimeGone();
     if (runtime) {
       try { await runtime.stop(); } catch (err) { log(`[core] runtime stop: ${err.message}`); }
       runtimeStatus = await runtime.getStatus().catch(() => ({ state: 'stopped' }));
@@ -103,11 +105,13 @@ function createCore({ store, runtime, complete = null, now = Date.now, log = con
     if (interrupted) log(`[core] ${interrupted} run(s) from a previous life marked interrupted`);
     const pruned = store.prune({ beforeMs: now() - PRUNE_AFTER_MS });
     if (pruned.runs || pruned.events) log(`[core] pruned ${pruned.runs} runs, ${pruned.events} events`);
-    if (services.permissions) services.permissions.expireStale();
+    permissions.expireStale();
+    permissions.start();
     startRuntime(); // in the background; the desktop is never blocked on it
   }
 
   async function stop() {
+    permissions.stop();
     await stopRuntime('Core stopped');
     if (unsubscribeRuntime) { unsubscribeRuntime(); unsubscribeRuntime = null; }
   }
@@ -146,6 +150,10 @@ function createCore({ store, runtime, complete = null, now = Date.now, log = con
   route('PATCH', '/v1/automations/:id', async (p, body) => ({ automation: await automations.update(p.id, body || {}) }));
   route('DELETE', '/v1/automations/:id', async (p) => automations.remove(p.id));
   route('POST', '/v1/automations/:id/run', async (p) => accepted(await automations.runNow(p.id)));
+
+  route('GET', '/v1/permissions/requests', (_p, _b, query) => ({ requests: permissions.list({ status: query.status || undefined }) }));
+  route('GET', '/v1/permissions/requests/:id', (p) => ({ request: permissions.get(p.id) }));
+  route('POST', '/v1/permissions/requests/:id/decision', async (p, body) => ({ request: await permissions.decide(p.id, body || {}) }));
 
   route('POST', '/v1/observations', (_p, body) => {
     const list = Array.isArray(body && body.observations) ? body.observations : body ? [body] : [];
@@ -189,7 +197,7 @@ function createCore({ store, runtime, complete = null, now = Date.now, log = con
   }
 
   return {
-    events, observations, runs, automations, services,
+    events, observations, runs, automations, permissions, services,
     handle, owns, start, stop, startRuntime, stopRuntime,
     runtimeStatus: () => runtimeStatus,
     runtimeKind: () => (runtime ? runtime.kind : null),

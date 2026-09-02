@@ -114,4 +114,8 @@ module.exports = {
   patchAgentAutomation: (id, patch) => request(`/v1/automations/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch, timeoutMs: 15_000 }),
   deleteAgentAutomation: (id) => request(`/v1/automations/${encodeURIComponent(id)}`, { method: 'DELETE', timeoutMs: 15_000 }),
   runAgentAutomation: (id) => request(`/v1/automations/${encodeURIComponent(id)}/run`, { method: 'POST', body: {}, timeoutMs: 15_000 }),
+
+  // ---- FREN Core: permission requests ---------------------------------------
+  permissionRequests: (status) => request(`/v1/permissions/requests${status ? `?status=${encodeURIComponent(status)}` : ''}`, { timeoutMs: 10_000 }),
+  decidePermission: (id, body) => request(`/v1/permissions/requests/${encodeURIComponent(id)}/decision`, { method: 'POST', body, timeoutMs: 15_000 }),
 };

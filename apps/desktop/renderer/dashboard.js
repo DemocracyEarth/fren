@@ -20,6 +20,7 @@ const els = {
   patternCount: document.getElementById('side-pattern-count'),
   autoCount: document.getElementById('side-auto-count'),
   routineCount: document.getElementById('side-routine-count'),
+  requestCount: document.getElementById('side-request-count'),
   status: document.querySelector('#side-status span'),
   statusBtn: document.getElementById('side-status'),
 };
@@ -537,6 +538,84 @@ function whenNext(ts) {
   return `Next: ${d.toLocaleDateString(undefined, { weekday: 'short' })} at ${time}`;
 }
 
+/**
+ * What an agent asked to be allowed to do. Open ones first, with the two
+ * answers; then what was decided, by whom, and why — including what fren
+ * decided on its own from a standing grant, because that should be visible.
+ */
+async function showRequests() {
+  current = { kind: 'requests' };
+  markActive();
+  els.title.textContent = 'Requests';
+  els.content.textContent = '';
+
+  let list = [];
+  try {
+    const res = await window.fren.permissionRequests('');
+    list = Array.isArray(res) ? res : [];
+  } catch { list = []; }
+  const open = list.filter((r) => r.status === 'open');
+  const done = list.filter((r) => r.status !== 'open').slice(0, 30);
+
+  els.subtitle.textContent = open.length
+    ? `${open.length} waiting for you`
+    : 'Nothing waiting. An unanswered request becomes a no after ten minutes.';
+
+  if (!list.length) {
+    els.content.appendChild(blank(
+      'Nothing asked yet',
+      'When something fren is running wants to do more than it was allowed, the ' +
+      'question appears here and in the chat. Nothing is approved by silence.'
+    ));
+    return;
+  }
+
+  for (const r of open) {
+    const card = el('div', 'card');
+    const head = el('div', 'card-head');
+    head.append(el('b', null, r.description || r.title || 'permission'));
+    head.append(el('time', null, hhmm(r.createdAt)));
+    card.append(head);
+    if (r.title && r.title !== r.description) card.append(el('p', null, r.title));
+    if (r.question) card.append(el('p', null, r.question));
+    const actions = el('div', 'row-actions');
+    const allow = el('button', 'mini primary', 'Allow');
+    const always = el('button', 'mini', 'Allow for this conversation');
+    const deny = el('button', 'mini danger', "Don't");
+    const settle = async (decision, remember) => {
+      allow.disabled = always.disabled = deny.disabled = true;
+      const res = await window.fren.decidePermission(r.id, decision, { remember });
+      if (res && res.error) return alertInline(card, res.error);
+      showRequests();
+      refreshCounts();
+    };
+    allow.addEventListener('click', () => settle('approve', 'once'));
+    always.addEventListener('click', () => settle('approve', 'session'));
+    deny.addEventListener('click', () => settle('deny', 'once'));
+    actions.append(allow);
+    if (r.subject && r.subject.sessionId && r.scope !== 'unknown') actions.append(always);
+    actions.append(deny);
+    card.append(actions);
+    els.content.appendChild(card);
+  }
+
+  if (done.length) {
+    const d = el('details', 'last');
+    d.append(el('summary', null, `${done.length} decided`));
+    for (const r of done) {
+      const line = el('div', 'run');
+      const dot = r.status === 'approved' ? 'ok' : (r.status === 'expired' ? 'blocked' : 'failed');
+      line.append(el('span', `dot ${dot}`, ''));
+      line.append(el('span', null,
+        `${new Date(r.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ` +
+        `${hhmm(r.createdAt)} · ${r.description || r.title || r.scope} · ${r.status}` +
+        `${r.reason ? ` — ${r.reason}` : ''}`));
+      d.append(line);
+    }
+    els.content.appendChild(d);
+  }
+}
+
 async function showRoutines() {
   current = { kind: 'routines' };
   markActive();
@@ -635,9 +714,16 @@ async function refreshCounts() {
     elm.textContent = String(n);
     elm.hidden = !n;
   };
+  let openRequests = 0;
+  try {
+    const res = await window.fren.permissionRequests('open');
+    openRequests = Array.isArray(res) ? res.length : 0;
+  } catch { /* none */ }
+
   set(els.patternCount, live);
   set(els.autoCount, automations);
   set(els.routineCount, routineCount);
+  set(els.requestCount, openRequests);
 }
 
 let cachedSuggestions = null;
@@ -1377,10 +1463,11 @@ function onCoreEvent(e) {
   if (!e) return;
   // An automation changed or reported in: redraw the list if it is on screen,
   // a moment later so a burst of events is one redraw.
-  if (/^automation\./.test(e.type)) {
+  if (/^(automation|permission)\./.test(e.type)) {
     clearTimeout(refreshTimer);
     refreshTimer = setTimeout(() => {
-      if (current && current.kind === 'automations') showAutomations();
+      if (current && current.kind === 'automations' && /^automation\./.test(e.type)) showAutomations();
+      if (current && current.kind === 'requests' && /^permission\./.test(e.type)) showRequests();
       refreshCounts();
     }, 300);
   }
@@ -1527,6 +1614,7 @@ const SECTIONS = {
   patterns: showPatterns,
   automations: showAutomations,
   routines: showRoutines,
+  requests: showRequests,
   memory: showMemory,
   settings: showSettings,
 };

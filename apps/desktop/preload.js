@@ -89,4 +89,8 @@ contextBridge.exposeInMainWorld('fren', {
   patchAgentAutomation: (id, patch) => ipcRenderer.invoke('fren:patchAgentAutomation', id, patch),
   deleteAgentAutomation: (id) => ipcRenderer.invoke('fren:deleteAgentAutomation', id),
   runAgentAutomation: (id) => ipcRenderer.invoke('fren:runAgentAutomation', id),
+  // What an agent asked to be allowed to do, and the answer. An unanswered
+  // request is a no.
+  permissionRequests: (status) => ipcRenderer.invoke('fren:permissionRequests', status),
+  decidePermission: (id, decision, opts) => ipcRenderer.invoke('fren:decidePermission', id, decision, opts),
 });

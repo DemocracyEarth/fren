@@ -734,9 +734,59 @@ async function askThroughRuntime(question, thinkingTimer) {
   });
 }
 
+/** Cards on screen for open requests, by request id. */
+const permissionCards = new Map();
+
+/**
+ * An agent asked for something. The question, in words, with two chips.
+ * The panel opens if it is closed: a question nobody can see is a no in ten
+ * minutes, and that should be a choice rather than an accident.
+ */
+async function showPermissionCard(request) {
+  if (!request || permissionCards.has(request.id)) return;
+  const what = request.description && request.scope !== 'unknown'
+    ? `wants to ${request.description}`
+    : (request.title || 'wants permission');
+  const bubble = addBubble('fren', `Something I'm running ${what}. ${request.question || ''}`.trim());
+  const row = document.createElement('div');
+  row.className = 'chips';
+  const allow = document.createElement('button');
+  allow.className = 'chip';
+  allow.textContent = 'Allow';
+  const deny = document.createElement('button');
+  deny.className = 'chip';
+  deny.textContent = "Don't";
+  const settle = async (decision) => {
+    allow.disabled = deny.disabled = true;
+    const res = await window.fren.decidePermission(request.id, decision, {});
+    if (res && res.error) { addBubble('fren', res.error); }
+    permissionCards.delete(request.id);
+    row.remove();
+  };
+  allow.addEventListener('click', () => settle('approve'));
+  deny.addEventListener('click', () => settle('deny'));
+  row.append(allow, deny);
+  bubble.append(row);
+  permissionCards.set(request.id, row);
+  scrollDown();
+  if (!state.panelOpen) await setPanel(true);
+}
+
 /** Everything Core reports. Only what concerns this window is acted on. */
 function onCoreEvent(e) {
   if (!e || typeof e !== 'object') return;
+  if (e.type === 'permission.requested') return void showPermissionCard(e.request);
+  if (/^permission\.(approved|denied|expired)$/.test(e.type) && e.request) {
+    // Answered elsewhere (the full window), or ran out of time: take the chips
+    // away and say what happened.
+    const row = permissionCards.get(e.request.id);
+    if (row) {
+      permissionCards.delete(e.request.id);
+      row.remove();
+      if (e.type === 'permission.expired') addBubble('fren', 'Nobody answered, so I took that as a no.');
+    }
+    return;
+  }
   const live = e.runId ? liveRuns.get(e.runId) : null;
   if (live) {
     if (e.type === 'agent.message') return live.message(e.message);
