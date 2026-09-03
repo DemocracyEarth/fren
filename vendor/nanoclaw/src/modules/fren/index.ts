@@ -107,25 +107,38 @@ export async function pollOnce(): Promise<void> {
   }
 }
 
-/** True when the run's acknowledgement was found in this session and reported. */
+/**
+ * True when the run's acknowledgement was found in this session. The end is
+ * reported only once the messages the turn queued have been delivered: the
+ * container acknowledges as soon as it has said its piece, and the host
+ * delivers what it said on a poll of its own, a moment later. Reported
+ * first, the end would close a run whose words were still on their way.
+ */
 async function settle(w: Watch, s: { agentGroupId: string; sessionId: string }): Promise<boolean> {
-  let status: string | null = null;
+  let found: { status: string; waiting: number } | null = null;
   try {
-    const found = await withExistingMailboxSession(s.agentGroupId, s.sessionId, (mailbox) => {
+    found = await withExistingMailboxSession(s.agentGroupId, s.sessionId, (mailbox) => {
       const ack = mailbox.getTerminalProcessingAcks().find((a) => sameId(a.messageId, w.runId));
-      return ack ? ack.status : null;
-    });
-    status = found ?? null;
+      if (!ack) return null;
+      const delivered = mailbox.getDeliveredIds();
+      const waiting = mailbox.getDueMessages(delivered).filter((m) => !delivered.has(m.id)).length;
+      return { status: ack.status, waiting };
+    }) ?? null;
   } catch (err) {
     log.debug('FREN module: ack lookup failed', { runId: w.runId, sessionId: s.sessionId, err });
     return false;
   }
-  if (!status) return false;
+  if (!found) return false;
+  if (found.waiting > 0) {
+    // Found here; no need to look elsewhere. Reported once the queue is empty.
+    Object.assign(w, { agentGroupId: s.agentGroupId, sessionId: s.sessionId });
+    return true;
+  }
   watches.delete(w.runId);
   frenLink.send({
     type: 'turn',
     runId: w.runId,
-    status: status === 'completed' ? 'completed' : 'failed',
+    status: found.status === 'completed' ? 'completed' : 'failed',
     sessionId: s.sessionId,
     agentGroupId: s.agentGroupId,
   });
