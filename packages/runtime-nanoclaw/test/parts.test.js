@@ -268,3 +268,63 @@ test('an end FREN watched explains the next counter move, so one fire is one rec
     'nothing is explained by an end older than the absorb window',
   );
 });
+
+const { createSupervisor } = require('../supervisor');
+const { spawn } = require('node:child_process');
+const { once: onceEvent } = require('node:events');
+
+test('the supervisor rotates the runtime log as the host writes, keeping three files', async () => {
+  const dir = fs.mkdtempSync('/tmp/frn-sup-');
+  const script = "for (let i = 0; i < 300; i++) console.log('line ' + i + ' ' + 'x'.repeat(40)); console.error('done');";
+  const sup = createSupervisor({ runtimeDir: dir, env: process.env, logDir: path.join(dir, 'logs'), log: () => {}, args: ['-e', script], logMaxBytes: 4000 });
+  const exited = new Promise((r) => sup.onExit(r));
+  sup.start();
+  await exited;
+  const files = fs.readdirSync(path.join(dir, 'logs')).filter((f) => f.startsWith('runtime.log')).sort();
+  assert.ok(files.includes('runtime.log') && files.includes('runtime.log.1'), `rotated: ${files.join(', ')}`);
+  assert.ok(files.length <= 4, 'at most the live file and three kept');
+  const lines = files.flatMap((f) => fs.readFileSync(path.join(dir, 'logs', f), 'utf8').split('\n')).filter((l) => l.startsWith('line '));
+  assert.ok(lines.length >= 250, `the tail of the output survived rotation (${lines.length} lines kept)`);
+  assert.ok(!fs.existsSync(sup.pidFile), 'the pid file goes with the host');
+});
+
+test('the supervisor stops a host an earlier life left running before starting its own', async () => {
+  const dir = fs.mkdtempSync('/tmp/frn-sup-');
+  const logDir = path.join(dir, 'logs');
+  fs.mkdirSync(logDir, { recursive: true });
+  const idle = path.join(dir, 'idle-host.js');
+  fs.writeFileSync(idle, "setInterval(() => {}, 1000); process.on('SIGTERM', () => process.exit(0));");
+  const orphan = spawn(process.execPath, [idle], { stdio: 'ignore' });
+  await new Promise((r) => setTimeout(r, 300));
+  // What the earlier life wrote down: its host's pid and what that host was running.
+  fs.writeFileSync(path.join(logDir, 'runtime-host.pid'), JSON.stringify({ pid: orphan.pid, marker: idle }));
+  const orphanGone = onceEvent(orphan, 'exit');
+
+  const sup = createSupervisor({ runtimeDir: dir, env: process.env, logDir, log: () => {}, args: ['-e', '0'] });
+  const exited = new Promise((r) => sup.onExit(r));
+  sup.start();
+  await orphanGone;
+  await exited;
+  let stillThere = true;
+  try { process.kill(orphan.pid, 0); } catch { stillThere = false; }
+  assert.equal(stillThere, false, 'the earlier host was stopped');
+  assert.ok(!fs.existsSync(sup.pidFile));
+});
+
+test('the supervisor leaves a process alone when the pid was reused by something else', async () => {
+  const dir = fs.mkdtempSync('/tmp/frn-sup-');
+  const logDir = path.join(dir, 'logs');
+  fs.mkdirSync(logDir, { recursive: true });
+  const other = spawn(process.execPath, ['-e', "setInterval(() => {}, 1000); process.on('SIGTERM', () => process.exit(0));"], { stdio: 'ignore' });
+  await new Promise((r) => setTimeout(r, 300));
+  fs.writeFileSync(path.join(logDir, 'runtime-host.pid'), JSON.stringify({ pid: other.pid, marker: '/nowhere/dist/index.js' }));
+  const sup = createSupervisor({ runtimeDir: dir, env: process.env, logDir, log: () => {}, args: ['-e', '0'] });
+  const exited = new Promise((r) => sup.onExit(r));
+  sup.start();
+  await exited;
+  let alive = true;
+  try { process.kill(other.pid, 0); } catch { alive = false; }
+  assert.equal(alive, true, 'not ours, not touched');
+  other.kill('SIGTERM');
+  await onceEvent(other, 'exit');
+});
