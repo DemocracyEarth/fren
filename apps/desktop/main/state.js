@@ -19,13 +19,14 @@ const base = {
   runtimeHint: '',
 };
 
-let busyCount = 0; // in-flight LLM work (chat, summarize)
+let busyCount = 0;  // in-flight background work (summaries, drafts); never shown on the face
+let replyCount = 0; // replies to the person in flight: the only work the face shows as thinking
 let ideaUntil = 0; // transient "just understood something" flash
 let ideaTimer = null;
 
 function mascot() {
   if (!base.observing) return 'sleeping'; // eyes never open while paused
-  if (busyCount > 0) return 'thinking';
+  if (replyCount > 0) return 'thinking';
   if (Date.now() < ideaUntil) return 'idea';
   return 'watching';
 }
@@ -54,6 +55,17 @@ function endWork() {
   emit();
 }
 
+/** A reply to what the person said or typed is being worked out. */
+function beginReply() {
+  replyCount += 1;
+  emit();
+}
+
+function endReply() {
+  replyCount = Math.max(0, replyCount - 1);
+  emit();
+}
+
 function flashIdea(ms = 2500) {
   ideaUntil = Date.now() + ms;
   clearTimeout(ideaTimer);
@@ -67,4 +79,4 @@ function subscribe(fn) {
   return () => listeners.delete(fn);
 }
 
-module.exports = { get, set, subscribe, beginWork, endWork, flashIdea };
+module.exports = { get, set, subscribe, beginWork, endWork, beginReply, endReply, flashIdea };

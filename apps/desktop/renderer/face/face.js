@@ -606,10 +606,7 @@
       g.o0.setAttribute('stop-opacity', (0.72 - lit * 0.08).toFixed(3));
 
       g.a0.setAttribute('stop-color', hsl(h, s, Math.min(0.66, l + 0.08)));
-      // Thinking: the ambient glow behind the body breathes. It lives inside
-      // the picture, so the window's edge never crops it.
-      const think = this.thinking ? (this.reduced ? 0.22 : 0.3 * (0.5 - 0.5 * Math.cos(this.t * Math.PI * 2 * 0.55))) : 0;
-      g.a0.setAttribute('stop-opacity', ((clamp(p.glow, 0, 1) * 0.42 + think) * lit * this.finish.glow).toFixed(3));
+      g.a0.setAttribute('stop-opacity', (clamp(p.glow, 0, 1) * 0.42 * lit * this.finish.glow).toFixed(3));
       g.a1.setAttribute('stop-color', hsl(h, s, l));
       g.a1.setAttribute('stop-opacity', '0');
 

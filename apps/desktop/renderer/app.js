@@ -371,6 +371,7 @@ async function speak(text) {
         setFace(emotionFor(state));
       }, hold);
       setTimeout(resolve, 120);
+      setTimeout(drainLater, 500);
     }
   });
 }
@@ -825,17 +826,38 @@ function onCoreEvent(e) {
   // The secure execution environment gave up on an automation. Say so once;
   // the reason is on its card.
   if (e.type === 'automation.paused') {
-    if (speaking || awaitingReply) return;
-    speak(`I stopped "${e.name || 'an automation'}": ${e.detail || 'it kept failing'}. Resume it from the automations list when it is fixed.`);
+    sayWhenFree(() => speak(`I stopped "${e.name || 'an automation'}": ${e.detail || 'it kept failing'}. Resume it from the automations list when it is fixed.`));
     return;
   }
   // Something fren said on its own: an automation reporting in, or the agent
   // coming back after an approval. Read it out the way a routine is, when free.
   if (e.type === 'agent.message' && !e.runId && e.message && e.message.text) {
-    if (speaking || awaitingReply) return;
-    if (e.automationId) addBubble('user', e.automationName || 'automation');
-    speak(e.message.text);
+    sayWhenFree(() => {
+      if (e.automationId) addBubble('user', e.automationName || 'automation');
+      return speak(e.message.text);
+    });
   }
+}
+
+/**
+ * Things fren wants to say on its own (an automation reporting in, a routine,
+ * a stopped automation) wait their turn: never over a reply, never over a
+ * recording, never while the person's own words are being answered. Kept in
+ * order and said when fren is free, not dropped.
+ */
+const later = [];
+function busyForSpeech() {
+  return speaking || awaitingReply || wantRecording || stopping ||
+    document.body.dataset.recording === '1' || !!(mic && mic.isRecording && mic.isRecording());
+}
+function sayWhenFree(fn) {
+  if (busyForSpeech()) later.push(fn);
+  else fn();
+}
+function drainLater() {
+  if (!later.length || busyForSpeech()) return;
+  const fn = later.shift();
+  Promise.resolve(fn()).finally(() => setTimeout(drainLater, 350));
 }
 
 /** Something said while fren was still busy. Answered next, never dropped. */
@@ -911,6 +933,7 @@ async function sendMessage(text) {
   } finally {
     thinking(false);
     awaitingReply = false;
+    setTimeout(drainLater, 400);
     els.send.disabled = false;
     speaking = false;
     vlog('reply:complete');
@@ -1798,24 +1821,28 @@ async function stopTalkingAndSend() {
   } catch (err) {
     vlog('stop:FAILED', { err: String(err && err.message || err) });
     surface('That recording did not come through cleanly.');
+    thinking(false);
     setFace(emotionFor(state));
     stopping = false;
+    setTimeout(drainLater, 300);
     return;
   } finally {
     stopping = false;
   }
-  if (!wav) { vlog('stop:too-short'); setFace(emotionFor(state)); return; }
+  if (!wav) { vlog('stop:too-short'); thinking(false); setFace(emotionFor(state)); setTimeout(drainLater, 300); return; }
 
   vlog('transcribe:start', { bytes: wav.length });
   const res = await window.fren.transcribe(wav);
   vlog('transcribe:done', { chars: (res && res.text || '').length, error: (res && res.error) || null });
   if (res && res.error) {
     surface('I could not transcribe that: ' + res.error);
+    thinking(false);
     setFace(emotionFor(state));
+    setTimeout(drainLater, 300);
     return;
   }
   const text = (res && res.text ? res.text : '').trim();
-  if (!text) { setFace(emotionFor(state)); return; }
+  if (!text) { thinking(false); setFace(emotionFor(state)); setTimeout(drainLater, 300); return; }
   sendMessage(text);
 }
 
@@ -2204,10 +2231,12 @@ scheduleWander();
     .then((g) => (g && g.text ? greetQuietly(g.text) : null))
     .catch(() => {});
   // A routine came round: say it the same way any other reply is said.
-  window.fren.onRoutineRan(async ({ name, text }) => {
-    if (!text || speaking || awaitingReply) return;
-    addBubble('user', name);
-    await speak(text);
+  window.fren.onRoutineRan(({ name, text }) => {
+    if (!text) return;
+    sayWhenFree(async () => {
+      addBubble('user', name);
+      await speak(text);
+    });
   });
   window.fren.onCoreEvent(onCoreEvent);
   window.fren.onStateChanged(render);          // subscribe before the first fetch
