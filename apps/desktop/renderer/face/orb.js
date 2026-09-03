@@ -64,7 +64,9 @@ const LOOK = (typeof window !== 'undefined' && window.FrenPalette &&
 
 
 /** Parameters that cross-fade when the expression changes. */
-const EASED = ['lit', 'lidTop', 'eyeScale', 'eyeAsym', 'mouthW', 'mouthOpen', 'mouthCurve', 'mouthWave'];
+const EASED = ['lit', 'lidTop', 'eyeScale', 'eyeAsym', 'mouthW', 'mouthOpen', 'mouthCurve', 'mouthWave', 'dots'];
+/** How fast the thinking beads breathe, in Hz. Slower than speech, faster than the recording pulse. */
+const THINK_HZ = 0.55;
 
 class Orb {
   constructor(mount, opts = {}) {
@@ -86,6 +88,11 @@ class Orb {
     this.p = { ...EXPRESSIONS.private };
     this.target = { ...EXPRESSIONS.private };
     this.p.blink = this.target.blink = 0;
+    this.p.dots = this.target.dots = 0;
+    this.p.dotPhase = 0;
+    this.lastDotPaint = -1;
+    this.thinking = false;
+    this.haloNow = 0;
 
     this.gaze = { x: 0, y: 0 };
     this.gazeTarget = { x: 0, y: 0 };
@@ -321,6 +328,33 @@ class Orb {
     // canvas alpha (see styles.css), so it traces the outline exactly and keeps
     // tracing it while the surface bulges from a poke, and costs no shadow map.
 
+    // A halo for thinking, drawn INSIDE the canvas: a soft disc behind the
+    // sphere, additive, occluded at the centre by the body so only the rim
+    // shows. Anything drawn outside the canvas gets cropped by the window's
+    // edge; this cannot be, and it turns with nothing since it faces the
+    // camera and sits on the sphere's axis.
+    const haloCanvas = document.createElement('canvas');
+    haloCanvas.width = haloCanvas.height = 256;
+    const hctx = haloCanvas.getContext('2d');
+    const hg = hctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+    // The body hides the inner 78% of this disc; the ring that shows must
+    // still have body, then fade to nothing before the canvas edge.
+    hg.addColorStop(0.00, 'rgba(255,255,255,1)');
+    hg.addColorStop(0.72, 'rgba(255,255,255,0.72)');
+    hg.addColorStop(0.86, 'rgba(255,255,255,0.28)');
+    hg.addColorStop(1.00, 'rgba(255,255,255,0)');
+    hctx.fillStyle = hg;
+    hctx.fillRect(0, 0, 256, 256);
+    const haloTex = new THREE.CanvasTexture(haloCanvas);
+    haloTex.colorSpace = THREE.SRGBColorSpace;
+    // Normal blending, not additive: an additive haze vanishes on a light
+    // desktop, and the window sits over whatever the desktop is.
+    this.haloMat = new THREE.SpriteMaterial({ map: haloTex, color: 0xffa73c, transparent: true, opacity: 0, depthWrite: false });
+    this.halo = new THREE.Sprite(this.haloMat);
+    this.halo.scale.set(2.56, 2.56, 1);
+    this.halo.position.set(0, 0, -0.08);   // just behind the equator: the body occludes the centre, the ring shows
+    this.scene.add(this.halo);
+
     this.toneNow = new THREE.Color(TONE.grey.color);
     this.toneTo = new THREE.Color(TONE.grey.color);
     this.matNow = { rough: TONE.grey.rough, sheen: TONE.grey.sheen };
@@ -365,6 +399,7 @@ class Orb {
     if (!preset) return;
     this.emotion = name;
     for (const k of EASED) this.target[k] = preset[k] ?? (k === 'lit' ? 1 : 0);
+    if (this.thinking) this.target.dots = 1;   // the beads outlive a change of expression
     Object.assign(this.target, opts.override || {});
     this.target.tone = preset.tone;
 
@@ -398,6 +433,7 @@ class Orb {
   /** Looking for the word: the gaze drifts up and about, the body sways, the light breathes. */
   think(on) {
     this.thinking = !!on;
+    this.target.dots = this.thinking ? 1 : 0;
     if (!this.thinking) this.gazeTarget = { x: 0, y: 0 };
     this._wake();
   }
@@ -591,7 +627,7 @@ class Orb {
   }
 
   _atRest() {
-    if (this.thinking) return false;
+    if (this.thinking || this.haloNow > 0 || this.p.dots > 0.005) return false;
     if (this.blinkPhase >= 0 || this.talkPhase >= 0 || this.speechLevel !== null) return false;
     if (this.listenLevel !== null) return false;
     if (Math.abs(this.wobbleAmt) > 0.001 || Math.abs(this.squashAmt) > 0.001) return false;
@@ -672,6 +708,13 @@ class Orb {
       dirty = true;
     }
 
+    // The beads breathe: a repaint every few frames while they show.
+    if (this.p.dots > 0.005 && this.t - this.lastDotPaint > 0.07) {
+      this.p.dotPhase = this.t;
+      this.lastDotPaint = this.t;
+      dirty = true;
+    }
+
     if (dirty) this._paint();
 
     // Body colour follows the mood, eased in colour space.
@@ -712,6 +755,13 @@ class Orb {
       // app must never be.
       this.material.color.copy(_recLow.setHex(REC.low)).lerp(_recHigh.setHex(REC.high), beat);
     }
+    // The halo comes and goes softly, and breathes while it is there.
+    const haloTo = this.thinking && this.p.lit > 0.4
+      ? (this.reduced ? 0.6 : 0.42 + 0.34 * (0.5 - 0.5 * Math.cos(this.t * TAU * THINK_HZ)))
+      : 0;
+    this.haloNow += (haloTo - this.haloNow) * Math.min(1, dt * 4);
+    if (Math.abs(this.haloNow) < 0.002) this.haloNow = 0;
+    this.haloMat.opacity = this.haloNow;
     this.material.roughness = this.matNow.rough;
     this.material.sheen = this.matNow.sheen * this.p.lit;
 
@@ -730,7 +780,7 @@ class Orb {
       breathe = 1 + beat * 0.028 + this.listenLevel * 0.014;
     } else if (this.thinking && !this.reduced) {
       // Working: the light breathes slowly, well apart from the recording beat.
-      this.material.emissiveIntensity = 1.45 + 0.4 * (0.5 - 0.5 * Math.cos(this.t * TAU * 0.5));
+      this.material.emissiveIntensity = 1.45 + 0.3 * (0.5 - 0.5 * Math.cos(this.t * TAU * THINK_HZ));
     } else if (this.material.emissiveIntensity !== 1.45) {
       this.material.emissiveIntensity = 1.45;
     }
@@ -782,7 +832,8 @@ class Orb {
 
     // Working on an answer: eyes up and wandering, the way a person looks for a word.
     if (this.thinking && !this.reduced) {
-      this.gazeTarget = { x: Math.sin(this.t * 0.9) * 0.45, y: -0.6 + Math.sin(this.t * 1.7) * 0.12 };
+      // Up and about, but not so far up that the eyes foreshorten into slits.
+      this.gazeTarget = { x: Math.sin(this.t * 0.9) * 0.5, y: -0.32 + Math.sin(this.t * 1.7) * 0.1 };
     }
     // The body TURNS toward the pointer, and takes the highlight with it.
     this.gaze.x += (this.gazeTarget.x - this.gaze.x) * Math.min(1, dt * 5);

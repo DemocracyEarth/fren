@@ -116,17 +116,36 @@ function paintFeatures(ctx, p, style, lineScale) {
   // --- mouth ----------------------------------------------------------------
   // Below a threshold there is no cavity to draw: a resting mouth is a line,
   // which is what keeps the neutral face calm instead of gormlessly agape.
-  if (open < 0.07) {
-    ctx.lineWidth = 7.8 * lineScale;
-    smileArc(ctx, 100, FACE.MOUTH_Y, p.mouthW ?? 1, p.mouthCurve ?? 0.8);
-    ctx.stroke();
-  } else {
-    ctx.lineWidth = 7.0 * lineScale;
-    mouthPath(ctx, 100, FACE.MOUTH_Y, p.mouthW ?? 1, open,
-              p.mouthCurve ?? 0.8, p.mouthWave ?? 0);
-    ctx.fill();
-    ctx.stroke();
+  // Thinking: the mouth gives way to three beads that light up in turn, an
+  // ellipsis said with the face. Cross-faded on `dots`, so it arrives and
+  // leaves the way every other feature does.
+  const dots = clamp(p.dots ?? 0, 0, 1);
+  const alpha = ctx.globalAlpha;
+  if (dots < 0.995) {
+    ctx.globalAlpha = alpha * (1 - dots);
+    if (open < 0.07) {
+      ctx.lineWidth = 7.8 * lineScale;
+      smileArc(ctx, 100, FACE.MOUTH_Y, p.mouthW ?? 1, p.mouthCurve ?? 0.8);
+      ctx.stroke();
+    } else {
+      ctx.lineWidth = 7.0 * lineScale;
+      mouthPath(ctx, 100, FACE.MOUTH_Y, p.mouthW ?? 1, open,
+                p.mouthCurve ?? 0.8, p.mouthWave ?? 0);
+      ctx.fill();
+      ctx.stroke();
+    }
   }
+  if (dots > 0.005) {
+    const phase = p.dotPhase ?? 0;
+    for (let i = 0; i < 3; i += 1) {
+      const wave = 0.5 + 0.5 * Math.sin(phase * 5.4 - i * 1.3);
+      ctx.globalAlpha = alpha * dots * (0.22 + 0.78 * wave);
+      ctx.beginPath();
+      ctx.arc(100 + (i - 1) * 19, FACE.MOUTH_Y + 1, 4.6 + wave * 0.9, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.globalAlpha = alpha;
 }
 
 /**

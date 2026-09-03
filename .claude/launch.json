@@ -9,6 +9,18 @@
         "8777"
       ],
       "port": 8777
+    },
+    {
+      "name": "face-lab",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "4611",
+        "--directory",
+        "apps/desktop/renderer"
+      ],
+      "port": 4611
     }
   ]
 }
