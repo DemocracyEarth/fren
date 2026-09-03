@@ -339,7 +339,11 @@ function buildChatRequest({ question, memories = [], observations = [], profile 
     'NEVER open with a rundown of what they have been doing. Mention observed',
     'activity only when it actually serves what they asked, or when they asked',
     'what they were up to.',
-    'Be concise: 2-4 sentences is typical.',
+    // Spoken out loud more often than read. Its owner asked for short and
+    // conversational, and meant it.
+    'Be brief: one to three short sentences, the way you would say it out loud.',
+    'No lists, no headings, no bullet points unless they ask for a list. If something',
+    'truly needs more, give the short version and offer the rest.',
     // The two habits that made replies read like a report rather than an
     // answer. The timeline below is full of clock ranges and durations, and
     // left to itself the model hands them back as if the arithmetic were the

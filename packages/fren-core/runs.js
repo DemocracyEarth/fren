@@ -167,7 +167,7 @@ function createRunService({ store, events, getRuntime, now = Date.now, log = () 
         return true;
       }
       case 'agent.working': {
-        events.emit('agent.working', { runId: runId || null, sessionId: event.sessionId || null, on: !!event.on });
+        events.emit('agent.working', { runId: runId || null, sessionId: event.sessionId || null, on: !!event.on, kind: run ? run.kind : null });
         return true;
       }
       case 'agent.message': {

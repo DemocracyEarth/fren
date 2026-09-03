@@ -908,13 +908,15 @@ app.whenReady().then(() => {
     if (!e || typeof e !== 'object') return;
     if (e.type === 'runtime.status' && e.status) {
       noteRuntime(e.status);
-    } else if (e.type === 'agent.working' && e.runId) {
-      // Balanced per run, so a lost 'off' cannot leave fren thinking forever.
-      if (e.on && !workingRuns.has(e.runId)) { workingRuns.add(e.runId); state.beginWork(); }
-      if (!e.on && workingRuns.has(e.runId)) { workingRuns.delete(e.runId); state.endWork(); }
+    } else if (e.type === 'agent.working' && e.runId && e.kind === 'chat') {
+      // Only a reply to the person shows on the face; an automation working in
+      // the background is not fren thinking about what you said. Balanced per
+      // run, so a lost 'off' cannot leave fren thinking forever.
+      if (e.on && !workingRuns.has(e.runId)) { workingRuns.add(e.runId); state.beginReply(); }
+      if (!e.on && workingRuns.has(e.runId)) { workingRuns.delete(e.runId); state.endReply(); }
     } else if (/^run\.(completed|failed|cancelled|interrupted)$/.test(e.type) && workingRuns.has(e.runId)) {
       workingRuns.delete(e.runId);
-      state.endWork();
+      state.endReply();
     } else if (e.type === 'agent.message' && e.kind === 'chat' && e.message && e.message.text) {
       // What the agent said in the conversation belongs in the transcript, the
       // same as a reply from the fast lane.
@@ -1489,7 +1491,7 @@ app.whenReady().then(() => {
       return { error: "I'm paused — my light is off, so I'm not looking at anything." };
     }
     const question = String(text ?? '').trim().slice(0, 800) || 'What am I looking at?';
-    state.beginWork();
+    state.beginReply();
     try {
       const shot = await screenCapture.captureOnce();
       if (shot.error) return { error: shot.error };
@@ -1508,7 +1510,7 @@ app.whenReady().then(() => {
       log(`[screen] look failed: ${err.message}`);
       return { error: err.message };
     } finally {
-      state.endWork();
+      state.endReply();
     }
   });
 
@@ -1926,7 +1928,7 @@ app.whenReady().then(() => {
     // an outage threw to the catch and silently dropped the question from the
     // transcript, which is the one failure a transcript exists to prevent.
     remember('you', question);
-    state.beginWork();
+    state.beginReply();
     try {
       const eightHoursAgo = Date.now() - 8 * 60 * 60 * 1000;
       const memories = memory.getRecentMemories({ sinceMs: eightHoursAgo });
@@ -1953,7 +1955,7 @@ app.whenReady().then(() => {
           "I can't reach my thinking half (the local gateway). Is it running? Try: npm run gateway",
       };
     } finally {
-      state.endWork();
+      state.endReply();
     }
   });
 });
