@@ -17,7 +17,7 @@ vi.mock('../../host-lifecycle.js', () => ({ onHostShutdown: vi.fn() }));
 vi.mock('../../db/sessions.js', () => ({ getActiveSessions: vi.fn(async () => [{ id: 'ses-1', agent_group_id: 'ag-1' }]) }));
 
 const box = {
-  acks: [] as Array<{ messageId: string; status: string }>,
+  acks: [] as Array<{ messageId: string; status: string; statusChanged: string }>,
   delivered: new Set<string>(),
   due: [] as Array<{ id: string }>,
 };
@@ -45,10 +45,15 @@ describe('FREN module: the end of a turn', () => {
     await pollOnce();
     expect(sent).toHaveLength(0);
 
-    box.acks = [{ messageId: 'run_1:ag-1', status: 'completed' }];
+    const aged = new Date(Date.now() - 10_000).toISOString();
+    box.acks = [{ messageId: 'run_1:ag-1', status: 'completed', statusChanged: new Date().toISOString() }];
+    await pollOnce();
+    expect(sent).toHaveLength(0); // acknowledged just now: the container may still send
+
+    box.acks = [{ messageId: 'run_1:ag-1', status: 'completed', statusChanged: aged }];
     box.due = [{ id: 'out-1' }];
     await pollOnce();
-    expect(sent).toHaveLength(0); // acknowledged, but the words are still on their way
+    expect(sent).toHaveLength(0); // aged, but the words are still on their way
 
     box.delivered = new Set(['out-1']);
     await pollOnce();
@@ -60,7 +65,7 @@ describe('FREN module: the end of a turn', () => {
 
   it('reports a failed acknowledgement as a failed turn, in the session it was told', async () => {
     watchTurn('run_2', { agentGroupId: 'ag-1', sessionId: 'ses-1' });
-    box.acks = [{ messageId: 'run_2', status: 'failed' }];
+    box.acks = [{ messageId: 'run_2', status: 'failed', statusChanged: new Date(Date.now() - 10_000).toISOString() }];
     await pollOnce();
     expect(sent[0]).toMatchObject({ type: 'turn', runId: 'run_2', status: 'failed', sessionId: 'ses-1' });
   });

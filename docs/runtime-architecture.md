@@ -570,7 +570,7 @@ adapter   : schedule watch (15 s, while ready): tasks-list → per series: live 
             · a counter that moves with no run open becomes a run opened and closed at once ("it ran, but sent nothing"; the host records a failure without a reason)
             · an end the host confirmed is remembered so the counters catching up are not a second record; an end FREN decided (a cancel, a stop) only lets go of the row
             · the host's 15 min watch cap is not the task's: the row is watched again, until the acknowledgement, the counters, or a 2 h ceiling
-            · order, twice over: the host's fren module reports a turn only once the session's outbound queue is empty (the container acknowledges before the host delivers), and a counter move an open run explains waits a few seconds for that turn before the counters end the run; a turn that arrives before its run is open is kept and applied once the words have landed
+            · order, twice over: the host's fren module reports a turn only once the acknowledgement is a few seconds old (the container acknowledges at its first result and may send once more after a nudge) and the session's outbound queue is empty (the host delivers on a poll of its own); a counter move an open run explains waits a few seconds for that turn before the counters end the run; a turn that arrives before its run is open is kept and applied once the words have landed
             · a paused row whose run log carries the host's note becomes schedule.paused → Core switches the automation off, with the reason
 ```
 
