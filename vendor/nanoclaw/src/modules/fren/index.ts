@@ -42,6 +42,13 @@ function sameId(stored: string, bare: string): boolean {
   return stored === bare || stored.startsWith(bare + ':');
 }
 const WATCH_MAX_MS = 15 * 60 * 1000;
+/**
+ * The container marks a row completed at its first result and may still send
+ * after it: a task run whose final text carried a message is nudged to send
+ * it through the tool, one more model round later. An acknowledgement this
+ * young is not yet the end.
+ */
+const ACK_SETTLE_MS = 4_000;
 
 interface Watch {
   runId: string;
@@ -107,25 +114,41 @@ export async function pollOnce(): Promise<void> {
   }
 }
 
-/** True when the run's acknowledgement was found in this session and reported. */
+/**
+ * True when the run's acknowledgement was found in this session. The end is
+ * reported only once the acknowledgement is a few seconds old and the
+ * messages the turn queued have been delivered: the container acknowledges
+ * as soon as it has its first result, may send once more after a nudge, and
+ * the host delivers what it sent on a poll of its own. Reported first, the
+ * end would close a run whose words were still on their way.
+ */
 async function settle(w: Watch, s: { agentGroupId: string; sessionId: string }): Promise<boolean> {
-  let status: string | null = null;
+  let found: { status: string; waiting: number; young: boolean } | null = null;
   try {
-    const found = await withExistingMailboxSession(s.agentGroupId, s.sessionId, (mailbox) => {
+    found = await withExistingMailboxSession(s.agentGroupId, s.sessionId, (mailbox) => {
       const ack = mailbox.getTerminalProcessingAcks().find((a) => sameId(a.messageId, w.runId));
-      return ack ? ack.status : null;
-    });
-    status = found ?? null;
+      if (!ack) return null;
+      const delivered = mailbox.getDeliveredIds();
+      const waiting = mailbox.getDueMessages(delivered).filter((m) => !delivered.has(m.id)).length;
+      const at = Date.parse(String(ack.statusChanged));
+      const young = Number.isFinite(at) && Date.now() - at < ACK_SETTLE_MS;
+      return { status: ack.status, waiting, young };
+    }) ?? null;
   } catch (err) {
     log.debug('FREN module: ack lookup failed', { runId: w.runId, sessionId: s.sessionId, err });
     return false;
   }
-  if (!status) return false;
+  if (!found) return false;
+  if (found.waiting > 0 || found.young) {
+    // Found here; no need to look elsewhere. Reported once the queue is empty and the acknowledgement has aged.
+    Object.assign(w, { agentGroupId: s.agentGroupId, sessionId: s.sessionId });
+    return true;
+  }
   watches.delete(w.runId);
   frenLink.send({
     type: 'turn',
     runId: w.runId,
-    status: status === 'completed' ? 'completed' : 'failed',
+    status: found.status === 'completed' ? 'completed' : 'failed',
     sessionId: s.sessionId,
     agentGroupId: s.agentGroupId,
   });

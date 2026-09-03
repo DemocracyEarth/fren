@@ -52,6 +52,10 @@ const APPROVAL_OPTIONS = new Set(['approve', 'reject', 'reject_with_reason']);
 const ID_RE = /^[A-Za-z0-9_.:-]{1,120}$/;
 /** How long a scheduled run may wait on the host, across its watch windows and retries. */
 const SCHEDULE_CEILING_MS = 2 * 60 * 60 * 1000;
+/** How long a run the counters say has ended waits for its words and the turn frame that follows them. */
+const SETTLE_GRACE_MS = 5_000;
+/** How long a turn frame for a row no run is open for yet is kept. */
+const LATE_TURN_MS = 30_000;
 
 /**
  * Unix socket paths are capped at about 104 bytes on macOS. The app data
@@ -92,7 +96,7 @@ function createNanoclawRuntime(opts) {
     dataDir, runtimeDir, sandboxUrl, sandboxToken, model, timezone,
     now = Date.now, log = console.log, probe = containerRuntime,
     hostCommand = null, skipContainerProbe = false, connectTimeoutMs = CONNECT_TIMEOUT_MS,
-    scheduleWatchMs = SCHEDULE_WATCH_MS,
+    scheduleWatchMs = SCHEDULE_WATCH_MS, settleGraceMs = SETTLE_GRACE_MS,
   } = opts;
   if (!dataDir || !runtimeDir) throw new Error('the runtime needs dataDir and runtimeDir');
 
@@ -114,6 +118,7 @@ function createNanoclawRuntime(opts) {
   const seqByAutomation = new Map();
   const pending = new Map();      // questionId -> { kind, runId }
   const watched = new Map();      // host row id -> FREN run id, for the turn and for watching again
+  const earlyTurns = new Map();   // host row id -> turn frame that came before its run was open
   const runtimeToken = crypto.randomBytes(24).toString('hex');
   const slug = installSlug(runtimeDir);
   const socketPath = bridgeSocketPath(dataDir);
@@ -211,7 +216,13 @@ function createNanoclawRuntime(opts) {
       case 'turn': {
         const runId = watched.get(frame.runId) || frame.runId;
         const run = runs.get(runId);
-        if (!run) return;
+        if (!run) {
+          // The row's run is not open yet: a reading is on its way (a delivery
+          // asked for one). Kept, and applied once the run is open and the
+          // words have landed on it.
+          earlyTurns.set(frame.runId, { frame, at: now() });
+          return;
+        }
         if (frame.status === 'completed') return finishRun(runId, 'completed', undefined, undefined, { fromHost: true });
         const timedOut = frame.detail === 'no acknowledgement in time';
         if (timedOut && run.kind === 'schedule' && run.rowId && now() - run.startedAt < SCHEDULE_CEILING_MS) {
@@ -269,15 +280,7 @@ function createNanoclawRuntime(opts) {
     if (!text && !files) return;
 
     const automationId = automationIdFrom(platformId);
-    if (automationId) {
-      // Sent to the automation's surface: the open schedule run if one is known, else on its own.
-      const run = [...runs.values()].find((r) => r.automationId === automationId && !isTerminal(r.status));
-      const seq = run ? nextSeq(seqByRun, run.id) : nextSeq(seqByAutomation, automationId);
-      const message = { seq, at: now(), text, files, final: true };
-      if (run) run.messages.push(message);
-      emit({ type: 'agent.message', ...(run ? { runId: run.id } : {}), automationId, message: { ...message } });
-      return;
-    }
+    if (automationId) return void landOnAutomation(automationId, text, files);
 
     const runId = openByThread.get(threadId) || null;
     if (!runId) {
@@ -321,15 +324,20 @@ function createNanoclawRuntime(opts) {
         run.rowId = f.rowId;
         watched.set(f.rowId, run.id);
         bridge.send({ type: 'watch', runId: f.rowId });
+        // A turn that came early applies after whatever delivery asked for this reading has landed.
+        if (earlyTurns.has(f.rowId)) { const t = setTimeout(() => applyEarlyTurn(f.rowId), 50); if (t.unref) t.unref(); }
         return;
       }
       case 'settled': {
         const run = watched.has(f.rowId) ? runs.get(watched.get(f.rowId)) : null;
         if (!run || isTerminal(run.status)) return;
-        run.counted = true; // observe() already took this end off the counters
-        return finishRun(run.id, f.ok ? 'completed' : 'failed', f.ok ? undefined : DEFAULT_FAILURE);
+        return settleSoon(run, f.ok);
       }
       case 'missed': {
+        // A counter moved with no fired row open. A run of this series still
+        // open (a run-now, whose row the list hides) is what it explains.
+        const open = [...runs.values()].find((r) => r.scheduleId === f.seriesId && !isTerminal(r.status) && !r.synthetic && !r.counted);
+        if (open) return settleSoon(open, f.ok);
         const run = openRun(true);
         return finishRun(run.id, f.ok ? 'completed' : 'failed', f.ok ? undefined : DEFAULT_FAILURE, f.ok ? 'it ran, but sent nothing' : undefined);
       }
@@ -340,6 +348,51 @@ function createNanoclawRuntime(opts) {
       default:
         return;
     }
+  }
+
+  /**
+   * Something sent to an automation's surface lands on its open run. When none
+   * is open, the task list is read right now before giving up on one: a warm
+   * container picks a due row up the moment it is due and can answer within
+   * seconds, ahead of the watch's next reading.
+   */
+  async function landOnAutomation(automationId, text, files) {
+    const openRunFor = () => [...runs.values()].find((r) => r.automationId === automationId && !isTerminal(r.status));
+    let run = openRunFor();
+    if (!run && scheduleWatch) {
+      await scheduleWatch.pollNow();
+      run = openRunFor();
+    }
+    const seq = run ? nextSeq(seqByRun, run.id) : nextSeq(seqByAutomation, automationId);
+    const message = { seq, at: now(), text, files, final: true };
+    if (run) run.messages.push(message);
+    emit({ type: 'agent.message', ...(run ? { runId: run.id } : {}), automationId, message: { ...message } });
+    if (run && run.rowId) applyEarlyTurn(run.rowId);
+  }
+
+  /** A turn frame kept for a run that was not open yet, applied now that it is. */
+  function applyEarlyTurn(rowId) {
+    const early = earlyTurns.get(rowId);
+    if (!early) return;
+    earlyTurns.delete(rowId);
+    if (now() - early.at < LATE_TURN_MS) onFrame(early.frame, () => {});
+  }
+
+  /**
+   * The host's counters say this run ended, but its words may still be on
+   * their way (the host delivers on a poll of its own, a moment after the
+   * container acknowledges) and the turn frame, which waits for them, is the
+   * better end. Give it a moment; then end the run on the counters' word if
+   * nothing else has.
+   */
+  function settleSoon(run, ok) {
+    if (run.counted) return;
+    run.counted = true; // this end is already off the counters; nothing to remember later
+    const timer = setTimeout(() => {
+      if (!runs.has(run.id) || isTerminal(run.status)) return;
+      finishRun(run.id, ok ? 'completed' : 'failed', ok ? undefined : DEFAULT_FAILURE);
+    }, settleGraceMs);
+    if (timer.unref) timer.unref();
   }
 
   function automationIdFrom(platformId) {
@@ -600,6 +653,7 @@ function createNanoclawRuntime(opts) {
     openByThread.clear();
     pending.clear();
     watched.clear();
+    earlyTurns.clear();
   }
 
   return rt;
