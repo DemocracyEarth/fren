@@ -2,6 +2,7 @@
 // observe -> remember -> summarize -> chat. Owns the observation on/off state.
 const path = require('path');
 const { app, BrowserWindow, ipcMain, screen, protocol, net, shell, dialog, Menu } = require('electron');
+const arrival = require('./arrival');
 const { pathToFileURL } = require('node:url');
 const { config, loadEnv } = require('../../../packages/shared');
 const { openMemory } = require('../../../packages/memory');
@@ -1237,47 +1238,58 @@ app.whenReady().then(() => {
    * So: greet on an ARRIVAL, not on a launch. A relaunch inside the quiet
    * window is the same visit continuing.
    */
-  const GREET_AFTER_MS = 30 * 60 * 1000;   // a gap shorter than this is not an arrival
+  const GREET_AFTER_MS = 30 * 60 * 1000;   // a gap shorter than this is not an arrival (a relaunch)
+  const RETURN_AFTER_MS = 10 * 60 * 1000;  // away shorter than this is not a return (a coffee)
   const RECENT_GREETINGS = 'recentGreetings';
+  let lastGreetAt = 0;
+  let awayAt = null;
 
-  ipcMain.handle('fren:greeting', async () => {
-    // The introduction IS the greeting on a first launch, and it is a better
-    // one. Without this the call is still paid for and then thrown away,
-    // because the renderer drops a hello that lands during setup.
+  /**
+   * The hello itself, from what fren wrote down before: the last thing noted,
+   * the facts it keeps, what it does for them and asks them. Different each
+   * time, because the last few are named so the shape is not reused, and
+   * with one gentle thing to pick up when the notes give one.
+   */
+  async function composeGreeting(gapMs) {
+    // The introduction IS the greeting on a first launch, and it is a better one.
     if (!memory.getSetting('profile')) return { text: null, why: 'first launch' };
-    const gap = lastSeenAt ? Date.now() - lastSeenAt : null;
-    if (gap !== null && gap < GREET_AFTER_MS) return { text: null, why: 'just restarted' };
-
     let recent = [];
     try { recent = JSON.parse(memory.getSetting(RECENT_GREETINGS) || '[]'); } catch { recent = []; }
-
-    // Only what was written down before fren closed. Nothing here is live.
+    // Only what was written down before. Nothing here is live.
     let lastActivity = '';
     try {
-      // Newest N, then re-sorted ascending — so limit 1 is the latest row.
       const [latest] = memory.getRecentMemories({ sinceMs: Date.now() - 7 * 24 * 3600 * 1000, limit: 1 });
       if (latest) lastActivity = latest.activity || '';
     } catch { /* nothing observed yet */ }
-
     let facts = '';
     try {
       const mem = soul.readAll(app.getPath('userData')).files.find((f) => f.name === 'MEMORY.md');
       facts = (mem ? mem.text : '').split('## Days')[0].split('\n')
         .filter((l) => l.startsWith('- ')).slice(-6).join('\n');
     } catch { /* no facts yet */ }
-
+    let automations = [];
+    try {
+      const res = await gateway.agentAutomations();
+      const list = Array.isArray(res) ? res : (res && res.automations) || [];
+      automations = list.filter((a) => a.enabled).slice(0, 8).map((a) => `${a.name} (${a.describe})`);
+    } catch { /* none to speak of */ }
+    let routines = [];
+    try { routines = memory.getRoutines().slice(0, 6).map((r) => r.name); } catch { /* none */ }
     try {
       const { text } = await gateway.greet({
         profile: memory.getSetting('profile'),
-        lastSeenMs: lastSeenAt,
+        lastSeenMs: gapMs === null ? null : Date.now() - gapMs,
         lastActivity,
         facts,
         avoid: recent,
+        automations,
+        routines,
       });
       if (!text) return { text: null, why: 'nothing came back' };
       try {
         memory.setSetting(RECENT_GREETINGS, JSON.stringify([...recent, text].slice(-4)));
       } catch { /* the greeting still stands */ }
+      lastGreetAt = Date.now();
       // PRIVACY: that fren said hello, never what it said — the text is built
       // from window titles.
       log('[greeting] said hello');
@@ -1288,7 +1300,30 @@ app.whenReady().then(() => {
       log(`[greeting] skipped: ${err.message}`);
       return { text: null, why: 'gateway unavailable' };
     }
+  }
+
+  ipcMain.handle('fren:greeting', async () => {
+    const gap = lastSeenAt ? Date.now() - lastSeenAt : null;
+    if (gap !== null && gap < GREET_AFTER_MS) return { text: null, why: 'just restarted' };
+    return composeGreeting(gap);
   });
+
+  // A return: the machine waking or the screen unlocking after a while away.
+  // The renderer says it when fren is free, so it never lands over a reply.
+  const { powerMonitor } = require('electron');
+  const away = (why) => { awayAt = Date.now(); log(`[greeting] away (${why})`); };
+  const back = async (why) => {
+    const awayMs = awayAt ? Date.now() - awayAt : 0;
+    awayAt = null;
+    const verdict = arrival.shouldGreetOnReturn({ awayMs, lastGreetAt, now: Date.now(), minAwayMs: RETURN_AFTER_MS });
+    if (!verdict.greet) { log(`[greeting] ${why}: ${verdict.why}`); return; }
+    const { text } = await composeGreeting(awayMs);
+    if (text) broadcast('fren:greet', { text, why });
+  };
+  powerMonitor.on('suspend', () => away('sleep'));
+  powerMonitor.on('lock-screen', () => away('lock'));
+  powerMonitor.on('resume', () => { back('wake').catch((err) => log(`[greeting] wake: ${err.message}`)); });
+  powerMonitor.on('unlock-screen', () => { back('unlock').catch((err) => log(`[greeting] unlock: ${err.message}`)); });
 
   /**
    * Whether fren is awake when it launches.

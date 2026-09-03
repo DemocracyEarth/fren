@@ -287,6 +287,8 @@ async function handleGreet(provider, body, res) {
     lastActivity: typeof body.lastActivity === 'string' ? body.lastActivity : '',
     facts: typeof body.facts === 'string' ? body.facts : '',
     avoid: Array.isArray(body.avoid) ? body.avoid.map(String).slice(-4) : [],
+    automations: Array.isArray(body.automations) ? body.automations.map(String).slice(0, 8) : [],
+    routines: Array.isArray(body.routines) ? body.routines.map(String).slice(0, 6) : [],
   });
   const raw = await callProvider(provider, request, res);
   if (raw === null) return;
@@ -294,7 +296,7 @@ async function handleGreet(provider, body, res) {
     .replace(/^["']|["']$/g, '')     // models like to quote a line they were told to say
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 220);
+    .slice(0, 320);
   send(res, 200, { text });
 }
 

@@ -2269,6 +2269,8 @@ scheduleWander();
     .then((g) => (g && g.text ? greetQuietly(g.text) : null))
     .catch(() => {});
   // A routine came round: say it the same way any other reply is said.
+  // Back after a while: a hello, said when fren is free.
+  if (window.fren.onGreet) window.fren.onGreet(({ text }) => { if (text) sayWhenFree(() => speak(text)); });
   window.fren.onRoutineRan(({ name, text }) => {
     if (!text) return;
     sayWhenFree(async () => {
