@@ -15,14 +15,25 @@
  * their existing code paths until phase 5 folds them in.
  */
 const { newId, isTerminal } = require('../runtime');
-const { parseCron, nextCron, firesPerDay, describeCron } = require('../shared/cron');
+const { parseCron, nextCron, firesPerDay, describeTrigger } = require('../shared/cron');
 const { isScope } = require('../permissions');
 const { httpError } = require('./runs');
 const intelligence = require('../intelligence');
 
 const MAX_FIRES_PER_DAY = 24;
 const BODIES = ['agent', 'question', 'script'];
-const TRIGGERS = ['schedule', 'manual', 'event'];
+const TRIGGERS = ['schedule', 'at', 'manual', 'event'];
+/** Triggers the runtime keeps a clock for. */
+const TIMED = new Set(['schedule', 'at']);
+/** A window that stays in front is one sighting, not one every tick. */
+const EVENT_COOLDOWN_MS = 30 * 60 * 1000;
+
+/** The trigger an intent reading names, ready for the model. */
+function triggerFromIntent(r) {
+  if (r.when === 'once') return { type: 'at', at: r.at };
+  if (r.when === 'event') return { type: 'event', filter: r.app ? { app: r.app } : { site: r.site } };
+  return { type: 'schedule', cron: r.cron };
+}
 
 /**
  * The prompt a runtime agent gets for an automation. The delivery contract
@@ -79,9 +90,17 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
           throw httpError(400, `that would run ${firesPerDay(t.cron)} times a day; the limit is ${limit}`);
         }
         out.trigger = { type: 'schedule', cron: parseCron(t.cron).expr, timezone: t.timezone || timezone };
+      } else if (t.type === 'at') {
+        const at = Number(t.at);
+        if (!Number.isFinite(at)) throw httpError(400, 'a one-off needs a moment');
+        if (at < now() - 60_000) throw httpError(400, 'that moment has already passed');
+        out.trigger = { type: 'at', at: Math.round(at), timezone: t.timezone || timezone };
       } else if (t.type === 'event') {
-        if (!t.event || typeof t.event !== 'string') throw httpError(400, 'an event trigger needs an event name');
-        out.trigger = { type: 'event', event: t.event.slice(0, 80), filter: t.filter && typeof t.filter === 'object' ? t.filter : undefined };
+        const f = t.filter && typeof t.filter === 'object' ? t.filter : {};
+        const app = String(f.app || '').trim().slice(0, 80);
+        const site = String(f.site || '').trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').replace(/\/.*$/, '').slice(0, 120);
+        if (!app && !site) throw httpError(400, 'a "whenever" needs an app or a site to watch for');
+        out.trigger = { type: 'event', event: 'observation', filter: app ? { app } : { site } };
       } else {
         out.trigger = { type: 'manual' };
       }
@@ -105,7 +124,9 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
   }
 
   function nextRunFor(a) {
-    if (!a.enabled || a.trigger.type !== 'schedule') return null;
+    if (!a.enabled) return null;
+    if (a.trigger.type === 'at') return a.trigger.at > now() ? a.trigger.at : null;
+    if (a.trigger.type !== 'schedule') return null;
     return nextCron(a.trigger.cron, now());
   }
 
@@ -113,17 +134,17 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
     if (!a) return null;
     return {
       ...a,
-      describe: a.trigger.type === 'schedule' ? describeCron(a.trigger.cron) : a.trigger.type,
+      describe: describeTrigger(a.trigger, now()),
       nextRunAt: nextRunFor(a) ?? null,
       runs: store.listAutomationRuns(a.id, 8),
-      runtimeState: a.runtimeRef && runtime() && a.runtimeRef.kind === runtime().kind ? 'scheduled' : (a.body.kind === 'agent' && a.trigger.type === 'schedule' ? 'waiting' : 'local'),
+      runtimeState: a.runtimeRef && runtime() && a.runtimeRef.kind === runtime().kind ? 'scheduled' : (a.body.kind === 'agent' && TIMED.has(a.trigger.type) && a.enabled ? 'waiting' : 'local'),
     };
   }
 
   // ------------------------------------------------ runtime schedule sync
   function scheduleInputFor(a) {
     return {
-      automationId: a.id, name: a.name, cron: a.trigger.cron, timezone: a.trigger.timezone || timezone,
+      automationId: a.id, name: a.name, cron: a.trigger.cron, at: a.trigger.at, timezone: a.trigger.timezone || timezone,
       instruction: compileInstruction({ name: a.name, instruction: a.body.instruction, deliveryName: `automation-${a.id}` }),
       deliveryName: `automation-${a.id}`, enabled: a.enabled,
     };
@@ -132,7 +153,12 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
   /** Make the runtime agree with this automation. Never throws; logs. */
   async function sync(a, { known, intent } = {}) {
     const rt = runtime();
-    if (!rt || !ready || a.body.kind !== 'agent' || a.trigger.type !== 'schedule') return a;
+    if (!rt || !ready || a.body.kind !== 'agent' || !TIMED.has(a.trigger.type)) return a;
+    if (a.trigger.type === 'at' && a.trigger.at <= now()) {
+      // The moment passed while nobody was looking: nothing left to schedule.
+      if (a.enabled) finishOneOff(a, 'the moment passed while fren was away');
+      return store.getAutomation(a.id);
+    }
     try {
       const ref = a.runtimeRef && a.runtimeRef.kind === rt.kind ? a.runtimeRef : null;
       const list = known || (await rt.listSchedules());
@@ -143,7 +169,7 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
           // stands; resuming a failing automation quietly is not a fix.
           return applyRuntimePause(a, existing.pausedByRuntime);
         }
-        const drift = existing.cron !== a.trigger.cron || existing.enabled !== a.enabled ||
+        const drift = existing.cron !== a.trigger.cron || (existing.at || null) !== (a.trigger.at || null) || existing.enabled !== a.enabled ||
           existing.name !== a.name || existing.instruction !== scheduleInputFor(a).instruction;
         if (drift) await rt.updateSchedule(ref.id, scheduleInputFor(a));
         return a;
@@ -213,7 +239,7 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
     };
     store.insertAutomation({ ...a, nextRunAt: nextRunFor(a) });
     const synced = await sync(store.getAutomation(id));
-    events.emit('automation.created', { automationId: id, name: a.name, describe: describeCron(a.trigger.cron || '') });
+    events.emit('automation.created', { automationId: id, name: a.name, describe: describeTrigger(a.trigger, now()) });
     return present(synced);
   }
 
@@ -299,6 +325,45 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
     finishRun(runId, true);
   }
 
+  /** A moment comes once: after it, the automation is done and off. */
+  function finishOneOff(a, why) {
+    store.updateAutomation(a.id, { enabled: false, nextRunAt: null, runtimeRef: null, updatedAt: now() });
+    events.emit('automation.updated', { automationId: a.id, name: a.name, enabled: false, done: true, ...(why ? { detail: why } : {}) });
+  }
+
+  /**
+   * Something was noticed on the desktop. An automation that runs "whenever
+   * I open X" runs once per sighting, with a cooldown so a window that stays
+   * in front is one sighting and not one every tick.
+   */
+  async function onObservation(obs) {
+    const payload = obs && obs.payload && typeof obs.payload === 'object' ? obs.payload : {};
+    const app = String(payload.app || '').toLowerCase();
+    const where = String(payload.domain || payload.url || '').toLowerCase();
+    if (!app && !where) return;
+    const rt = runtime();
+    for (const a of store.listAutomations()) {
+      if (!a.enabled || a.trigger.type !== 'event' || a.body.kind !== 'agent') continue;
+      const f = a.trigger.filter || {};
+      const hit = (f.app && app.includes(String(f.app).toLowerCase())) || (f.site && where.includes(String(f.site).toLowerCase()));
+      if (!hit) continue;
+      if (a.lastRunAt && now() - a.lastRunAt < EVENT_COOLDOWN_MS) continue;
+      if (!rt || !ready) { log(`[automations] "${a.name}" was triggered, but the secure execution environment is not ready`); continue; }
+      const seen = f.app ? `${payload.app}${payload.title ? ` (${String(payload.title).slice(0, 80)})` : ''}` : String(payload.url || payload.domain).slice(0, 200);
+      store.updateAutomation(a.id, { lastRunAt: now() });
+      try {
+        const run = await runs.startAgent({
+          instruction: compileInstruction({ name: a.name, instruction: a.body.instruction, deliveryName: `automation-${a.id}` }) +
+            `\n\nWhy now: the owner has just ${f.app ? 'opened' : 'gone to'} ${seen}.`,
+          automationId: a.id,
+        });
+        recordStart(a, run.id, 'event');
+      } catch (err) {
+        log(`[automations] "${a.name}" could not start: ${err.message}`);
+      }
+    }
+  }
+
   /** Close the record for a run, once, from whichever signal arrives first. */
   function finishRun(runId, ok, detail) {
     const ar = store.getAutomationRunByRunId(runId);
@@ -309,6 +374,7 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
     const output = texts.join('\n\n') || detail || '';
     store.updateAutomationRun(ar.id, { status: ok ? 'ok' : 'failed', endedAt: now(), output, delivered: texts.length > 0 });
     if (a) store.updateAutomation(a.id, { nextRunAt: nextRunFor(a) });
+    if (a && a.trigger.type === 'at' && a.enabled) finishOneOff(a);
     events.emit(ok ? 'automation.run.completed' : 'automation.run.failed', {
       automationId: ar.automationId, name: a ? a.name : null, runId, status: ok ? 'ok' : 'failed',
       output: output.slice(0, 2000), delivered: texts.length > 0, ...(detail ? { detail } : {}),
@@ -391,23 +457,43 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
     }
     let result;
     if (parsed && parsed.isAutomation) {
-      let cron = String(parsed.cron || '').trim();
-      try { cron = parseCron(cron).expr; } catch { cron = heuristic.confident ? heuristic.cron : ''; }
+      const when = ['repeat', 'once', 'event'].includes(parsed.when) ? parsed.when : (parsed.cron ? 'repeat' : heuristic.when);
       const instruction = String(parsed.instruction || '').trim().slice(0, 4000) || heuristic.instruction;
-      result = cron && instruction
-        ? { isAutomation: true, name: String(parsed.name || heuristic.name || 'automation').slice(0, 60), cron, instruction, reason: '', source: 'model' }
-        : { isAutomation: false, name: '', cron: '', instruction: '', reason: 'could not read a time from that', source: 'model' };
+      const name = String(parsed.name || heuristic.name || 'automation').slice(0, 60);
+      let cron = '';
+      let at = null;
+      let app = '';
+      let site = '';
+      if (when === 'repeat') {
+        cron = String(parsed.cron || '').trim();
+        try { cron = parseCron(cron).expr; } catch { cron = heuristic.when === 'repeat' ? heuristic.cron : ''; }
+      } else if (when === 'once') {
+        at = intelligence.fromIsoLocal(parsed.at);
+        if (!Number.isFinite(at) && heuristic.when === 'once') at = heuristic.at;
+      } else if (when === 'event') {
+        app = String(parsed.app || '').trim().slice(0, 80);
+        site = String(parsed.site || '').trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').replace(/\/.*$/, '').slice(0, 120);
+        if (!app && !site && heuristic.when === 'event') { app = heuristic.app; site = heuristic.site; }
+      }
+      const readable = !!instruction && (
+        (when === 'repeat' && !!cron) || (when === 'once' && Number.isFinite(at) && at > now()) || (when === 'event' && !!(app || site)));
+      result = readable
+        ? { isAutomation: true, when, name, cron, at, app, site, instruction, reason: '', source: 'model' }
+        : { isAutomation: false, when: 'none', name: '', cron: '', at: null, app: '', site: '', instruction: '', reason: 'could not read a time from that', source: 'model' };
     } else if (parsed) {
-      result = { isAutomation: false, name: '', cron: '', instruction: '', reason: String(parsed.reason || '').slice(0, 200), source: 'model' };
+      result = { isAutomation: false, when: 'none', name: '', cron: '', at: null, app: '', site: '', instruction: '', reason: String(parsed.reason || '').slice(0, 200), source: 'model' };
     } else {
       result = { ...heuristic, source: 'heuristic' };
       delete result.confident;
     }
-    if (result.isAutomation) result.describe = describeCron(result.cron);
+    if (result.isAutomation) {
+      result.trigger = triggerFromIntent(result);
+      result.describe = describeTrigger(result.trigger, now());
+    }
     return result;
   }
 
-  return { list, get, create, update, remove, runNow, intent, reconcile, runtimeGone, onRuntimeEvent, compileInstruction };
+  return { list, get, create, update, remove, runNow, intent, reconcile, runtimeGone, onRuntimeEvent, onObservation, compileInstruction };
 }
 
 module.exports = { createAutomationService, compileInstruction, MAX_FIRES_PER_DAY };

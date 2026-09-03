@@ -220,6 +220,24 @@ function runContractTests({ name, createRuntime, features = {}, timeoutMs = 10_0
     });
   });
 
+  t('a one-off schedule is listed with its moment and can be run now', async () => {
+    await withRuntime(async (rt) => {
+      const rec = recorder(rt);
+      const at = Date.now() + 3600_000;
+      const input = { automationId: newId('atm'), name: 'one call', at, timezone: 'UTC', instruction: 'Remind the owner to call Ana.', deliveryName: 'fren' };
+      const created = await rt.createSchedule(input);
+      assert.equal(created.at, at);
+      assert.equal(created.nextRunAt, at);
+      assert.equal(created.enabled, true);
+      assert.ok(!created.cron);
+      const run = await rt.triggerSchedule(created.id);
+      assert.equal(run.kind, 'schedule');
+      await rec.waitFor((e) => /^schedule\.(completed|failed)$/.test(e.type) && e.scheduleId === created.id, timeoutMs, 'schedule end');
+      await rt.deleteSchedule(created.id);
+      rec.unsubscribe();
+    });
+  });
+
   t('createSchedule rejects a malformed cron', async () => {
     await withRuntime(async (rt) => {
       await assert.rejects(() => rt.createSchedule({

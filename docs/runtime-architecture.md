@@ -767,11 +767,11 @@ later phase (§16, phase 5) and a data migration, not a redesign.
 
 ### 8.2 Where each trigger and body executes
 
-| body \ trigger | `schedule` | `manual` | `event` (later) |
-|---|---|---|---|
-| `agent` | runtime schedule (`createSchedule`); NanoClaw's sweep fires it | `runtime.triggerSchedule` if a schedule exists, else `runtime.runAgent` | Core's automation engine calls `runtime.runAgent` |
-| `question` | Core's own scheduler (today's `routines.js` logic moved into Core) | Core fast lane | Core fast lane |
-| `script` | desktop's existing scheduler (unchanged in the MVP) | desktop `executor.run` | not offered |
+| body \ trigger | `schedule` | `at` (a moment, once) | `manual` | `event` (an app or a site in front of the person) |
+|---|---|---|---|---|
+| `agent` | runtime schedule (`createSchedule`); NanoClaw's sweep fires it | runtime schedule with a moment and no recurrence; done and off after it fires | `runtime.triggerSchedule` if a schedule exists, else `runtime.runAgent` | Core's automation engine calls `runtime.runAgent` when a matching observation arrives, once per sighting (30 min cooldown) |
+| `question` | Core's own scheduler (today's `routines.js` logic moved into Core) | not offered | Core fast lane | Core fast lane |
+| `script` | desktop's existing scheduler (unchanged in the MVP) | not offered | desktop `executor.run` | not offered |
 
 The Core scheduler for `question` bodies is the existing `isDue`/`nextRunAt`
 logic (`routines.js:39-63`) lifted into `packages/fren-core/scheduler.js`

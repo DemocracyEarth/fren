@@ -585,7 +585,8 @@ function createNanoclawRuntime(opts) {
 
     async createSchedule(input) {
       requireReady();
-      parseCron(input.cron);
+      if (input.cron) parseCron(input.cron);
+      else if (!Number.isFinite(input.at)) throw new Error('a schedule needs a cron or a moment');
       return schedules.create(input);
     },
     async updateSchedule(id, patch) { requireReady(); if (patch.cron) parseCron(patch.cron); return schedules.update(id, patch); },

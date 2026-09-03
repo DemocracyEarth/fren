@@ -179,4 +179,37 @@ function describeCron(expr) {
   return `${parsed.expr} (${time})`;
 }
 
-module.exports = { parseCron, nextCron, firesPerDay, describeCron };
+/** "today at 15:00", "tomorrow at 09:30", "on Friday at 18:00", "on 12 Sep at 10:00". */
+function describeAt(ms, now = Date.now()) {
+  const d = new Date(ms);
+  if (!Number.isFinite(d.getTime())) return '';
+  const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const today = new Date(now);
+  const startOf = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((startOf(d) - startOf(today)) / 86400000);
+  if (days === 0) return `today at ${time}`;
+  if (days === 1) return `tomorrow at ${time}`;
+  const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  if (days > 1 && days < 7) return `on ${DAY_NAMES[d.getDay()]} at ${time}`;
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `on ${d.getDate()} ${MONTHS[d.getMonth()]} at ${time}`;
+}
+
+/** "whenever you open Figma", "whenever you are on github.com". */
+function describeEvent(filter) {
+  const f = filter || {};
+  if (f.app) return `whenever you open ${f.app}`;
+  if (f.site) return `whenever you are on ${f.site}`;
+  return 'when something happens';
+}
+
+/** One line for any trigger the Automation model has. */
+function describeTrigger(trigger, now = Date.now()) {
+  const t = trigger || {};
+  if (t.type === 'schedule') return describeCron(t.cron);
+  if (t.type === 'at') return describeAt(t.at, now);
+  if (t.type === 'event') return describeEvent(t.filter);
+  return String(t.type || '');
+}
+
+module.exports = { parseCron, nextCron, firesPerDay, describeCron, describeAt, describeEvent, describeTrigger };

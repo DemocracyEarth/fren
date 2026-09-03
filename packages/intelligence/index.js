@@ -1014,12 +1014,23 @@ function buildPatternRequest({ memories = [] } = {}) {
 const AUTOMATION_INTENT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['isAutomation', 'name', 'cron', 'instruction', 'reason'],
+  required: ['isAutomation', 'when', 'name', 'cron', 'at', 'app', 'site', 'instruction', 'reason'],
   properties: {
     isAutomation: {
       type: 'boolean',
-      description: 'True only when they are asking for something to be DONE repeatedly at a time.',
+      description: 'True only when they are asking for something to be DONE at a time, at a later moment, or whenever something happens on their screen.',
     },
+    when: {
+      type: 'string',
+      enum: ['repeat', 'once', 'event', 'none'],
+      description: '"repeat" for a schedule (then fill cron), "once" for a single later moment (then fill at), "event" for whenever an app or site is in front of them (then fill app or site), "none" when it is not an automation.',
+    },
+    at: {
+      type: 'string',
+      description: 'For "once": the moment, as local date and time "YYYY-MM-DDTHH:MM". Empty otherwise. Work out relative times ("in twenty minutes", "tomorrow at 3") from the current time given.',
+    },
+    app: { type: 'string', description: 'For "event": the application they mean, as they named it ("Figma"). Empty otherwise.' },
+    site: { type: 'string', description: 'For "event": the website they mean, as a domain ("github.com"). Empty otherwise.' },
     name: { type: 'string', description: 'Three or four words naming it, e.g. "morning AI news".' },
     cron: {
       type: 'string',
@@ -1049,15 +1060,22 @@ function buildAutomationIntentRequest({ text, now = Date.now() } = {}) {
   return {
     system: [
       'You decide whether someone is asking fren, a desktop companion that can act for them through',
-      'an isolated assistant, to set up something that should happen REPEATEDLY at a time.',
+      'an isolated assistant, to set up something that should happen LATER: repeatedly at a time,',
+      'once at a later moment, or whenever a particular app or website is in front of them.',
       '',
-      'An automation is a task done again and again at a time: "every morning at 9, check Hacker',
-      'News and give me the five most interesting AI stories"; "each Friday at six, summarise the',
-      'week\'s commits". A one-off request is NOT an automation, and neither is a question about the',
-      'past. If in doubt, isAutomation is false — turning an ordinary question into a daily job is',
-      'far more annoying than missing one.',
+      'Three shapes. "repeat": a task done again and again at a time ("every morning at 9, check',
+      'Hacker News and give me the five most interesting AI stories"; "each Friday at six, summarise',
+      'the week\'s commits"). "once": a task at one later moment ("tomorrow at 3 remind me to call',
+      'Ana"; "in twenty minutes tell me to stretch"). "event": a task whenever something is on their',
+      'screen ("whenever I open Figma, remind me to check the tokens"; "when I am on github.com,',
+      'list my open pull requests"). Something they want done NOW, or a question about the past, is',
+      'NOT an automation. If in doubt, isAutomation is false and when is "none" — turning an',
+      'ordinary question into a job is far more annoying than missing one.',
       '',
-      'When it IS one, write "cron" as five-field cron in their local time, and "instruction" as a',
+      'For "repeat" write "cron" as five-field cron in their local time. For "once" write "at" as',
+      'the local date and time "YYYY-MM-DDTHH:MM", worked out from the current time below. For',
+      '"event" write "app" (the application, as they named it) or "site" (a domain). Always write',
+      '"instruction" as a',
       'task for an assistant that can browse the web, read and write in its own workspace, and run',
       'commands there: imperative, self-contained, second person to the assistant, the schedule',
       'words removed. "every morning at 9, check Hacker News and give me the five most interesting',
@@ -1066,8 +1084,8 @@ function buildAutomationIntentRequest({ text, now = Date.now() } = {}) {
       '',
       'Unstated minute is 0. Unstated days means every day. "Morning" without an hour is 9,',
       '"afternoon" is 14, "evening" is 18 — but prefer an hour they actually said.',
-      `For reference, it is currently ${d.toTimeString().slice(0, 5)} on a ` +
-      `${d.toLocaleDateString(undefined, { weekday: 'long' })}.`,
+      `For reference, it is currently ${d.toTimeString().slice(0, 5)} on ` +
+      `${d.toLocaleDateString(undefined, { weekday: 'long' })} ${isoLocal(d).slice(0, 10)}.`,
       '',
       'Return JSON only.',
     ].join('\n'),
@@ -1075,6 +1093,24 @@ function buildAutomationIntentRequest({ text, now = Date.now() } = {}) {
     schema: AUTOMATION_INTENT_SCHEMA,
   };
 }
+
+/** "YYYY-MM-DDTHH:MM" in local time, the form the model is asked for and the heuristic writes. */
+function isoLocal(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** The moment "YYYY-MM-DDTHH:MM" (local) names, in ms; NaN when it is not one. */
+function fromIsoLocal(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(String(s || '').trim());
+  if (!m) return NaN;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5])).getTime();
+}
+
+const NUMBER_WORDS = {
+  a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  fifteen: 15, twenty: 20, thirty: 30, forty: 40, fortyfive: 45, sixty: 60, half: 0.5,
+};
 
 const HOUR_WORDS = {
   one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
@@ -1087,14 +1123,21 @@ const DAY_WORDS = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
  * mode) or the model could not be read. It only says yes when the words leave
  * little room: a repetition word AND a time or part of day.
  */
-function heuristicIntent(text) {
+function heuristicIntent(text, now = Date.now()) {
   const raw = String(text || '').trim();
   const lower = raw.toLowerCase();
-  const none = (reason) => ({ isAutomation: false, name: '', cron: '', instruction: '', confident: false, reason });
+  const none = (reason) => ({ isAutomation: false, when: 'none', name: '', cron: '', at: null, app: '', site: '', instruction: '', confident: false, reason });
   if (!raw) return none('nothing said');
 
-  const repeats = /\b(every|each|daily|weekly|weekdays?|weekends?|mornings|evenings|afternoons|nightly)\b/.test(lower);
-  if (!repeats) return none('no repetition in the words');
+  const repeats = /\b(every|each|daily|weekly|weekdays?|weekends?|mornings|evenings|afternoons|nightly)\b/.test(lower) &&
+    !/\b(every|each) time\b/.test(lower);
+  if (!repeats) {
+    const event = heuristicEvent(raw, lower);
+    if (event) return event;
+    const once = heuristicOnce(raw, lower, now);
+    if (once) return once;
+    return none('no repetition, moment or trigger in the words');
+  }
 
   // Which days.
   let dow = '*';
@@ -1148,17 +1191,120 @@ function heuristicIntent(text) {
   const name = words.slice(0, 4).join(' ').toLowerCase() || 'automation';
   return {
     isAutomation: true,
+    when: 'repeat',
     name,
     cron: `${minute} ${hour} * * ${dow}`,
+    at: null,
+    app: '',
+    site: '',
     instruction,
     confident: true,
     reason: '',
   };
 }
 
+/** The instruction that is left once the trigger words are gone: imperative, to the assistant. */
+function cleanInstruction(text) {
+  let instruction = String(text || '')
+    .replace(/^[\s,:.]+|[\s,:.]+$/g, '')
+    .replace(/^\s*(please|can you|could you|would you|i want you to|i'd like you to)\s+/i, '')
+    .replace(/^\s*(remind|tell|ask|prompt)\s+me\s+(to\s+)?/i, 'Remind the owner to ')
+    .replace(/^\s*(then|and)\s+/i, '')
+    .replace(/\s*,\s*,/g, ',')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  if (!instruction) return '';
+  instruction = instruction[0].toUpperCase() + instruction.slice(1);
+  if (!/[.!?]$/.test(instruction)) instruction += '.';
+  return instruction;
+}
+
+function nameFor(instruction) {
+  const words = instruction.replace(/[^a-z0-9 ]/gi, '').split(/\s+/)
+    .filter((w) => w.length > 2 && !/^(the|and|for|with|from|that|this|give|tell|show|owner|remind)$/i.test(w));
+  return words.slice(0, 4).join(' ').toLowerCase() || 'automation';
+}
+
+/** "whenever I open Figma, remind me to check the tokens"; "when I'm on github.com, list my pull requests". */
+function heuristicEvent(raw, lower) {
+  const m = /\b(?:whenever|when|each time|every time)\s+i(?:'m| am)?\s+(?:open|start|launch|use|switch to|go to|visit|am on|on|in|at|browsing|browse|using)\s+([a-z0-9][a-z0-9 .\-']{0,60}?)(?=\s*[,:;]|\s+(?:remind|tell|ask|check|show|give|send|summari[sz]e|let|make|run|write|read|look|list|say|prompt|open|find|fetch)\b|$)/i.exec(raw);
+  if (!m) return null;
+  const what = m[1].trim().replace(/^(the|my)\s+/i, '');
+  if (!what) return null;
+  const rest = raw.slice(0, m.index) + ' ' + raw.slice(m.index + m[0].length);
+  const instruction = cleanInstruction(rest);
+  if (!instruction) return null;
+  const site = /\.[a-z]{2,}(\/|$)/i.test(what) || /^www\./i.test(what);
+  const filter = site ? { site: what.replace(/^(https?:\/\/)?(www\.)?/i, '').replace(/\/.*$/, '').toLowerCase() } : { app: what };
+  return { isAutomation: true, when: 'event', name: nameFor(instruction), cron: '', at: null, app: filter.app || '', site: filter.site || '', instruction, confident: true, reason: '' };
+}
+
+/** "in twenty minutes tell me to stretch"; "tomorrow at 3 remind me to call Ana"; "at 6pm tonight …". */
+function heuristicOnce(raw, lower, now) {
+  const d = new Date(now);
+  let at = null;
+  let consumed = null;
+  const rel = /\bin\s+(an?|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty|forty[- ]five|sixty|half an?|\d+)\s+(minutes?|mins?|hours?|hrs?)\b/i.exec(raw);
+  if (rel) {
+    const word = rel[1].toLowerCase().replace(/[- ]/g, '').replace(/^halfan?$/, 'half');
+    const n = /^\d+$/.test(word) ? Number(word) : NUMBER_WORDS[word];
+    if (Number.isFinite(n)) {
+      at = now + (/^h/i.test(rel[2]) ? n * 3600000 : n * 60000);
+      consumed = [rel[0]];
+    }
+  }
+  if (at === null) {
+    const dayWord = /\b(tomorrow|tonight|today|this (?:morning|afternoon|evening))\b/i.exec(raw);
+    const timeWord = /\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\b/i.exec(raw) ||
+      /\bat\s+(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|noon|midday|midnight)\b/i.exec(raw);
+    if (!dayWord && !timeWord) return null;
+    let hour = null;
+    let minute = 0;
+    if (timeWord) {
+      if (/^\d/.test(timeWord[1])) {
+        hour = Number(timeWord[1]);
+        minute = Number(timeWord[2] || 0);
+        const ampm = (timeWord[3] || '').replace(/\./g, '').toLowerCase();
+        if (ampm === 'pm' && hour < 12) hour += 12;
+        if (ampm === 'am' && hour === 12) hour = 0;
+        // "tonight at 8" is 20:00; and a small hour with no am/pm is the afternoon one,
+        // because nobody schedules 3 in the night.
+        if (!ampm && hour < 12 && /\b(tonight|evening|afternoon)\b/i.test(lower)) hour += 12;
+        else if (!ampm && hour < 7 && !/\b(morning|am)\b/i.test(lower)) hour += 12;
+      } else {
+        hour = HOUR_WORDS[timeWord[1].toLowerCase()];
+      }
+    }
+    const when = dayWord ? dayWord[1].toLowerCase() : '';
+    if (hour === null) {
+      if (/tonight|evening/.test(when)) hour = 20;
+      else if (/afternoon/.test(when)) hour = 15;
+      else if (/morning/.test(when)) hour = 9;
+      else if (when === 'tomorrow') hour = 9;
+      else return null;
+    }
+    if (hour > 23 || minute > 59) return null;
+    const target = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hour, minute, 0, 0);
+    if (when === 'tomorrow') target.setDate(target.getDate() + 1);
+    else if (target.getTime() <= now) {
+      if (when === 'today' || when === 'tonight' || when.startsWith('this')) return null; // already gone
+      target.setDate(target.getDate() + 1);
+    }
+    at = target.getTime();
+    consumed = [dayWord && dayWord[0], timeWord && timeWord[0]].filter(Boolean);
+  }
+  let rest = raw;
+  for (const c of consumed) rest = rest.replace(c, ' ');
+  const instruction = cleanInstruction(rest);
+  if (!instruction) return null;
+  return { isAutomation: true, when: 'once', name: nameFor(instruction), cron: '', at, app: '', site: '', instruction, confident: true, reason: '' };
+}
+
 module.exports = {
   buildAutomationIntentRequest,
   heuristicIntent,
+  isoLocal,
+  fromIsoLocal,
   AUTOMATION_INTENT_SCHEMA,
   compactObservations,
   buildSummarizeRequest,

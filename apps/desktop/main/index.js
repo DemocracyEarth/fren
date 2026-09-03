@@ -592,8 +592,21 @@ app.whenReady().then(() => {
   serveRenderer();
   memory = openMemory(path.join(app.getPath('userData'), 'fren.db'));
 
+  // What the desktop notices also reaches Core, where an automation may be
+  // waiting for it ("whenever I open Figma"). Only changes travel, never every
+  // tick; Core keeps them in memory for a day and sends nothing on.
+  let lastNoticed = '';
+  function notice(source, type, payload) {
+    const key = `${source}:${type}:${JSON.stringify(payload)}`;
+    if (key === lastNoticed) return;
+    lastNoticed = key;
+    gateway.observe([{ timestamp: Date.now(), source, type, payload }]).catch(() => {});
+  }
   observer = createObserver({
-    onObservation: (obs) => memory.addObservation(obs),
+    onObservation: (obs) => {
+      memory.addObservation(obs);
+      if (obs && obs.activeApp) notice('os', 'active-window', { app: String(obs.activeApp), title: String(obs.windowTitle || '').slice(0, 200) });
+    },
     log,
   });
 
@@ -609,6 +622,11 @@ app.whenReady().then(() => {
       else if (type === BROWSER_EVENTS.PAGE_OPENED) {
         log(`[browser] page opened: ${detail.excluded ? '(excluded domain)' : detail.domain}`);
         if (proactive && !detail.excluded) proactive.noteBrowser(currentBrowserContext());
+        if (!detail.excluded) {
+          const ctx = currentBrowserContext();
+          const tab = ctx && ctx.tab ? ctx.tab : {};
+          notice('browser', 'page', { url: String(tab.url || '').slice(0, 500), domain: String(tab.domain || detail.domain || ''), title: String(tab.title || '').slice(0, 200) });
+        }
       }
       else if (type === BROWSER_EVENTS.PAGE_UPDATED) log(`[browser] page context updated`);
       else if (type === BROWSER_EVENTS.SELECTION_CHANGED) log(`[browser] selection changed (${detail.chars} chars)`);

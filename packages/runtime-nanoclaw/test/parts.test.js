@@ -356,3 +356,30 @@ test('the watch reads again a moment after the next due time, and a caller who n
   await first;
   w2.stop();
 });
+
+test('a one-off schedule is a task with a moment and no recurrence', async () => {
+  const calls = [];
+  const at = Date.parse('2026-09-04T18:00:00.000Z');
+  const mgs = [];
+  const ncl = {
+    async call(command, args) {
+      calls.push([command, args]);
+      switch (command) {
+        case 'messaging-groups-list': return mgs;
+        case 'messaging-groups-create': { const m = { id: 'mg1', ...args }; mgs.push(m); return m; }
+        case 'destinations-add': return args;
+        case 'tasks-create': return { series_id: 'call-ana-1', session_id: 's', prompt: args.prompt, recurrence: null, status: 'pending', process_after: args.process_after, next_run: args.process_after, runs: 0, failed_runs: 0 };
+        case 'tasks-get': return { series_id: 'call-ana-1', row_id: 'call-ana-1', status: 'pending', prompt: 'x', recurrence: null, process_after: '2026-09-04T18:00:00.000Z', completed_runs: 0, failed_runs: 0, recent_log: [] };
+        default: throw new Error('unexpected ' + command);
+      }
+    },
+  };
+  const store = createScheduleStore({ ncl, agentGroupId: 'ag-1', log: () => {} });
+  const s = await store.create({ automationId: 'atm_1', name: 'call ana', at, timezone: 'UTC', instruction: 'Remind the owner to call Ana. automation-atm_1', deliveryName: 'automation-atm_1' });
+  const task = calls.find(([c]) => c === 'tasks-create')[1];
+  assert.equal(task.process_after, new Date(at).toISOString());
+  assert.equal(task.recurrence, undefined);
+  assert.equal(s.at, at);
+  assert.equal(s.nextRunAt, at);
+  assert.equal(s.cron, undefined);
+});

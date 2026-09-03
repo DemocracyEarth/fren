@@ -207,11 +207,12 @@ function createMockRuntime(opts = {}) {
 
     async createSchedule(input) {
       requireReady();
-      parseCron(input.cron); // throws INVALID_CRON
+      if (input.cron) parseCron(input.cron); // throws INVALID_CRON
+      else if (!Number.isFinite(input.at)) throw new Error('a schedule needs a cron or a moment');
       const id = newId('sch');
       const schedule = {
         ...input, id, enabled: input.enabled !== false, runs: 0, failedRuns: 0,
-        nextRunAt: nextCron(input.cron, now()) ?? undefined, runtimeRef: { mock: true },
+        nextRunAt: input.cron ? (nextCron(input.cron, now()) ?? undefined) : input.at, runtimeRef: { mock: true },
       };
       schedules.set(id, schedule);
       return { ...schedule };
@@ -224,6 +225,10 @@ function createMockRuntime(opts = {}) {
         parseCron(patch.cron);
         schedule.cron = patch.cron;
         schedule.nextRunAt = nextCron(patch.cron, now()) ?? undefined;
+      }
+      if (patch.at !== undefined) {
+        schedule.at = patch.at;
+        schedule.nextRunAt = patch.at;
       }
       for (const key of ['name', 'instruction', 'deliveryName', 'timezone', 'overrideFireLimit']) {
         if (patch[key] !== undefined) schedule[key] = patch[key];
@@ -296,7 +301,8 @@ function createMockRuntime(opts = {}) {
       for (const schedule of schedules.values()) {
         if (!schedule.enabled || !schedule.nextRunAt || schedule.nextRunAt > nowMs) continue;
         started.push(fire(schedule, nowMs));
-        schedule.nextRunAt = nextCron(schedule.cron, nowMs) ?? undefined;
+        if (schedule.cron) schedule.nextRunAt = nextCron(schedule.cron, nowMs) ?? undefined;
+        else { schedule.nextRunAt = undefined; schedule.enabled = false; } // a moment comes once
       }
       return started;
     },

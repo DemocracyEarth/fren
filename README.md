@@ -266,13 +266,21 @@ can open that file, rewrite it, and have it take effect on your next message.
 ## Agent automations
 
 With the secure execution environment ready (the dot in the chat header says
-so, and Settings explains what is missing when it is not), a sentence like
-*"every morning at 9, check Hacker News and give me the five most interesting
-AI stories"* becomes a proposal in the chat: the schedule and the task in
-words, and a **Keep it** chip. Nothing is created until you keep it. Kept
+so, and Settings explains what is missing when it is not), say it, spoken or
+typed, the way you would to a person. Three shapes are understood: a schedule
+(*"every morning at 9, check Hacker News and give me the five most interesting
+AI stories"*), a single later moment (*"tomorrow at 3, remind me to call Ana"*,
+*"in twenty minutes, tell me to stretch"*), and a *whenever* (*"whenever I open
+Figma, remind me to check the design tokens"*, *"when I'm on github.com, list
+my open pull requests"*). fren says the proposal back, the time or the trigger
+and the task in words, with a **Keep it** chip; a spoken or typed "yes" keeps
+it and a "no" lets it go. Nothing is created until you keep it. Kept
 automations live under Automations in the full window, where each can be run
 now, paused, resumed or deleted, and every run is listed with what came back.
-What an automation finds arrives in the chat, spoken like any other reply.
+What an automation finds arrives in the chat, spoken like any other reply. A
+moment comes once: after it, the automation is done and off. A *whenever*
+runs once per sighting, with half an hour between sightings, and is fed by
+what fren notices on your desktop; see [docs/privacy.md](docs/privacy.md).
 
 An agent automation runs in isolation: its own workspace, no access to your
 files or accounts unless you grant it, and the model reached through fren's
