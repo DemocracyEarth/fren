@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { config, loadEnv } = require('../../packages/shared');
+const { forSpeech } = require('../../packages/shared/speech');
 const intelligence = require('../../packages/intelligence');
 const { createAnthropicProvider } = require('./providers/anthropic');
 const { createOpenAIVisionProvider } = require('./providers/openai-vision');
@@ -407,8 +408,10 @@ async function handleSpeak(voice, body, res) {
     return send(res, 400, { error: 'text must be a non-empty string' });
   }
   if (!voice) return send(res, 503, { error: 'no voice provider configured' });
+  // Written for a screen, read by a voice: marks, emoji and quotes go, pauses stay.
+  const spoken = forSpeech(text) || text.trim();
   try {
-    const { audio, contentType } = await voice.speak(text.slice(0, 2000), {
+    const { audio, contentType } = await voice.speak(spoken.slice(0, 2000), {
       voice: safeId(body.voice),
       model: safeId(body.voiceModel),
     });

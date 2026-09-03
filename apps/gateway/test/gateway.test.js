@@ -265,6 +265,25 @@ test('a chosen voice reaches the speech call', async () => {
   }
 });
 
+test('what the voice reads has been prepared for a voice', async () => {
+  const heard = [];
+  const server2 = createServer(createMockProvider(), {
+    name: 'stub-voice', voice: 'v', model: 'm',
+    async speak(text) { heard.push(text); return { audio: Buffer.from('x'), contentType: 'audio/mpeg' }; },
+  });
+  server2.listen(0, '127.0.0.1');
+  await once(server2, 'listening');
+  try {
+    await fetch(`http://127.0.0.1:${server2.address().port}/v1/speak`, {
+      method: 'POST', headers: JSON_HEADERS,
+      body: JSON.stringify({ text: '**Top story** — "AI wins" 🚀\n- see [HN](https://news.ycombinator.com/)' }),
+    });
+    assert.equal(heard[0], 'Top story, AI wins. see HN.');
+  } finally {
+    await new Promise((r) => server2.close(r));
+  }
+});
+
 test('/health reports the voice defaults so the settings pane can show them', async () => {
   const server2 = createServer(createMockProvider(), {
     name: 'stub-voice', voice: 'the-default-voice', model: 'the-default-voice-model',

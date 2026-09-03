@@ -181,5 +181,24 @@
     return root;
   }
 
-  return { render, inline };
+  /**
+   * The same text with the marks taken out, for places that show characters
+   * one by one before the rendered version replaces them.
+   */
+  function plain(text) {
+    return String(text || '')
+      .replace(/(```|~~~)[^\n]*\n?([\s\S]*?)\1/g, (m, fence, body) => body.trimEnd())
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+      .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+      .replace(/^\s*>\s?/gm, '')
+      .replace(/^(\s*)[-*+]\s+/gm, '$1• ')
+      .replace(/`([^`\n]*)`/g, '$1')
+      .replace(/\*\*([^*\n]+)\*\*/g, '$1')
+      .replace(/__([^_\n]+)__/g, '$1')
+      .replace(/(^|[^A-Za-z0-9*])\*([^*\n]+)\*(?!\*)/g, '$1$2')
+      .replace(/(^|[^A-Za-z0-9_])_([^_\n]+)_(?![A-Za-z0-9_])/g, '$1$2');
+  }
+
+  return { render, inline, plain };
 });
