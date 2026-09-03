@@ -1422,8 +1422,23 @@ function saidRow(role, text, ts) {
   const row = el('div', `said said-${who}`);
   const head = el('div', 'said-head');
   head.append(el('b', null, who), el('time', null, hhmm(ts)));
-  row.append(head, el('p', null, text));
+  const body = el('div', 'said-body');
+  setSaidText(body, text, who === 'fren');
+  row.append(head, body);
   return row;
+}
+
+/** fren's words carry Markdown, rendered as nodes, never as HTML; yours show as typed. */
+function setSaidText(body, text, rich) {
+  body.textContent = '';
+  if (rich && text && window.FrenMarkdown) body.appendChild(window.FrenMarkdown.render(text));
+  else body.appendChild(el('p', null, text));
+}
+
+/** A row that was waiting gets its words. */
+function replaceSaid(row, text) {
+  row.classList.remove('thinking');
+  setSaidText(row.querySelector('.said-body'), text, row.classList.contains('said-fren'));
 }
 
 /** Runs this window started, by id. */
@@ -1446,12 +1461,16 @@ function askRuntime(text, pending, log) {
         if (!liveRuns.has(res.runId)) return;
         liveRuns.delete(res.runId);
         clearTimeout(timer);
-        resolve(first || error || 'I finished, but had nothing to show for it.');
+        if (first || error) return resolve(first || error);
+        // The agent finished without a word. Answer anyway, rather than say so.
+        window.fren.chat(text)
+          .then((r) => resolve((r && r.reply) || "I couldn't put an answer together for that. Ask me again?"))
+          .catch(() => resolve("I couldn't put an answer together for that. Ask me again?"));
       }
       liveRuns.set(res.runId, {
         message(m) {
           if (!m || !m.text) return;
-          if (!first) { first = m.text; pending.querySelector('p').textContent = m.text; return; }
+          if (!first) { first = m.text; replaceSaid(pending, m.text); return; }
           log.appendChild(saidRow('fren', m.text, m.at || Date.now()));
           els.content.scrollTop = els.content.scrollHeight;
         },
@@ -1580,9 +1599,7 @@ async function showChat() {
     } catch (err) {
       reply = 'I could not reach my thinking half. ' + (err && err.message ? err.message : '');
     }
-    pending.classList.remove('thinking');
-    const p = pending.querySelector('p');
-    p.textContent = reply || '…';
+    replaceSaid(pending, reply || '…');
     els.content.scrollTop = els.content.scrollHeight;
     sending = false;
     send.disabled = false;

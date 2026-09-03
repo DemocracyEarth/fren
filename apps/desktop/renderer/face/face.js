@@ -377,6 +377,7 @@
     }
 
     _atRest() {
+      if (this.thinking) return false;
       if (this.blink > 0 || this.talkPhase >= 0 || this.speechLevel !== null || this.particles.length) return false;
       for (const k in this.p) {
         if (Math.abs(this.target[k] - this.p[k]) > 0.0015) return false;
@@ -417,6 +418,13 @@
 
     startTalking() { this.talkPhase = 0; this._wake(); }
     stopTalking() { this.talkPhase = -1; this.speechLevel = null; }
+
+    /** Looking for the word: the gaze drifts up and about until the answer comes. */
+    think(on) {
+      this.thinking = !!on;
+      if (!this.thinking) this.gazeTarget = { x: 0, y: 0 };
+      this._wake();
+    }
 
     /**
      * Drive the mouth from the actual audio being played (0..1), so the lips
@@ -521,6 +529,10 @@
       if (this.reduced) {
         this.blinkQueue = 0;   // let a blink in flight finish, then stay open
         return;
+      }
+      if (this.thinking) {
+        // Eyes up and wandering, the way a person looks for a word.
+        this.gazeTarget = { x: Math.sin(this.t * 0.9) * 0.45, y: -0.6 + Math.sin(this.t * 1.7) * 0.12 };
       }
       const awake = this.target.lit > 0.4;
       this.nextBlink -= dt;

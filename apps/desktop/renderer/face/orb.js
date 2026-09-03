@@ -395,6 +395,13 @@ class Orb {
 
   startTalking() { this.talkPhase = 0; this._wake(); }
 
+  /** Looking for the word: the gaze drifts up and about, the body sways, the light breathes. */
+  think(on) {
+    this.thinking = !!on;
+    if (!this.thinking) this.gazeTarget = { x: 0, y: 0 };
+    this._wake();
+  }
+
   stopTalking() {
     this.talkPhase = -1;
     this.speechLevel = null;
@@ -584,6 +591,7 @@ class Orb {
   }
 
   _atRest() {
+    if (this.thinking) return false;
     if (this.blinkPhase >= 0 || this.talkPhase >= 0 || this.speechLevel !== null) return false;
     if (this.listenLevel !== null) return false;
     if (Math.abs(this.wobbleAmt) > 0.001 || Math.abs(this.squashAmt) > 0.001) return false;
@@ -720,6 +728,9 @@ class Orb {
       const beat = this.reduced ? 0.5 : 0.5 - 0.5 * Math.cos(this.t * TAU * REC_HZ);
       this.material.emissiveIntensity = 1.45 + 0.30 + beat * 0.55 + this.listenLevel * 1.2;
       breathe = 1 + beat * 0.028 + this.listenLevel * 0.014;
+    } else if (this.thinking && !this.reduced) {
+      // Working: the light breathes slowly, well apart from the recording beat.
+      this.material.emissiveIntensity = 1.45 + 0.4 * (0.5 - 0.5 * Math.cos(this.t * TAU * 0.5));
     } else if (this.material.emissiveIntensity !== 1.45) {
       this.material.emissiveIntensity = 1.45;
     }
@@ -769,13 +780,17 @@ class Orb {
     // itself as it is rattled looks deliberate.
     this.orb.scale.setScalar(breathe * (1 - j * 0.10));
 
+    // Working on an answer: eyes up and wandering, the way a person looks for a word.
+    if (this.thinking && !this.reduced) {
+      this.gazeTarget = { x: Math.sin(this.t * 0.9) * 0.45, y: -0.6 + Math.sin(this.t * 1.7) * 0.12 };
+    }
     // The body TURNS toward the pointer, and takes the highlight with it.
     this.gaze.x += (this.gazeTarget.x - this.gaze.x) * Math.min(1, dt * 5);
     this.gaze.y += (this.gazeTarget.y - this.gaze.y) * Math.min(1, dt * 5);
     this.orb.rotation.y = this.gaze.x * 0.42 + Math.sin(this.t * 26) * this.shakeAmt * 0.5 + jYaw;
     // Roll about the view axis. Nothing else uses it, and a side-to-side lean is
     // most of what makes something look shaken rather than merely turned.
-    this.orb.rotation.z = jTilt;
+    this.orb.rotation.z = jTilt + (this.thinking && !this.reduced ? Math.sin(this.t * 1.3) * 0.06 : 0);
     // Roll. The spin runs down on its own, and the angle is pulled toward the
     // NEAREST WHOLE TURN rather than toward zero — which is the whole trick.
     // Pulling toward zero caps the tumble at whatever the pull allows (it

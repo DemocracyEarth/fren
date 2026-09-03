@@ -925,6 +925,14 @@ body[data-watching="1"] #side-status { color: var(--orange-ink); }
 
 /* fren composing a reply, in the transcript's own voice. */
 .said.thinking p { color: var(--ink-soft); font-style: italic; }
+/* fren's rows carry Markdown, rendered as nodes. */
+.said-body ul, .said-body ol { margin: .15em 0 .5em 1.2em; padding: 0; }
+.said-body li { margin: .1em 0; }
+.said-body h1, .said-body h2, .said-body h3, .said-body h4 { font-size: 1em; font-weight: 600; margin: .4em 0 .2em; }
+.said-body code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .92em; background: rgba(24, 16, 6, 0.06); padding: 0 .25em; border-radius: 4px; }
+.said-body pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .9em; }
+.said-body pre code { background: none; padding: 0; }
+.said-body blockquote { margin: .2em 0 .5em .4em; padding-left: .6em; border-left: 2px solid rgba(24, 16, 6, 0.15); }
 
 /* ------------------------------------------------- the advanced look -- */
 .look-block summary {

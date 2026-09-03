@@ -76,6 +76,16 @@ function setFace(name, opts) {
   face.set(state.observing ? name : 'private', opts);
 }
 
+/**
+ * Working on an answer, visibly: the face looks for the word and the orb's
+ * halo breathes, so a closed panel still shows fren heard you and is on it.
+ */
+function thinking(on) {
+  if (on) document.body.dataset.thinking = '1';
+  else delete document.body.dataset.thinking;
+  if (typeof face.think === 'function') face.think(!!on);
+}
+
 let reactionTimer = null;
 
 /**
@@ -192,10 +202,17 @@ function addBubble(who, text) {
   if (els.empty) els.empty.remove(), (els.empty = null);
   const bubble = document.createElement('div');
   bubble.className = 'bubble ' + who;
-  bubble.textContent = text;
+  setBubbleText(bubble, text, who === 'fren');
   els.messages.insertBefore(bubble, els.typing);
   scrollDown();
   return bubble;
+}
+
+/** fren's words carry Markdown, rendered as nodes, never as HTML; yours show as typed. */
+function setBubbleText(bubble, text, rich) {
+  bubble.textContent = '';
+  if (rich && text && window.FrenMarkdown) bubble.appendChild(window.FrenMarkdown.render(text));
+  else bubble.textContent = text;
 }
 
 function showTyping(on) {
@@ -278,6 +295,7 @@ let cutReplyShort = null;
 async function speak(text) {
   const bubble = addBubble('fren', '');
   speaking = true;
+  thinking(false);
   setFace('talking');
 
   // Fetch the audio before typing so the words and the voice line up. If
@@ -306,11 +324,13 @@ async function speak(text) {
 
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (reduced) {
-      bubble.textContent = text;
+      setBubbleText(bubble, text, true);
       finish();
       return;
     }
 
+    // Typed out plain, then shown rendered: a half-typed bold mark is noise.
+    const shown = window.FrenMarkdown ? window.FrenMarkdown.plain(text) : text;
     let i = 0;
     let cut = false;
     cutReplyShort = () => {
@@ -319,11 +339,11 @@ async function speak(text) {
     };
     const step = () => {
       // A few characters per frame keeps long answers from dragging.
-      if (cut) { bubble.textContent = text; return finish(); }
-      i += Math.max(1, Math.round(text.length / 90));
-      bubble.textContent = text.slice(0, i);
+      if (cut) { setBubbleText(bubble, text, true); return finish(); }
+      i += Math.max(1, Math.round(shown.length / 90));
+      bubble.textContent = shown.slice(0, i);
       scrollDown();
-      if (i < text.length) return setTimeout(step, 26);
+      if (i < shown.length) return setTimeout(step, 26);
       finish();
     };
     setTimeout(step, 90);
@@ -338,7 +358,7 @@ async function speak(text) {
       // want to cut in.
       if (spoken) await spoken;     // let the voice finish before settling
       cutReplyShort = null;
-      bubble.textContent = text;
+      setBubbleText(bubble, text, true);
       face.stopTalking();
       // Settle through a reaction rather than snapping back — and not the
       // same one every time.
@@ -713,12 +733,18 @@ async function askThroughRuntime(question, thinkingTimer) {
       liveRuns.delete(res.runId);
       clearTimeout(timer);
       clearTimeout(thinkingTimer);
-      chain.then(() => {
+      chain.then(async () => {
         showTyping(false);
-        if (error) addBubble('fren', error);
-        else if (!said) addBubble('fren', 'I finished, but had nothing to show for it.');
+        if (error) { thinking(false); addBubble('fren', error); }
+        else if (!said) await answerFromTheFastLane();
         resolve();
       });
+    }
+    /** The agent finished without a word. Answer anyway, rather than say so. */
+    async function answerFromTheFastLane() {
+      let reply = '';
+      try { const r = await window.fren.chat(question); reply = (r && r.reply) || ''; } catch { /* the line below */ }
+      await speak(reply || "I couldn't put an answer together for that. Ask me again?");
     }
     liveRuns.set(res.runId, {
       message(m) {
@@ -852,7 +878,7 @@ async function sendMessage(text) {
   face.pulse('nod');
   // Only show "thinking" if the answer is actually slow to arrive — and drop
   // the timer the moment it does, or it fires over the talking face.
-  const thinkingTimer = setTimeout(() => setFace('thinking'), 420);
+  const thinkingTimer = setTimeout(() => { setFace('thinking'); thinking(true); }, 420);
 
   try {
     if (state.runtime === 'ready') {
@@ -876,12 +902,14 @@ async function sendMessage(text) {
     clearTimeout(thinkingTimer);
     showTyping(false);
     speaking = false;
+    thinking(false);
     mood.note('error');
     setFace('oops');
     face.pulse('shake');
     addBubble('fren', 'Something went wrong: ' + (err && err.message ? err.message : String(err)));
     setTimeout(() => setFace(emotionFor(state)), 1600);
   } finally {
+    thinking(false);
     awaitingReply = false;
     els.send.disabled = false;
     speaking = false;
@@ -1763,6 +1791,7 @@ async function stopTalkingAndSend() {
   listening(null);
   els.mic.classList.remove('recording');
   setFace('thinking');
+  thinking(true);
   let wav = null;
   try {
     wav = await mic.stop();
