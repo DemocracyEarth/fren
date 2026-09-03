@@ -74,12 +74,18 @@ test('a dropped rule leaves no hole, and blank lines survive assembly', () => {
   }
 });
 
-test('the greeting is barred from ending in an instruction', () => {
-  // The same variety pressure produced "so dive back in", "pick up where the
-  // logic left off" — the assistant voice wearing a coat.
-  const { system } = buildGreetingRequest({});
+test('the greeting may offer one thing to pick up, from the notes only, and never as an order', () => {
+  // Its owner asked for a hello that prompts what to do next. The suggestion
+  // is allowed, grounded in the notes, and the assistant voice ("dive back in")
+  // is still out.
+  const { system, messages } = buildGreetingRequest({ automations: ['morning AI news (every day at 09:00)'], routines: ['evening review'] });
+  assert.match(system, /ONE more short sentence/);
+  assert.match(system, /only from the notes/i);
   assert.match(system, /dive back in/i);
-  assert.match(system, /not a nudge/i);
+  assert.match(system, /Never invent a task/);
+  assert.match(messages[0].content, /morning AI news/);
+  assert.match(messages[0].content, /evening review/);
+  assert.ok(!/Things they have you do/.test(buildGreetingRequest({}).messages[0].content), 'nothing listed when there is nothing');
 });
 
 test('recent greetings are named so the opener stops repeating', () => {
@@ -108,7 +114,7 @@ test('the greeting is told not to read private activity back to anyone', () => {
 test('the greeting refuses the assistant voice', () => {
   const { system } = buildGreetingRequest({});
   assert.match(system, /How can I help you today/);
-  assert.match(system, /Offer no help/i);
+  assert.match(system, /No generic offers of help/i);
 });
 
 test('a first launch says so rather than inventing a history', () => {

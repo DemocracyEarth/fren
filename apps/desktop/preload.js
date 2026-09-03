@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld('fren', {
   setRoutineEnabled: (id, on) => ipcRenderer.invoke('fren:setRoutineEnabled', id, on),
   deleteRoutine: (id) => ipcRenderer.invoke('fren:deleteRoutine', id),
   onRoutineRan: (cb) => ipcRenderer.on('fren:routineRan', (_e, r) => cb(r)),
+  onGreet: (cb) => ipcRenderer.on('fren:greet', (_e, g) => cb(g)),
   automations: () => ipcRenderer.invoke('fren:automations'),
   keepAutomation: (sid) => ipcRenderer.invoke('fren:keepAutomation', sid),
   approveAutomation: (id, hash) => ipcRenderer.invoke('fren:approveAutomation', id, hash),
