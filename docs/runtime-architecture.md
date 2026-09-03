@@ -1005,33 +1005,66 @@ creates-if-missing, every `createSchedule` derives its `ncl` names from the
 FREN automation id, and every event has a monotonic id so the desktop can
 resume the stream.
 
-## 13. Docker and container strategy
+## 13. Runtime tiers: the sandboxed process, and containers
 
-**MVP: Docker, named only in one place.** `packages/runtime-nanoclaw/container-runtime.js`
-is the probe seam: `detect() → { kind: 'docker', available, running, version, hint }`,
-`ensureImage(progress)`, `stopLabeled(label)`. NanoClaw itself shells the
-`docker` binary directly (§2.5), so today the seam is about *probing and
-messaging*, not substitution. The UI vocabulary is fixed: "secure execution
-environment"; "preparing", "not installed", "not running"; the hint text is
-the only place a product name appears.
+**Two tiers, one seam.** NanoClaw's `SessionDriver` registry
+(`registerSessionDriver`, selected by `NANOCLAW_RUNTIME_DRIVER`) is where a
+runtime is realized. FREN ships two:
 
-**Assumed in the MVP:** Docker Desktop installed by the user, the daemon
-reachable, `host.docker.internal` resolving to the host so containers can
-reach the Core proxy. On Docker Desktop for macOS this reaches services bound
-to `127.0.0.1`, which is how NanoClaw's own Ollama recipe works
-(`docs/ollama.md:25-30`). On Linux `host-gateway` is the bridge address and
-the proxy must bind it as well; the proxy binds `127.0.0.1` by default and
-`FREN_SANDBOX_BIND` widens it.
+| Tier | Driver | What confines the agent | Needs |
+|------|--------|------------------------|-------|
+| `process` (default on a Mac) | `vendor/nanoclaw/src/drivers/process-driver.ts` | macOS seatbelt (`sandbox-exec`) with a deny-by-default profile rendered per session | Bun, a native Claude Code, the runner's dependencies (`npm run runtime:build -- --runner`) |
+| `container` | upstream's Docker driver | the container | Docker Desktop and the agent image (`--image`) |
 
-**Roadmap, in order of leverage:**
+`FREN_RUNTIME_TIER=process|container|auto` picks; `auto` (the default) takes the
+process tier when the machine can (`packages/runtime-nanoclaw/process-runtime.js`
+finds the pieces) and the container tier when it must. The adapter reports the
+tier in its status and the Settings card names it; the process tier is always
+described as *lighter than a container*, never as a container.
 
-1. **Apple Container** on macOS 26 (this machine runs 26.5). NanoClaw's `SessionDriver` registry is the seam (`registerSessionDriver`, `NANOCLAW_RUNTIME_DRIVER`); a driver is `prepare/listSessions/watchSessions/reapResidue` over the `container` CLI, plus an image build path. The mailbox design already assumes VirtioFS semantics (`journal_mode=DELETE`, `mmap_size=0`), so the two-file protocol carries over. Because `ensureReady` is optional, this driver can also make the host boot without Docker. This is the "download FREN → drag → works" path and does not touch FREN's product layer.
-2. **Docker Sandboxes / microVM** runtimes: same seam, `runtimeTier: 'vm'` already exists on `SessionSpec`.
-3. **Bundled Docker CLI + a managed daemon** is rejected: licence and support burden, and it still needs a VM on macOS.
+**What the process driver does.** A `SessionSpec` arrives as it would for
+Docker: mounts, env, a command. The driver maps every mount's container path to
+its host path and hands the runner those locations through env
+(`container/agent-runner/src/paths.ts`: `NANOCLAW_WORKSPACE_DIR`,
+`NANOCLAW_AGENT_DIR`, `NANOCLAW_SESSION_CONTEXT`, `NANOCLAW_APP_SRC_DIR`,
+`CLAUDE_CONFIG_DIR`, `NANOCLAW_CLAUDE_EXECUTABLE`; defaults are the container
+paths, so the image is unchanged). The profile
+(`sandbox-profile.ts`) grants exactly those paths, writable or read-only as the
+mount says, the runtime binaries, a small set of shell tools, and the network the
+session is allowed: the internet, the credential proxy only, or nothing. It
+never allows `open`, `osascript`, `security`, `defaults`, `screencapture`,
+`launchctl` or `sudo`, even when asked. The runner runs as a detached process
+group; `stop` signals the group and waits, and when the runner dies on its own
+the driver kills whatever it left behind. Identity lives in a registry file per
+session (`data/process-sessions/<name>.json`: labels, pid, and the kernel's
+start stamp for that pid) so a restarted host adopts live sessions and a
+recycled pid cannot pass for one.
 
-**Not solved now, deliberately:** invisible installation. Phase 1 makes the
-product usable without any container runtime (mock runtime, fast-lane chat,
-`question` automations), so "install Docker" is a feature gate, not a wall.
+**What it does not do, and says so.** `capabilities()` reports every resource
+limit as unrealized (no cgroups), no image builds, no auxiliary containers,
+and the host's own loopback shared. `runtimeTier` has no lighter name than
+`container` in the seam, so the driver declares that tier and the product
+layer carries the honest label. A read-only nested mount inside a writable
+folder (the group's `container.json`) is not enforced by the profile.
+
+**The proof.** `sandbox-profile.test.ts` checks the profile's shape and that
+paths cannot inject rules; `sandbox-confinement.test.ts` runs a probe under the
+rendered profile and must fail to read the home folder or another session,
+write outside its folders, open apps, script the desktop, read the keychain,
+change settings, capture the screen, or reach any network the grant excludes;
+`process-driver.test.ts` runs a stand-in runner through the driver and checks
+the paths, adoption, the exit report, that `stop` leaves no process behind, and
+(under seatbelt) that the grants derived from real mounts confine. These suites
+are the reason the tier is offered only where they can run: macOS.
+
+**Containers, still.** Docker Desktop installed by the person, the daemon
+reachable, `host.docker.internal` resolving to the host so containers reach the
+Core proxy; on Linux `host-gateway` is the bridge address and
+`FREN_SANDBOX_BIND` widens the proxy's bind. Apple's `container` and microVM
+runtimes remain possible drivers on the same seam (`runtimeTier: 'vm'` exists on
+`SessionSpec`); a bundled Docker daemon is rejected (licence, support, still a
+VM). Linux gets a bubblewrap process driver on the same shape when the time
+comes; Windows falls back to the container tier.
 
 ## 14. Upstream NanoClaw maintenance strategy
 

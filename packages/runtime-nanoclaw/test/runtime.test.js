@@ -121,11 +121,91 @@ test('a schedule is a task plus a delivery surface; run-now reports back with th
 test('without a container runtime, start explains what to install', async () => {
   const rt = makeRuntime({
     skipContainerProbe: false,
+    tier: 'container',
     probe: { detect: async () => ({ kind: 'docker', installed: false, running: false, reason: 'no container runtime is installed', hint: 'Install Docker Desktop' }), imagePresent: async () => false, stopLabeled: async () => 0 },
   });
   await assert.rejects(() => rt.start(), (err) => err.name === 'RuntimeUnavailable' && /Docker Desktop/.test(err.hint));
   assert.equal((await rt.getStatus()).state, 'unavailable');
   assert.equal((await rt.getStatus()).hint, 'Install Docker Desktop');
+});
+
+// ---------------------------------------------------------------- tiers
+const processReady = { kind: 'process', available: true, sandbox: '/usr/bin/sandbox-exec', bun: '/opt/bun', claude: '/opt/claude', runnerDeps: true, reason: null, hint: null };
+const processMissing = { kind: 'process', available: false, sandbox: null, bun: null, claude: null, runnerDeps: false, reason: 'Bun is not installed', hint: 'Install Bun (https://bun.sh)' };
+const dockerDown = { kind: 'docker', installed: false, running: false, reason: 'no container runtime is installed', hint: 'Install Docker Desktop' };
+const dockerUp = { kind: 'docker', installed: true, running: true, reason: null, hint: null };
+
+/** A runtime that really probes: a built host, fake probes, and a fake host that dumps its env. */
+function tieredRuntime({ process: proc, docker, ...extra }) {
+  const base = fs.mkdtempSync(path.join('/tmp', 'frn-'));
+  fs.mkdirSync(path.join(base, 'rt', 'dist'), { recursive: true });
+  fs.writeFileSync(path.join(base, 'rt', 'dist', 'index.js'), '');
+  const envDump = path.join(base, 'env.json');
+  const calls = { stopAll: 0, stopLabeled: 0 };
+  const rt = makeRuntime({
+    base,
+    skipContainerProbe: false,
+    hostCommand: [process.execPath, [FAKE_HOST, '--env-dump', envDump]],
+    processProbe: { detect: () => proc, hostEnv: (f) => ({ NANOCLAW_RUNTIME_DRIVER: 'process', NANOCLAW_PROCESS_BUN: f.bun, NANOCLAW_PROCESS_CLAUDE: f.claude }), sandboxUrlFor: (u) => u.replace('host.docker.internal', '127.0.0.1'), stopAll: async () => { calls.stopAll += 1; } },
+    probe: { detect: async () => docker, imagePresent: async () => true, stopLabeled: async () => { calls.stopLabeled += 1; } },
+    ...extra,
+  });
+  return { rt, calls, env: () => JSON.parse(fs.readFileSync(envDump, 'utf8')) };
+}
+
+test('the process tier is taken when the machine can: the host learns the driver, the runtime pieces, and a loopback proxy', async () => {
+  const { rt, calls, env } = tieredRuntime({ process: processReady, docker: dockerDown });
+  await rt.start();
+  try {
+    assert.equal((await rt.getStatus()).tier, 'process');
+    const seen = env();
+    assert.equal(seen.NANOCLAW_RUNTIME_DRIVER, 'process');
+    assert.equal(seen.NANOCLAW_PROCESS_BUN, '/opt/bun');
+    assert.equal(seen.NANOCLAW_PROCESS_CLAUDE, '/opt/claude');
+    assert.equal(seen.FREN_SANDBOX_URL, 'http://127.0.0.1:4527/anthropic');
+    assert.equal(seen.NANOCLAW_GATEWAY_PROVIDER, 'fren');
+  } finally {
+    await rt.stop();
+  }
+  assert.equal(calls.stopAll, 1);
+  assert.equal(calls.stopLabeled, 0);
+});
+
+test('the container tier is taken when the process tier cannot run here, and only containers are stopped', async () => {
+  const { rt, calls, env } = tieredRuntime({ process: processMissing, docker: dockerUp });
+  await rt.start();
+  try {
+    assert.equal((await rt.getStatus()).tier, 'container');
+    const seen = env();
+    assert.equal(seen.NANOCLAW_RUNTIME_DRIVER, undefined);
+    assert.equal(seen.FREN_SANDBOX_URL, 'http://host.docker.internal:4527/anthropic');
+  } finally {
+    await rt.stop();
+  }
+  assert.equal(calls.stopLabeled, 1);
+  assert.equal(calls.stopAll, 0);
+});
+
+test('asked for the process tier on a machine that cannot, start says what is missing', async () => {
+  const { rt } = tieredRuntime({ process: processMissing, docker: dockerUp, tier: 'process' });
+  await assert.rejects(() => rt.start(), (err) => err.name === 'RuntimeUnavailable' && err.reason === 'Bun is not installed' && /bun\.sh/.test(err.hint));
+  assert.equal((await rt.getStatus()).state, 'unavailable');
+});
+
+test('with neither tier, both reasons are given and the plug-and-play fix comes first', async () => {
+  const { rt } = tieredRuntime({ process: processMissing, docker: dockerDown });
+  await assert.rejects(() => rt.start(), (err) => err.name === 'RuntimeUnavailable' && err.reason === 'Bun is not installed; and no container runtime is installed' && /bun\.sh/.test(err.hint));
+});
+
+test('asked for containers, the process tier is not even considered', async () => {
+  const { rt, env } = tieredRuntime({ process: processReady, docker: dockerUp, tier: 'container' });
+  await rt.start();
+  try {
+    assert.equal((await rt.getStatus()).tier, 'container');
+    assert.equal(env().NANOCLAW_RUNTIME_DRIVER, undefined);
+  } finally {
+    await rt.stop();
+  }
 });
 
 test('a fire on the host\'s own clock becomes a run FREN watches to its end; misses and pauses are read off the counters', async () => {

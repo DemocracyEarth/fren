@@ -17,11 +17,19 @@ const FILES = [
   'src/channels/fren.ts',
   'src/gateway-providers/fren.ts',
   'src/modules/fren/index.ts',
+  'src/drivers/process-driver.ts',
+  'src/drivers/process-driver-install.ts',
+  'src/drivers/process-driver.test.ts',
+  'src/drivers/sandbox-profile.ts',
+  'src/drivers/sandbox-profile.test.ts',
+  'src/drivers/sandbox-confinement.test.ts',
+  'container/agent-runner/src/paths.ts',
 ];
 
 const BARREL_LINES = [
   ['src/channels/index.ts', "import './fren.js';"],
   ['src/gateway-providers/installed.ts', "import './fren.js';"],
+  ['src/drivers/installed.ts', "import './process-driver-install.js';"],
   ['src/modules/index.ts', "import './fren/index.js';"],
 ];
 

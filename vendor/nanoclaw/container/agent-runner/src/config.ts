@@ -8,8 +8,9 @@
 import fs from 'fs';
 
 import type { McpServerConfig } from './providers/types.js';
+import { AGENT_DIR } from './paths.js';
 
-const CONFIG_PATH = '/workspace/agent/container.json';
+const CONFIG_PATH = `${AGENT_DIR}/container.json`;
 
 export interface RunnerConfig {
   provider: string;

@@ -38,12 +38,13 @@ import { createProvider, type ProviderName } from './providers/factory.js';
 import { resolvePluginServer } from './plugin-mcp.js';
 import type { McpServerConfig } from './providers/types.js';
 import { runPollLoop } from './poll-loop.js';
+import { AGENT_DIR, EXTRA_DIR } from './paths.js';
 
 function log(msg: string): void {
   console.error(`[agent-runner] ${msg}`);
 }
 
-const CWD = '/workspace/agent';
+const CWD = AGENT_DIR;
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -71,7 +72,7 @@ async function main(): Promise<void> {
 
   // Discover additional directories mounted at /workspace/extra/*
   const additionalDirectories: string[] = [];
-  const extraBase = '/workspace/extra';
+  const extraBase = EXTRA_DIR;
   if (fs.existsSync(extraBase)) {
     for (const entry of fs.readdirSync(extraBase)) {
       const fullPath = path.join(extraBase, entry);

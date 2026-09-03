@@ -1309,6 +1309,10 @@ async function runtimeBlock() {
     line.textContent = '';
     const st = s && s.state ? s.state : 'unavailable';
     line.append(el('strong', st === 'ready' ? 'browser-ok' : null, WORDS[st] || st));
+    // Which kind of space the agents run in. The process tier is the lighter
+    // one and is named as such; never let it pass for a container.
+    if (s && s.tier === 'process') line.append(el('span', null, ' · a sandboxed process, lighter than a container'));
+    else if (s && s.tier === 'container') line.append(el('span', null, ' · a container'));
     const note = s && (s.step || s.hint || s.reason);
     if (note) line.append(el('span', null, ` — ${note}`));
   };
@@ -1320,9 +1324,11 @@ async function runtimeBlock() {
   });
   wrap.append(line);
   wrap.append(el('p', 'caveat',
-    'Anything fren does for you, rather than says to you, runs here: an isolated ' +
-    'space that cannot reach your files or accounts unless you allow it. Without ' +
-    'it fren can still talk from memory, but cannot act.'));
+    'Anything fren does for you, rather than says to you, runs here: a separate ' +
+    'space that cannot reach your files or accounts unless you allow it. On a Mac ' +
+    'that space is a process confined by macOS itself, lighter than a container; ' +
+    'with a container runtime installed, fren uses a container. Without either ' +
+    'fren can still talk from memory, but cannot act.'));
   return wrap;
 }
 

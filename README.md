@@ -287,10 +287,15 @@ files or accounts unless you grant it, and the model reached through fren's
 own proxy so no key ever enters the environment. It does not receive what fren
 observed about you. Today the environment can reach the internet; that is
 stated on the automation and in [docs/privacy.md](docs/privacy.md). The
-environment is the vendored runtime host in `vendor/nanoclaw`: build it with
-`npm run runtime:build -- --image` while Docker Desktop is running, and fren
-picks it up on the next start. Without it (or with `FREN_RUNTIME=mock`) a mock
-environment stands in, so the whole loop can be tried with nothing installed.
+environment is the vendored runtime host in `vendor/nanoclaw`. On a Mac nothing
+else is needed: `npm run runtime:build -- --runner` installs the runner, and
+fren runs each agent as a process confined by macOS itself (the system
+sandbox), using the Bun and Claude Code it finds on the machine. That is
+lighter isolation than a container and Settings says so. With Docker Desktop
+running, `npm run runtime:build -- --image` builds the agent image and fren
+uses a container instead; `FREN_RUNTIME_TIER=process|container|auto` picks.
+Without either (or with `FREN_RUNTIME=mock`) a mock environment stands in, so
+the whole loop can be tried with nothing installed.
 
 ## Running an automation
 
