@@ -292,7 +292,7 @@ let spokeAloud = false;
 let cutReplyShort = null;
 
 /** fren says it out loud: the mouth moves while the words arrive. */
-async function speak(text) {
+async function speak(text, opts = {}) {
   const bubble = addBubble('fren', '');
   speaking = true;
   thinking(false);
@@ -359,6 +359,7 @@ async function speak(text) {
       if (spoken) await spoken;     // let the voice finish before settling
       cutReplyShort = null;
       setBubbleText(bubble, text, true);
+      if (typeof opts.after === 'function') opts.after(bubble);
       face.stopTalking();
       // Settle through a reaction rather than snapping back — and not the
       // same one every time.
@@ -618,10 +619,10 @@ async function handleSetupAnswer(answer) {
  * retry; taxing every message costs everything.
  */
 const SCHEDULE_HINT =
-  /\b(every|each|daily|weekly|remind me|routine|schedule)\b|\bevery ?day\b|\bmornings?\b|\bevenings?\b/i;
+  /\b(every|each|daily|weekly|remind me|routine|schedule|whenever|when i|when i'm|each time|every time|tomorrow|tonight|later today|in (\d+|an?|one|two|three|five|ten|fifteen|twenty|thirty|forty|sixty|half an?) (minutes?|mins?|hours?|hrs?))\b|\bevery ?day\b|\bmornings?\b|\bevenings?\b|\bat \d{1,2}(:\d{2})?\s*(am|pm)?\b/i;
 
 function looksScheduled(text) {
-  return SCHEDULE_HINT.test(text) && /\b(at|every|each|daily|weekly|morning|evening|afternoon|remind)\b/i.test(text);
+  return SCHEDULE_HINT.test(text);
 }
 
 /** Ask main whether that was a routine; if it was, it has been created. */
@@ -649,12 +650,12 @@ async function tryRoutine(text) {
 async function tryAutomation(text) {
   let intent = null;
   try { intent = await window.fren.automationIntent(text); } catch { return 'no'; }
-  if (!intent || intent.error || !intent.isAutomation) return 'no';
-  const kept = await proposeAutomation(intent);
-  if (!kept) return 'declined';
+  if (!intent || intent.error || !intent.isAutomation || !intent.trigger) return 'no';
+  const verdict = await proposeAutomation(intent);
+  if (!verdict.keep) return verdict.answer ? 'declined' : 'dropped';
   const res = await window.fren.createAgentAutomation({
     name: intent.name,
-    trigger: { type: 'schedule', cron: intent.cron },
+    trigger: intent.trigger,
     body: { kind: 'agent', instruction: intent.instruction },
     // The internet is the one thing the environment reaches today; saying so
     // on the automation is what lets the broker allow it without asking.
@@ -665,33 +666,58 @@ async function tryAutomation(text) {
     await speak(`I could not set that up${res && res.error ? `: ${res.error}` : ''}.`);
     return 'kept';
   }
-  await speak(
-    `Done — ${intent.describe}, I'll do this: ${intent.instruction}\n\n` +
-    'It is under Automations in the full window, where you can run it now, pause it, or delete it. ' +
-    'What it finds arrives here.'
-  );
+  await speak(`Done. ${intent.describe[0].toUpperCase() + intent.describe.slice(1)}: ${intent.instruction} It is under Automations if you want to change it.`);
   return 'kept';
 }
 
-/** The proposal, with two chips. Resolves true when they keep it. */
+/** "yes", "keep it", "no", "just answer me": the short answers a proposal takes by voice or keyboard. */
+const YES_WORDS = /^(yes|yeah|yep|yup|sure|ok|okay|keep|do it|go ahead|please|sounds good|set it up|let'?s|make it so|fine|absolutely|of course|definitely)\b/i;
+const NO_WORDS = /^(no|nope|nah|don'?t|do not|never ?mind|cancel|forget it|skip|just answer|not now|leave it)\b/i;
+function readYesNo(text) {
+  const t = String(text || '').trim();
+  if (t.split(/\s+/).length > 5) return null;
+  if (YES_WORDS.test(t)) return true;
+  if (NO_WORDS.test(t)) return false;
+  return null;
+}
+
+/**
+ * The proposal, said out loud and shown with two chips. It is answered by a
+ * chip, or by the next thing they say: "yes" keeps it, "no" or "just answer
+ * me" lets it go, and anything else lets it go and is taken as a new message.
+ * Resolves { keep, answer }: whether to create it, and whether the sentence
+ * that started this should still be answered as a question.
+ */
+let pendingProposal = null;
 function proposeAutomation(intent) {
   return new Promise((resolve) => {
-    const bubble = addBubble('fren',
-      `${intent.describe[0].toUpperCase() + intent.describe.slice(1)}: ${intent.instruction} Keep it?`);
-    const row = document.createElement('div');
-    row.className = 'chips';
-    const keep = document.createElement('button');
-    keep.className = 'chip';
-    keep.textContent = 'Keep it';
-    const no = document.createElement('button');
-    no.className = 'chip';
-    no.textContent = 'Just answer me';
-    const done = (value) => { row.remove(); resolve(value); };
-    keep.addEventListener('click', () => done(true));
-    no.addEventListener('click', () => done(false));
-    row.append(keep, no);
-    bubble.append(row);
-    scrollDown();
+    const text = `${intent.describe[0].toUpperCase() + intent.describe.slice(1)}: ${intent.instruction} Keep it?`;
+    const entry = { row: null, settle: null };
+    entry.settle = (value) => {
+      if (pendingProposal !== entry) return;
+      pendingProposal = null;
+      if (entry.row) entry.row.remove();
+      resolve(value);
+    };
+    pendingProposal = entry;
+    speak(text, {
+      after(bubble) {
+        const row = document.createElement('div');
+        row.className = 'chips';
+        const keep = document.createElement('button');
+        keep.className = 'chip';
+        keep.textContent = 'Keep it';
+        const no = document.createElement('button');
+        no.className = 'chip';
+        no.textContent = 'Just answer me';
+        keep.addEventListener('click', () => entry.settle({ keep: true, answer: false }));
+        no.addEventListener('click', () => entry.settle({ keep: false, answer: true }));
+        row.append(keep, no);
+        bubble.append(row);
+        entry.row = row;
+        scrollDown();
+      },
+    });
   });
 }
 
@@ -866,6 +892,18 @@ let queued = null;
 async function sendMessage(text) {
   const question = (text ?? els.input.value).trim();
   if (!question) return;
+  if (pendingProposal) {
+    // A proposal is waiting: the next thing said answers it. A short yes or
+    // no is the answer; anything else lets the proposal go and stands on its own.
+    const answer = readYesNo(question);
+    if (answer !== null) {
+      els.input.value = '';
+      addBubble('user', question);
+      pendingProposal.settle({ keep: answer, answer: !answer && /answer/i.test(question) });
+      return;
+    }
+    pendingProposal.settle({ keep: false, answer: false });
+  }
   // Speaking again while a reply is in flight used to discard what was said
   // outright -- the transcription happened, the words went nowhere. Hold it
   // instead and answer it when the current one finishes.
@@ -886,7 +924,7 @@ async function sendMessage(text) {
   // ready it can be more than a question: an automation that DOES something.
   if (looksScheduled(question)) {
     const verdict = state.runtime === 'ready' ? await tryAutomation(question) : 'no';
-    if (verdict === 'kept') return;
+    if (verdict === 'kept' || verdict === 'dropped') return;
     if (verdict === 'no' && await tryRoutine(question)) return;
     // 'declined': they wanted an answer, not a job. Answer.
   }

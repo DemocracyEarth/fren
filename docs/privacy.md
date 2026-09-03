@@ -65,6 +65,14 @@ input simply does not work, rather than quietly falling back to the network.
 
 There are now two kinds, and they are different things.
 
+**What fren notices reaches its own core.** The active application and window
+title, and the pages the browser extension reports, are sent to fren's local
+core (the same process that keeps automations), never to a model, so that an
+automation you created to run *whenever* an app or a site is in front of you
+can fire. They are kept in memory for a day and forgotten. When such an
+automation fires, the assistant is told the app or site that fired it, with
+the window title or address, and nothing else about your day.
+
 **Agent automations** run an assistant with tools inside the *secure execution
 environment*: an isolated space with its own workspace, no access to your
 files, accounts or the rest of this machine unless you grant it, and the model

@@ -66,3 +66,16 @@ test('describes the common shapes', () => {
   assert.equal(describeCron('*/15 * * * *'), '*/15 * * * *');
   assert.equal(describeCron('nonsense'), 'nonsense');
 });
+
+test('a moment and a trigger are described in words', () => {
+  const { describeAt, describeTrigger } = require('../cron');
+  const now = new Date(2026, 8, 3, 10, 0).getTime();
+  assert.equal(describeAt(new Date(2026, 8, 3, 15, 0).getTime(), now), 'today at 15:00');
+  assert.equal(describeAt(new Date(2026, 8, 4, 9, 30).getTime(), now), 'tomorrow at 09:30');
+  assert.equal(describeAt(new Date(2026, 8, 6, 18, 0).getTime(), now), 'on Sunday at 18:00');
+  assert.equal(describeAt(new Date(2026, 9, 12, 10, 0).getTime(), now), 'on 12 Oct at 10:00');
+  assert.equal(describeTrigger({ type: 'schedule', cron: '0 9 * * 1-5' }), 'weekdays at 09:00');
+  assert.equal(describeTrigger({ type: 'event', filter: { app: 'Figma' } }), 'whenever you open Figma');
+  assert.equal(describeTrigger({ type: 'event', filter: { site: 'github.com' } }), 'whenever you are on github.com');
+  assert.equal(describeTrigger({ type: 'manual' }), 'manual');
+});

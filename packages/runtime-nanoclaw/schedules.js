@@ -30,7 +30,8 @@ function toSchedule(task, ref, extra = {}) {
     id: task.series_id || task.id,
     automationId: ref.automationId,
     name: task.name || ref.name || task.series_id,
-    cron: task.recurrence || ref.cron,
+    cron: task.recurrence || ref.cron || undefined,
+    at: ref.at !== undefined ? ref.at : (!task.recurrence && (task.next_run || task.process_after) ? Date.parse(task.next_run || task.process_after) || undefined : undefined),
     timezone: ref.timezone,
     instruction: ref.instruction || task.prompt,
     deliveryName: deliveryNameFor(ref.automationId),
@@ -109,11 +110,12 @@ function createScheduleStore({ ncl, agentGroupId, log = () => {} }) {
       group: agentGroupId,
       name: input.name,
       prompt: input.instruction,
-      recurrence: input.cron,
+      // A schedule repeats on a cron; a moment is a row due once, with no recurrence to re-arm.
+      ...(input.cron ? { recurrence: input.cron } : { process_after: new Date(input.at).toISOString() }),
       ...(input.overrideFireLimit ? { dangerously_override_recurrence_limit: true } : {}),
     });
     const seriesId = task.series_id || task.id;
-    const ref = { automationId: input.automationId, name: input.name, cron: input.cron, timezone: input.timezone, instruction: input.instruction, sessionId: task.session_id, enabled: input.enabled !== false };
+    const ref = { automationId: input.automationId, name: input.name, cron: input.cron, at: input.at, timezone: input.timezone, instruction: input.instruction, sessionId: task.session_id, enabled: input.enabled !== false };
     refs.set(seriesId, ref);
     if (input.enabled === false) await ncl.call('tasks-pause', { id: seriesId, group: agentGroupId });
     const fresh = await get(seriesId);
@@ -143,6 +145,7 @@ function createScheduleStore({ ncl, agentGroupId, log = () => {} }) {
     const fields = {};
     if (patch.instruction !== undefined) { fields.prompt = patch.instruction; ref.instruction = patch.instruction; }
     if (patch.cron !== undefined) { fields.recurrence = patch.cron; ref.cron = patch.cron; }
+    if (patch.at !== undefined) { fields.process_after = new Date(patch.at).toISOString(); ref.at = patch.at; }
     if (patch.name !== undefined) ref.name = patch.name;
     if (patch.timezone !== undefined) ref.timezone = patch.timezone;
     if (Object.keys(fields).length) await ncl.call('tasks-update', { id: seriesId, group: agentGroupId, ...fields });

@@ -262,3 +262,75 @@ test('a scheduled run is given the runtime\'s patience, not a chat turn\'s', asy
   assert.equal(done.delivered, true);
   await core.stop();
 });
+
+test('a one-off automation runs at its moment, once, and is then done', async () => {
+  let clock = new Date(2026, 8, 3, 10, 0).getTime();
+  const { core, runtime } = setup({ runtime: { now: () => clock }, core: { now: () => clock } });
+  await core.start();
+  await core.startRuntime();
+  const seen = [];
+  core.events.subscribe((e) => seen.push(e));
+  const at = new Date(2026, 8, 4, 15, 0).getTime();
+  const a = await core.automations.create({ name: 'call Ana', trigger: { type: 'at', at }, body: { kind: 'agent', instruction: 'Remind the owner to call Ana.' }, permissions: [] });
+  assert.equal(a.describe, 'tomorrow at 15:00');
+  assert.equal(a.nextRunAt, at);
+  assert.equal(a.runtimeState, 'scheduled');
+  clock = at;
+  assert.equal(runtime.tick(clock).length, 1);
+  await until(() => seen.find((e) => e.type === 'automation.run.completed' && e.automationId === a.id));
+  const done = core.automations.get(a.id);
+  assert.equal(done.enabled, false, 'a moment comes once');
+  assert.equal(done.nextRunAt, null);
+  assert.ok(seen.some((e) => e.type === 'automation.updated' && e.automationId === a.id && e.done === true));
+  assert.equal(runtime.tick(clock + 86400000).length, 0);
+  await assert.rejects(
+    () => core.automations.create({ name: 'gone', trigger: { type: 'at', at: clock - 3600000 }, body: { kind: 'agent', instruction: 'x' }, permissions: [] }),
+    /already passed/,
+  );
+  await core.stop();
+});
+
+test('a "whenever" automation runs when the desktop notices the app, once per sighting', async () => {
+  let clock = new Date(2026, 8, 3, 10, 0).getTime();
+  const { core, store } = setup({ runtime: { now: () => clock }, core: { now: () => clock } });
+  await core.start();
+  await core.startRuntime();
+  const seen = [];
+  core.events.subscribe((e) => seen.push(e));
+  const a = await core.automations.create({ name: 'figma tokens', trigger: { type: 'event', filter: { app: 'Figma' } }, body: { kind: 'agent', instruction: 'Remind the owner to check the design tokens.' }, permissions: [] });
+  assert.equal(a.describe, 'whenever you open Figma');
+  assert.equal(a.runtimeState, 'local');
+  assert.ok(core.observations.publish({ timestamp: clock, source: 'os', type: 'active-window', payload: { app: 'Figma', title: 'tokens.fig' } }));
+  const done = await until(() => seen.find((e) => e.type === 'automation.run.completed' && e.automationId === a.id));
+  assert.equal(done.delivered, true);
+  assert.equal(store.listAutomationRuns(a.id)[0].trigger, 'event');
+  core.observations.publish({ timestamp: clock + 1000, source: 'os', type: 'active-window', payload: { app: 'Figma', title: 'other.fig' } });
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(store.listAutomationRuns(a.id).length, 1, 'a window that stays in front is one sighting');
+  clock += 31 * 60 * 1000;
+  core.observations.publish({ timestamp: clock, source: 'os', type: 'active-window', payload: { app: 'Figma', title: 'later.fig' } });
+  await until(() => store.listAutomationRuns(a.id).length === 2);
+  core.observations.publish({ timestamp: clock, source: 'os', type: 'active-window', payload: { app: 'Code', title: 'x' } });
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(store.listAutomationRuns(a.id).length, 2, 'another app is not a sighting');
+  const site = await core.automations.create({ name: 'pull requests', trigger: { type: 'event', filter: { site: 'https://www.github.com/x' } }, body: { kind: 'agent', instruction: 'List my open pull requests.' }, permissions: [] });
+  assert.equal(site.describe, 'whenever you are on github.com');
+  await assert.rejects(() => core.automations.create({ name: 'nothing', trigger: { type: 'event', filter: {} }, body: { kind: 'agent', instruction: 'x' }, permissions: [] }), /needs an app or a site/);
+  await core.stop();
+});
+
+test('intent: a moment and a "whenever" come back with a ready trigger and a description', async () => {
+  const now = new Date(2026, 8, 3, 10, 0).getTime();
+  const { core } = setup({ core: { now: () => now } });
+  await core.start();
+  const once = await core.automations.intent('tomorrow at 3 remind me to call Ana');
+  assert.equal(once.isAutomation, true);
+  assert.deepEqual(once.trigger, { type: 'at', at: new Date(2026, 8, 4, 15, 0).getTime() });
+  assert.equal(once.describe, 'tomorrow at 15:00');
+  const when = await core.automations.intent('whenever I open Figma, remind me to check the tokens');
+  assert.deepEqual(when.trigger, { type: 'event', filter: { app: 'Figma' } });
+  assert.equal(when.describe, 'whenever you open Figma');
+  const repeat = await core.automations.intent('every morning at 9 check the news');
+  assert.deepEqual(repeat.trigger, { type: 'schedule', cron: '0 9 * * *' });
+  await core.stop();
+});

@@ -73,7 +73,8 @@
  * @typedef {Object} ScheduleInput
  * @property {string} automationId       FREN's id; the runtime derives its own names from it
  * @property {string} name
- * @property {string} cron
+ * @property {string} [cron]           five-field cron, for a schedule that repeats
+ * @property {number} [at]             a moment in ms, for a schedule that fires once (no cron)
  * @property {string} timezone           IANA zone
  * @property {string} instruction        already compiled by FREN Core
  * @property {string} deliveryName       where the agent must send its result

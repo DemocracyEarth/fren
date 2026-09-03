@@ -38,6 +38,8 @@ function createCore({ runTimeoutMs, scheduleTimeoutMs, store, runtime, complete 
   const automations = createAutomationService({ store, events, getRuntime: () => runtime, runs, complete, now, log });
   const permissions = createPermissionBroker({ store, events, getRuntime: () => runtime, now, log });
   const services = { runs, automations, permissions };
+  // What the desktop notices reaches the automations that wait for it.
+  observations.subscribe(null, (obs) => { automations.onObservation(obs).catch((err) => log(`[automations] observation: ${err.message}`)); });
 
   function setStatus(status) {
     runtimeStatus = status;

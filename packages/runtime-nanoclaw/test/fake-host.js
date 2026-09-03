@@ -49,7 +49,7 @@ const commands = {
   'tasks-list': () => items(db.tasks.map((t) => { const { recent_log, name, ...row } = taskRow(t); return { ...row, process_after: t.next_run, prompt: row.prompt.length > 120 ? row.prompt.slice(0, 117) + '...' : row.prompt }; })),
   // Like the real host's, get has the whole prompt, the run log and completed_runs, and none of the list's extras.
   'tasks-get': ({ id }) => { const t = db.tasks.find((x) => x.series_id === id); if (!t) throw new Error(`task not found: ${id}`); const { runs, next_run, last_run, name, ...row } = taskRow(t); return { ...row, process_after: t.next_run, completed_runs: t.runs }; },
-  'tasks-create': (a) => { const series = `${(a.name || 't').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${nid('x').slice(2)}`; const t = { destination: db.lastDestination || null, series_id: series, row_id: series, session_id: nid('ses'), name: a.name, prompt: a.prompt, recurrence: a.recurrence, status: 'pending', runs: 0, failed_runs: 0, last_run: null, next_run: new Date(Date.now() + 3600e3).toISOString(), recent_log: [] }; db.tasks.push(t); save(); return taskRow(t); },
+  'tasks-create': (a) => { const series = `${(a.name || 't').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${nid('x').slice(2)}`; const t = { destination: db.lastDestination || null, series_id: series, row_id: series, session_id: nid('ses'), name: a.name, prompt: a.prompt, recurrence: a.recurrence || null, status: 'pending', runs: 0, failed_runs: 0, last_run: null, next_run: a.process_after ? new Date(a.process_after).toISOString() : new Date(Date.now() + 3600e3).toISOString(), recent_log: [] }; db.tasks.push(t); save(); return taskRow(t); },
   'tasks-update': (a) => { const t = db.tasks.find((x) => x.series_id === a.id); if (!t) throw new Error(`task not found: ${a.id}`); if (a.prompt) t.prompt = a.prompt; if (a.recurrence) t.recurrence = a.recurrence; save(); return taskRow(t); },
   'tasks-pause': ({ id }) => { const t = db.tasks.find((x) => x.series_id === id); if (!t) throw new Error(`task not found: ${id}`); t.status = 'paused'; save(); return { paused: 1 }; },
   'tasks-resume': ({ id }) => { const t = db.tasks.find((x) => x.series_id === id); if (!t) throw new Error(`task not found: ${id}`); t.status = 'pending'; save(); return { resumed: 1 }; },
@@ -106,6 +106,8 @@ function settle(t, { ok, paused = false }) {
   t.row_id = `${t.series_id}-${nid('row')}`;
   t.next_run = new Date(Date.now() + 3600e3).toISOString();
   if (paused) t.status = 'paused';
+  // A row with no recurrence is not re-armed: the series is over.
+  if (!t.recurrence) db.tasks = db.tasks.filter((x) => x !== t);
   save();
 }
 
