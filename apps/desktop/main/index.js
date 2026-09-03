@@ -607,6 +607,10 @@ app.whenReady().then(() => {
     onObservation: (obs) => {
       memory.addObservation(obs);
       if (obs && obs.activeApp) notice('os', 'active-window', { app: String(obs.activeApp), title: String(obs.windowTitle || '').slice(0, 200) });
+      // The login window in front means they are away; anything else after it
+      // means they are back. This sees a return the power monitor can miss.
+      if (obs && obs.activeApp === 'loginwindow') away('login window');
+      else if (obs && obs.activeApp && awayAt) back('return').catch((err) => log(`[greeting] return: ${err.message}`));
     },
     log,
   });
@@ -1242,7 +1246,9 @@ app.whenReady().then(() => {
   const RETURN_AFTER_MS = 10 * 60 * 1000;  // away shorter than this is not a return (a coffee)
   const RECENT_GREETINGS = 'recentGreetings';
   let lastGreetAt = 0;
-  let awayAt = null;
+  // When they went away, kept in settings so a restart while the screen is
+  // locked does not forget it and skip the hello on their return.
+  let awayAt = Number(memory.getSetting('awayAt')) || null;
 
   /**
    * The hello itself, from what fren wrote down before: the last thing noted,
@@ -1311,10 +1317,16 @@ app.whenReady().then(() => {
   // A return: the machine waking or the screen unlocking after a while away.
   // The renderer says it when fren is free, so it never lands over a reply.
   const { powerMonitor } = require('electron');
-  const away = (why) => { awayAt = Date.now(); log(`[greeting] away (${why})`); };
+  const away = (why) => {
+    if (awayAt) return;   // the first sign of leaving is the one that counts
+    awayAt = Date.now();
+    try { memory.setSetting('awayAt', awayAt); } catch { /* the in-memory mark still stands */ }
+    log(`[greeting] away (${why})`);
+  };
   const back = async (why) => {
     const awayMs = awayAt ? Date.now() - awayAt : 0;
     awayAt = null;
+    try { memory.setSetting('awayAt', ''); } catch { /* fine */ }
     const verdict = arrival.shouldGreetOnReturn({ awayMs, lastGreetAt, now: Date.now(), minAwayMs: RETURN_AFTER_MS });
     if (!verdict.greet) { log(`[greeting] ${why}: ${verdict.why}`); return; }
     const { text } = await composeGreeting(awayMs);
