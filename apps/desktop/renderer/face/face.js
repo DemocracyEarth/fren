@@ -57,6 +57,7 @@
     mouthW: 1, mouthOpen: 0.5, mouthCurve: 0.8, mouthWave: 0,
     tongue: 0, blush: 0,
     squash: 0, lean: 0, bob: 0, tilt: 0, glow: 0.5,
+    dots: 0,
   };
   // Accents are comic shorthand, not parameters — they don't blend.
   const ACCENT = {
@@ -158,7 +159,7 @@
   const SPRING = {
     _default: [170, 16],
     lidTop: [320, 24], lidBot: [270, 22], lidTilt: [230, 20],
-    mouthOpen: [260, 21], mouthW: [230, 20], mouthCurve: [220, 19], mouthWave: [200, 18],
+    mouthOpen: [260, 21], mouthW: [230, 20], mouthCurve: [220, 19], mouthWave: [200, 18], dots: [200, 18],
     squash: [150, 9], lean: [130, 9], bob: [125, 11], tilt: [120, 12],
     hue: [70, 17], sat: [80, 18], tone: [85, 18], lit: [95, 18],
     heart: [260, 22], cross: [260, 22], tongue: [240, 21], blush: [140, 17],
@@ -305,6 +306,7 @@
             <path class="lidLineR" fill="none" stroke="currentColor" stroke-linecap="round"/>
             <path class="mouth" stroke="currentColor" stroke-width="${MOUTH_STROKE}"
                   stroke-linejoin="round" stroke-linecap="round"/>
+            <circle class="dot" opacity="0"/><circle class="dot" opacity="0"/><circle class="dot" opacity="0"/>
           </g>
         </defs>
         <ellipse class="amb"/>
@@ -377,7 +379,7 @@
     }
 
     _atRest() {
-      if (this.thinking) return false;
+      if (this.thinking || this.p.dots > 0.005) return false;
       if (this.blink > 0 || this.talkPhase >= 0 || this.speechLevel !== null || this.particles.length) return false;
       for (const k in this.p) {
         if (Math.abs(this.target[k] - this.p[k]) > 0.0015) return false;
@@ -393,6 +395,7 @@
       const changed = this.emotion !== name;
       this.emotion = name;
       Object.assign(this.target, preset, opts.override || {});
+      if (this.thinking) this.target.dots = 1;   // the beads outlive a change of expression
 
       let h = this.target.hue;
       while (h - this.p.hue > 180) h -= 360;
@@ -422,6 +425,7 @@
     /** Looking for the word: the gaze drifts up and about until the answer comes. */
     think(on) {
       this.thinking = !!on;
+      this.target.dots = this.thinking ? 1 : 0;
       if (!this.thinking) this.gazeTarget = { x: 0, y: 0 };
       this._wake();
     }
@@ -602,7 +606,10 @@
       g.o0.setAttribute('stop-opacity', (0.72 - lit * 0.08).toFixed(3));
 
       g.a0.setAttribute('stop-color', hsl(h, s, Math.min(0.66, l + 0.08)));
-      g.a0.setAttribute('stop-opacity', (clamp(p.glow, 0, 1) * 0.42 * lit * this.finish.glow).toFixed(3));
+      // Thinking: the ambient glow behind the body breathes. It lives inside
+      // the picture, so the window's edge never crops it.
+      const think = this.thinking ? (this.reduced ? 0.22 : 0.3 * (0.5 - 0.5 * Math.cos(this.t * Math.PI * 2 * 0.55))) : 0;
+      g.a0.setAttribute('stop-opacity', ((clamp(p.glow, 0, 1) * 0.42 + think) * lit * this.finish.glow).toFixed(3));
       g.a1.setAttribute('stop-color', hsl(h, s, l));
       g.a1.setAttribute('stop-opacity', '0');
 
@@ -663,7 +670,18 @@
       g.mouth.setAttribute('d', mouthD);
       g.mouthHot.setAttribute('d', mouthD);
       // Only worth showing once the mouth is open enough to have an inside.
-      g.mouthHot.setAttribute('opacity', (lit * clamp(open * 1.6, 0, 1) * 0.9).toFixed(3));
+      // Thinking: the mouth gives way to three beads that light up in turn.
+      const dots = clamp(p.dots, 0, 1);
+      g.mouth.setAttribute('opacity', (1 - dots).toFixed(3));
+      g.mouthHot.setAttribute('opacity', (lit * clamp(open * 1.6, 0, 1) * 0.9 * (1 - dots)).toFixed(3));
+      if (!this._dots) this._dots = Array.from(this.svg.querySelectorAll('.dot'));
+      this._dots.forEach((node, i) => {
+        const wave = this.reduced ? 0.6 : 0.5 + 0.5 * Math.sin(this.t * 5.4 - i * 1.3);
+        node.setAttribute('cx', 100 + (i - 1) * 16);
+        node.setAttribute('cy', MOUTH_Y + 7);
+        node.setAttribute('r', (4.2 + wave * 0.8).toFixed(2));
+        node.setAttribute('opacity', (dots * (0.22 + 0.78 * wave)).toFixed(3));
+      });
 
       // ---- kawaii extras ----
       const bl = clamp(p.blush, 0, 1);
