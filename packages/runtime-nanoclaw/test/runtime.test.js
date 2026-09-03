@@ -19,7 +19,7 @@ function makeRuntime({ base = fs.mkdtempSync(path.join('/tmp', 'frn-')), ...extr
   fs.mkdirSync(runtimeDir, { recursive: true });
   const rt = createNanoclawRuntime({
     dataDir: path.join(base, 'd'), runtimeDir, sandboxUrl: 'http://host.docker.internal:4527/anthropic', sandboxToken: 'fren-test-token',
-    timezone: 'UTC', log: () => {}, skipContainerProbe: true, hostCommand: [process.execPath, [FAKE_HOST]], connectTimeoutMs: 10_000,
+    timezone: 'UTC', log: () => {}, skipContainerProbe: true, hostCommand: [process.execPath, [FAKE_HOST]], connectTimeoutMs: 10_000, settleGraceMs: 300,
     ...extra,
   });
   rt.testDirs = { base, runtimeDir };
