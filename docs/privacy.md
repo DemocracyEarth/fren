@@ -74,9 +74,15 @@ automation fires, the assistant is told the app or site that fired it, with
 the window title or address, and nothing else about your day.
 
 **Agent automations** run an assistant with tools inside the *secure execution
-environment*: an isolated space with its own workspace, no access to your
+environment*: a separate space with its own workspace, no access to your
 files, accounts or the rest of this machine unless you grant it, and the model
-reached through fren's own proxy so no key ever enters it. One is created only
+reached through fren's own proxy so no key ever enters it. On a Mac that
+space is a process confined by macOS itself (the same sandbox the system uses
+for its own apps): it can read and write only the folders fren gives it,
+cannot open apps, script the desktop, read the keychain or take screenshots,
+and reaches the network only as its automation allows. That is lighter
+isolation than a container, and fren says so in Settings; when a container
+runtime is installed, fren uses a container instead. One is created only
 when you keep a proposal fren shows you first, with the schedule and the task
 in words. It does not receive what fren observed about you: not the activity
 timeline, not memories, not screenshots, not browser pages. It receives the

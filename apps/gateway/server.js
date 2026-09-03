@@ -644,7 +644,7 @@ if (require.main === module) {
 /**
  * Which secure execution environment runs agents.
  *
- * FREN_RUNTIME picks: `nanoclaw` (the vendored host, isolated containers),
+ * FREN_RUNTIME picks: `nanoclaw` (the vendored host: agents as sandboxed processes, or containers),
  * `mock` (nothing runs; for development and demos), or `auto` — the default:
  * the vendored host when it has been built (`npm run runtime:build`), else
  * the mock. Whether the container runtime itself is present is the host
@@ -663,6 +663,8 @@ function pickRuntime(provider, { sandboxUrl, sandboxToken, model }) {
   const { createNanoclawRuntime } = require('../../packages/runtime-nanoclaw');
   return createNanoclawRuntime({
     dataDir: config.DATA_DIR, runtimeDir, sandboxUrl, sandboxToken, model,
+    // FREN_RUNTIME_TIER: process (sandboxed process, nothing to install) | container | auto.
+    tier: process.env.FREN_RUNTIME_TIER || 'auto',
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, log: console.log,
   });
 }

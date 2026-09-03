@@ -20,6 +20,7 @@ const { execFileSync } = require('node:child_process');
 const { RuntimeUnavailable, newId, isTerminal } = require('../runtime');
 const { parseCron } = require('../shared/cron');
 const containerRuntime = require('./container-runtime');
+const processRuntime = require('./process-runtime');
 const { createNclClient } = require('./ncl-client');
 const { createBridge } = require('./bridge');
 const { createSupervisor } = require('./supervisor');
@@ -75,7 +76,7 @@ function bridgeSocketPath(dataDir) {
  * composes its own contract around this file at every spawn; this file is the
  * one place FREN's voice enters the container. Never names the host.
  */
-function composePersona(persona) {
+function composePersona(persona, { workspace = null } = {}) {
   return [
     '# fren',
     '',
@@ -89,6 +90,7 @@ function composePersona(persona) {
     'not how. If you could not do something, say what stopped you in one sentence. If something truly',
     'needs more, give the short version first and offer the rest.',
     '',
+    ...(workspace ? [`Your workspace folder on this machine is \`${workspace}\`. Where the base instructions name`, '/workspace/agent, that is this folder; use it, not the container path.', ''] : []),
     ...(persona ? ['What your owner wrote about who you are:', '', String(persona).trim(), ''] : []),
   ].join('\n');
 }
@@ -96,8 +98,8 @@ function composePersona(persona) {
 function createNanoclawRuntime(opts) {
   const {
     dataDir, runtimeDir, sandboxUrl, sandboxToken, model, timezone,
-    now = Date.now, log = console.log, probe = containerRuntime,
-    hostCommand = null, skipContainerProbe = false, connectTimeoutMs = CONNECT_TIMEOUT_MS,
+    now = Date.now, log = console.log, probe = containerRuntime, processProbe = processRuntime,
+    tier = 'auto', hostCommand = null, skipContainerProbe = false, connectTimeoutMs = CONNECT_TIMEOUT_MS,
     scheduleWatchMs = SCHEDULE_WATCH_MS, settleGraceMs = SETTLE_GRACE_MS,
   } = opts;
   if (!dataDir || !runtimeDir) throw new Error('the runtime needs dataDir and runtimeDir');
@@ -111,6 +113,8 @@ function createNanoclawRuntime(opts) {
   let stopping = false;
   let agentGroupId = null;
   let personaText = null;
+  let tierChosen = null;   // 'process' | 'container', once ensureHostReady decided
+  let tierFound = null;    // what the process probe found, for the host's env
 
   const listeners = new Set();
   const sessions = new Map();     // id -> Session
@@ -140,7 +144,7 @@ function createNanoclawRuntime(opts) {
   }
 
   function status() {
-    const base = { state };
+    const base = tierChosen ? { state, tier: tierChosen } : { state };
     if (state === 'ready') return { ...base, since, sessions: sessions.size, runs: [...runs.values()].filter((r) => !isTerminal(r.status)).length };
     if (reason) base.reason = reason;
     if (hint) base.hint = hint;
@@ -403,7 +407,7 @@ function createNanoclawRuntime(opts) {
 
   /** Write the standing instructions when they changed. Takes effect at the next spawn. */
   function writePersona(persona) {
-    const text = composePersona(persona);
+    const text = composePersona(persona, { workspace: tierChosen === 'process' ? path.join(runtimeDir, 'groups', GROUP_FOLDER) : null });
     if (text === personaText) return;
     const dir = path.join(runtimeDir, 'groups', GROUP_FOLDER);
     try {
@@ -418,16 +422,35 @@ function createNanoclawRuntime(opts) {
   }
 
   // -------------------------------------------------------- lifecycle
+  /**
+   * Which tier runs the agents. 'process' is the no-container tier: the runner
+   * as a sandboxed process on this machine, nothing to install. 'container'
+   * needs a container runtime and the agent image. 'auto' takes the process
+   * tier when this machine can, the container tier when it must.
+   */
   async function ensureHostReady() {
     if (!skipContainerProbe) {
-      const rt = await probe.detect();
-      if (!rt.running) throw new RuntimeUnavailable(rt.reason, rt.hint);
+      const want = String(tier || 'auto').toLowerCase();
+      const proc = want === 'container' ? null : processProbe.detect({ runtimeDir });
+      if (proc && proc.available) {
+        tierChosen = 'process';
+        tierFound = proc;
+      } else if (want === 'process') {
+        throw new RuntimeUnavailable(proc.reason, proc.hint);
+      } else {
+        const rt = await probe.detect();
+        if (!rt.running) {
+          throw new RuntimeUnavailable(proc ? `${proc.reason}; and ${rt.reason}` : rt.reason, proc ? proc.hint : rt.hint);
+        }
+        const image = `nanoclaw-agent-v2-${slug}:latest`;
+        if (!(await probe.imagePresent(image))) {
+          throw new RuntimeUnavailable('the agent image is not built', 'Run: npm run runtime:build -- --image (this takes a few minutes the first time)');
+        }
+        tierChosen = 'container';
+        tierFound = null;
+      }
       if (!fs.existsSync(path.join(runtimeDir, 'dist', 'index.js'))) {
         throw new RuntimeUnavailable('the runtime host is not built', 'Run: npm run runtime:build');
-      }
-      const image = `nanoclaw-agent-v2-${slug}:latest`;
-      if (!(await probe.imagePresent(image))) {
-        throw new RuntimeUnavailable('the agent image is not built', 'Run: npm run runtime:build -- --image (this takes a few minutes the first time)');
       }
     }
     stampUpgradeMarker();
@@ -454,11 +477,12 @@ function createNanoclawRuntime(opts) {
       LANG: process.env.LANG || 'en_US.UTF-8',
       FREN_CORE_SOCKET: socketPath,
       FREN_RUNTIME_TOKEN: runtimeToken,
-      FREN_SANDBOX_URL: sandboxUrl || '',
+      FREN_SANDBOX_URL: (tierChosen === 'process' ? processProbe.sandboxUrlFor(sandboxUrl) : sandboxUrl) || '',
       FREN_SANDBOX_TOKEN: sandboxToken || '',
       NANOCLAW_GATEWAY_PROVIDER: 'fren',
       NANOCLAW_NO_DIAGNOSTICS: '1',
       LOG_LEVEL: process.env.FREN_RUNTIME_LOG_LEVEL || 'info',
+      ...(tierChosen === 'process' ? processProbe.hostEnv(tierFound) : {}),
     };
   }
 
@@ -649,7 +673,9 @@ function createNanoclawRuntime(opts) {
     clearTimeout(restartTimer);
     if (scheduleWatch) { scheduleWatch.stop(); scheduleWatch = null; }
     if (supervisor) await supervisor.stop();
-    if (!skipContainerProbe) {
+    if (!skipContainerProbe && tierChosen === 'process') {
+      try { await processProbe.stopAll(runtimeDir); } catch (err) { log(`[runtime] agent processes not stopped: ${err.message}`); }
+    } else if (!skipContainerProbe && tierChosen === 'container') {
       try { await probe.stopLabeled(`nanoclaw-install=${slug}`); } catch (err) { log(`[runtime] containers not stopped: ${err.message}`); }
     }
     await bridge.close();

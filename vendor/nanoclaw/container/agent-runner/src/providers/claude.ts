@@ -17,6 +17,7 @@ import type {
   ProviderOptions,
   QueryInput,
 } from './types.js';
+import { CLAUDE_EXECUTABLE } from '../paths.js';
 
 function log(msg: string): void {
   console.error(`[claude-provider] ${msg}`);
@@ -561,7 +562,7 @@ export class ClaudeProvider implements AgentProvider {
         cwd: input.cwd,
         additionalDirectories: this.additionalDirectories,
         resume: input.continuation,
-        pathToClaudeCodeExecutable: '/pnpm/claude',
+        pathToClaudeCodeExecutable: CLAUDE_EXECUTABLE,
         systemPrompt: instructions
           ? { type: 'preset' as const, preset: 'claude_code' as const, append: instructions }
           : undefined,

@@ -13,6 +13,9 @@ const net = require('node:net');
 const fs = require('node:fs');
 const path = require('node:path');
 
+// `--env-dump <file>`: write the environment the adapter handed this host, for the tier tests.
+const dumpAt = process.argv.indexOf('--env-dump');
+if (dumpAt > 0) require('fs').writeFileSync(process.argv[dumpAt + 1], JSON.stringify(process.env));
 const corePath = process.env.FREN_CORE_SOCKET;
 const token = process.env.FREN_RUNTIME_TOKEN;
 const dataDir = path.join(process.cwd(), 'data');
