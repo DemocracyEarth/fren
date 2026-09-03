@@ -344,7 +344,7 @@ function createNanoclawRuntime(opts) {
     const openRunFor = () => [...runs.values()].find((r) => r.automationId === automationId && !isTerminal(r.status));
     let run = openRunFor();
     if (!run && scheduleWatch) {
-      await scheduleWatch.poll();
+      await scheduleWatch.pollNow();
       run = openRunFor();
     }
     const seq = run ? nextSeq(seqByRun, run.id) : nextSeq(seqByAutomation, automationId);

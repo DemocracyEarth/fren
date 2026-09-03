@@ -31,6 +31,8 @@
  * loop around them is `createScheduleWatch`.
  */
 const POLL_MS = 15_000;
+/** How long after a due time the watch reads again, so the fire is seen before a fast answer. */
+const DUE_SLACK_MS = 300;
 /** How long a remembered end may wait for the counters to catch up. */
 const ABSORB_MS = 10 * 60 * 1000;
 
@@ -123,18 +125,20 @@ function release(last, seriesId, rowId) {
 function createScheduleWatch({ list, onFinding, ready = () => true, now = Date.now, log = () => {}, intervalMs = POLL_MS }) {
   const last = new Map();
   let timer = null;
+  let dueTimer = null;
   let inFlight = null;
 
-  /** One reading. A caller who needs it done (a delivery with no run to land on) can await it. */
-  function poll() {
-    if (inFlight) return inFlight;
+  function read() {
     if (!ready()) return Promise.resolve();
     inFlight = (async () => {
       try {
-        const findings = observe(last, await list(), now());
+        const schedules = await list();
+        const at = now();
+        const findings = observe(last, schedules, at);
         for (const f of findings) {
           try { await onFinding(f); } catch (err) { log(`[runtime] schedule ${f.kind}: ${err.message}`); }
         }
+        armForNextDue(schedules, at);
       } catch (err) {
         log(`[runtime] schedule watch: ${err.message}`);
       } finally {
@@ -142,6 +146,35 @@ function createScheduleWatch({ list, onFinding, ready = () => true, now = Date.n
       }
     })();
     return inFlight;
+  }
+
+  /**
+   * A reading a moment after the next due time, when that is sooner than the
+   * next tick: a warm container takes a due row at once and can answer in
+   * seconds, and the run should be open before the answer arrives.
+   */
+  function armForNextDue(schedules, at) {
+    clearTimeout(dueTimer);
+    dueTimer = null;
+    let soonest = null;
+    for (const s of schedules) {
+      if (!s.enabled || !s.nextRunAt || s.nextRunAt <= at) continue;
+      if (soonest === null || s.nextRunAt < soonest) soonest = s.nextRunAt;
+    }
+    if (soonest === null || soonest - at >= intervalMs) return;
+    dueTimer = setTimeout(() => { dueTimer = null; void poll(); }, soonest - at + DUE_SLACK_MS);
+    if (dueTimer.unref) dueTimer.unref();
+  }
+
+  /** The periodic reading; one already in flight is enough. */
+  function poll() {
+    return inFlight || read();
+  }
+
+  /** A reading that is fresh when it resolves, for a caller who needs the truth now. */
+  async function pollNow() {
+    while (inFlight) await inFlight;
+    return read();
   }
 
   return {
@@ -154,13 +187,16 @@ function createScheduleWatch({ list, onFinding, ready = () => true, now = Date.n
     stop() {
       clearInterval(timer);
       timer = null;
+      clearTimeout(dueTimer);
+      dueTimer = null;
       last.clear();
     },
     settled(seriesId, rowId, ok) { remember(last, seriesId, rowId, ok, now()); },
     release(seriesId, rowId) { release(last, seriesId, rowId); },
     forget(seriesId) { last.delete(seriesId); },
     poll,
+    pollNow,
   };
 }
 
-module.exports = { observe, remember, release, createScheduleWatch, POLL_MS, ABSORB_MS };
+module.exports = { observe, remember, release, createScheduleWatch, POLL_MS, ABSORB_MS, DUE_SLACK_MS };

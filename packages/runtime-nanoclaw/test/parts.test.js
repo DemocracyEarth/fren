@@ -9,7 +9,7 @@ const { createNclClient } = require('../ncl-client');
 const { createBridge } = require('../bridge');
 const { detect, resolveDocker, pathWithDocker } = require('../container-runtime');
 const { createScheduleStore, refFromPrompt, pauseNote } = require('../schedules');
-const { observe, remember, release, ABSORB_MS } = require('../schedule-watch');
+const { observe, remember, release, createScheduleWatch, ABSORB_MS } = require('../schedule-watch');
 
 const tmpSock = (name) => path.join(fs.mkdtempSync('/tmp/frn-'), name);
 
@@ -327,4 +327,32 @@ test('the supervisor leaves a process alone when the pid was reused by something
   assert.equal(alive, true, 'not ours, not touched');
   other.kill('SIGTERM');
   await onceEvent(other, 'exit');
+});
+
+test('the watch reads again a moment after the next due time, and a caller who needs the truth now gets a fresh reading', async () => {
+  const nextRunAt = Date.now() + 250;
+  const findings = [];
+  const watch = createScheduleWatch({
+    intervalMs: 10_000, log: () => {}, onFinding: (f) => { findings.push(f); },
+    list: async () => [{ id: 's-1', enabled: true, runs: 0, failedRuns: 0, nextRunAt, runtimeRef: { rowId: 'row-1' } }],
+  });
+  watch.start();
+  await new Promise((r) => setTimeout(r, 900));
+  assert.deepEqual(findings, [{ kind: 'fired', seriesId: 's-1', rowId: 'row-1' }], 'fired at the due time, not at the next tick');
+  watch.stop();
+
+  // A reading in flight may be stale by the time it lands; pollNow waits for it, then reads again.
+  let open;
+  const held = new Promise((r) => { open = r; });
+  let calls = 0;
+  const w2 = createScheduleWatch({ intervalMs: 10_000, log: () => {}, onFinding: () => {}, list: async () => { calls += 1; if (calls === 1) await held; return []; } });
+  const first = w2.poll();
+  const fresh = w2.pollNow();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(calls, 1, 'no second reading while the first is held');
+  open();
+  await fresh;
+  assert.equal(calls, 2, 'a fresh reading followed the held one');
+  await first;
+  w2.stop();
 });
