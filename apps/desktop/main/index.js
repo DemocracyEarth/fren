@@ -588,6 +588,19 @@ function respondBrowserRead(id) {
   gateway.browserRead({ id, page }).catch(() => {});
 }
 
+/**
+ * First run: offer to set up browser awareness — once. Skipped if the
+ * extension has ever paired, or if the person already waved the offer off.
+ */
+function maybeOfferBrowserSetup() {
+  if (!win || win.isDestroyed()) return;
+  if (browserTransport && browserTransport.hasPairs()) return;
+  const state = memory.getSetting('browserOnboarding');
+  if (state === 'skipped' || state === 'done') return;
+  log('[browser] first-run: offering to set up browser awareness');
+  win.webContents.send('fren:browserSetup', { storeUrl: config.BROWSER_EXTENSION_STORE_URL || '' });
+}
+
 /** A native OS notification from fren; clicking it brings fren forward. */
 function showOsNotification({ title, body }) {
   try {
@@ -687,7 +700,14 @@ app.whenReady().then(() => {
       return response === 0;
     },
     loadPairs: () => safeParse(memory.getSetting('browserPairs'), []),
-    savePairs: (pairs) => memory.setSetting('browserPairs', JSON.stringify(pairs)),
+    savePairs: (pairs) => {
+      memory.setSetting('browserPairs', JSON.stringify(pairs));
+      // The extension just paired: onboarding is done, and fren says hello to it.
+      if (Array.isArray(pairs) && pairs.length && memory.getSetting('browserOnboarding') !== 'done') {
+        memory.setSetting('browserOnboarding', 'done');
+        if (win && !win.isDestroyed()) win.webContents.send('fren:browserConnected');
+      }
+    },
     log,
   });
   browserTransport.start().catch((err) => {
@@ -901,6 +921,10 @@ app.whenReady().then(() => {
     log('[state] starting paused, as set');
   }
 
+  // A beat after the greeting has had its moment, offer to set up the browser
+  // sense — once, and never again once it's paired or waved off.
+  setTimeout(maybeOfferBrowserSetup, 12_000);
+
   /**
    * Screens come and go, and fren must not go with them.
    *
@@ -1109,10 +1133,17 @@ app.whenReady().then(() => {
     syncBrowserPolicy();
     return safeParse(memory.getSetting('browserExclusions'), []);
   });
-  // "Enable": today, the developer path — open the unpacked extension folder
-  // with its README. The same handler later opens the Web Store listing.
+  // "Enable" / "Add to Chrome": once the extension is on the Web Store this
+  // opens its listing (one click); until then it opens the unpacked folder so
+  // the developer path can load it. One flag decides which.
   ipcMain.handle('fren:openBrowserExtension', () => {
+    const storeUrl = config.BROWSER_EXTENSION_STORE_URL;
+    if (storeUrl) return void shell.openExternal(storeUrl);
     shell.openPath(path.join(__dirname, '..', '..', 'browser-extension'));
+  });
+  // First-run: fren stops offering to set up browser awareness.
+  ipcMain.handle('fren:dismissBrowserSetup', () => {
+    memory.setSetting('browserOnboarding', 'skipped');
   });
 
   ipcMain.handle('fren:getOrbLook', () => {
