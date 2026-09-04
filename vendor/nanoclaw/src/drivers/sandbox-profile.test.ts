@@ -44,4 +44,21 @@ describe('sandbox profile', () => {
     expect(p).not.toMatch(/^\(allow default\)/m);
     expect(p).toContain('\\"');
   });
+
+  it('grants TLS validation under the proxy grant but resolves names only under internet', () => {
+    const base = { runtimeDir: '/opt/rt', writableDirs: ['/w'], tmpDir: '/t' };
+    const proxy = renderSandboxProfile({ ...base, network: 'proxy', proxyPort: 4527 });
+    expect(proxy).toContain('com.apple.trustd');
+    expect(proxy).toContain('com.apple.SecurityServer');
+    expect(proxy).not.toContain('mDNSResponder');
+    expect(proxy).toContain('(remote ip "localhost:4527")');
+    expect(proxy).not.toContain('(allow network-outbound)');
+    const internet = renderSandboxProfile({ ...base, network: 'internet' });
+    expect(internet).toContain('com.apple.trustd');
+    expect(internet).toContain('mDNSResponder');
+    const none = renderSandboxProfile({ ...base, network: 'none' });
+    expect(none).not.toContain('com.apple.trustd');
+    expect(none).not.toContain('network-outbound');
+  });
+
 });

@@ -34,7 +34,8 @@ test('the model request carries the schema and the example', () => {
   assert.match(req.system, /0 9 \* \* \*/);
   assert.match(req.system, /isAutomation is false/);
   assert.deepEqual(req.messages, [{ role: 'user', content: 'every morning at 9 check HN' }]);
-  assert.deepEqual(AUTOMATION_INTENT_SCHEMA.required, ['isAutomation', 'when', 'name', 'cron', 'at', 'app', 'site', 'instruction', 'reason']);
+  assert.deepEqual(AUTOMATION_INTENT_SCHEMA.required, ['isAutomation', 'when', 'name', 'cron', 'at', 'app', 'site', 'instruction', 'domains', 'reason']);
+  assert.match(req.system, /domains/);
 });
 
 test('a single later moment is read: relative, tomorrow, tonight, a clock time', () => {

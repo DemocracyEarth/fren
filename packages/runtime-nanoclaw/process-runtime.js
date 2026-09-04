@@ -121,6 +121,10 @@ function hostEnv(found) {
     NANOCLAW_RUNTIME_DRIVER: 'process',
     NANOCLAW_PROCESS_BUN: found.bun,
     NANOCLAW_PROCESS_CLAUDE: found.claude,
+    // Confine every agent process to the one loopback exit (the sandbox proxy);
+    // the seatbelt profile then allows nothing else, so the proxy's allowlist is
+    // the whole of the environment's reach.
+    NANOCLAW_PROCESS_NETWORK: 'proxy',
   };
 }
 

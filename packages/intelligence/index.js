@@ -1022,7 +1022,7 @@ function buildPatternRequest({ memories = [] } = {}) {
 const AUTOMATION_INTENT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['isAutomation', 'when', 'name', 'cron', 'at', 'app', 'site', 'instruction', 'reason'],
+  required: ['isAutomation', 'when', 'name', 'cron', 'at', 'app', 'site', 'instruction', 'domains', 'reason'],
   properties: {
     isAutomation: {
       type: 'boolean',
@@ -1050,9 +1050,35 @@ const AUTOMATION_INTENT_SCHEMA = {
       description: 'The task, as an instruction to an assistant that can browse the web and work in its ' +
                    'own workspace. Imperative, self-contained, with the schedule words removed.',
     },
+    domains: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'The bare hostnames this task must reach on the web, lower-case, no scheme or path ' +
+                   '("news.ycombinator.com", "api.github.com"). Infer well-known ones ("Hacker News" -> ' +
+                   'news.ycombinator.com). Empty [] when the task needs no website.',
+    },
     reason: { type: 'string', description: 'If isAutomation is false, one short sentence saying why.' },
   },
 };
+
+// A small, deterministic domain reading, for the heuristic path and as a floor
+// under the model: named hosts in the text, plus a few well-known names.
+const HOST_HINTS = [
+  [/hacker ?news|\bhn\b/i, 'news.ycombinator.com'],
+  [/\bgithub\b/i, 'github.com'],
+  [/\bwikipedia\b/i, 'wikipedia.org'],
+  [/\breddit\b/i, 'reddit.com'],
+  [/\bstack ?overflow\b/i, 'stackoverflow.com'],
+  [/\bproduct ?hunt\b/i, 'producthunt.com'],
+  [/\barxiv\b/i, 'arxiv.org'],
+  [/\bweather\b/i, 'wttr.in'],
+];
+function guessDomains(text) {
+  const found = new Set();
+  for (const m of String(text || '').matchAll(/\b([a-z0-9-]+\.[a-z]{2,}(?:\.[a-z]{2,})?)\b/gi)) found.add(m[1].toLowerCase());
+  for (const [re, host] of HOST_HINTS) if (re.test(text || '')) found.add(host);
+  return [...found].slice(0, 10);
+}
 
 /**
  * Read an automation out of something someone said.
@@ -1088,7 +1114,12 @@ function buildAutomationIntentRequest({ text, now = Date.now() } = {}) {
       'commands there: imperative, self-contained, second person to the assistant, the schedule',
       'words removed. "every morning at 9, check Hacker News and give me the five most interesting',
       'AI stories" becomes cron "0 9 * * *" and instruction "Check Hacker News and report the five',
-      'most interesting AI stories, with a one-line reason each."',
+      'most interesting AI stories, with a one-line reason each." and domains ["news.ycombinator.com"].',
+      '',
+      'In "domains" list the bare hostnames the task must reach — infer the obvious ones from the',
+      'task ("Hacker News" is news.ycombinator.com, "my GitHub notifications" is github.com), and',
+      'leave it [] when the task touches no website. It is the only web the automation will be able',
+      'to reach, so include every host it needs and nothing it does not.',
       '',
       'Unstated minute is 0. Unstated days means every day. "Morning" without an hour is 9,',
       '"afternoon" is 14, "evening" is 18 — but prefer an hour they actually said.',
@@ -1206,6 +1237,7 @@ function heuristicIntent(text, now = Date.now()) {
     app: '',
     site: '',
     instruction,
+    domains: guessDomains(instruction),
     confident: true,
     reason: '',
   };
@@ -1244,7 +1276,7 @@ function heuristicEvent(raw, lower) {
   if (!instruction) return null;
   const site = /\.[a-z]{2,}(\/|$)/i.test(what) || /^www\./i.test(what);
   const filter = site ? { site: what.replace(/^(https?:\/\/)?(www\.)?/i, '').replace(/\/.*$/, '').toLowerCase() } : { app: what };
-  return { isAutomation: true, when: 'event', name: nameFor(instruction), cron: '', at: null, app: filter.app || '', site: filter.site || '', instruction, confident: true, reason: '' };
+  return { isAutomation: true, when: 'event', name: nameFor(instruction), cron: '', at: null, app: filter.app || '', site: filter.site || '', instruction, domains: guessDomains(instruction), confident: true, reason: '' };
 }
 
 /** "in twenty minutes tell me to stretch"; "tomorrow at 3 remind me to call Ana"; "at 6pm tonight …". */
@@ -1305,10 +1337,11 @@ function heuristicOnce(raw, lower, now) {
   for (const c of consumed) rest = rest.replace(c, ' ');
   const instruction = cleanInstruction(rest);
   if (!instruction) return null;
-  return { isAutomation: true, when: 'once', name: nameFor(instruction), cron: '', at, app: '', site: '', instruction, confident: true, reason: '' };
+  return { isAutomation: true, when: 'once', name: nameFor(instruction), cron: '', at, app: '', site: '', instruction, domains: guessDomains(instruction), confident: true, reason: '' };
 }
 
 module.exports = {
+  guessDomains,
   buildAutomationIntentRequest,
   heuristicIntent,
   isoLocal,

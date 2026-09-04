@@ -653,20 +653,22 @@ async function tryAutomation(text) {
   if (!intent || intent.error || !intent.isAutomation || !intent.trigger) return 'no';
   const verdict = await proposeAutomation(intent);
   if (!verdict.keep) return verdict.answer ? 'declined' : 'dropped';
+  const domains = Array.isArray(intent.domains) ? intent.domains : [];
   const res = await window.fren.createAgentAutomation({
     name: intent.name,
     trigger: intent.trigger,
     body: { kind: 'agent', instruction: intent.instruction },
-    // The internet is the one thing the environment reaches today; saying so
-    // on the automation is what lets the broker allow it without asking.
     permissions: ['network.request'],
+    // The web it may reach, and nothing else. Empty means it works without the web.
+    network: { domains },
     source: 'user',
   });
   if (!res || res.error) {
     await speak(`I could not set that up${res && res.error ? `: ${res.error}` : ''}.`);
     return 'kept';
   }
-  await speak(`Done. ${intent.describe[0].toUpperCase() + intent.describe.slice(1)}: ${intent.instruction} It is under Automations if you want to change it.`);
+  const reach = domains.length ? ` It can reach ${domains.join(', ')}, and nothing else.` : '';
+  await speak(`Done. ${intent.describe[0].toUpperCase() + intent.describe.slice(1)}: ${intent.instruction}${reach} It is under Automations if you want to change it.`);
   return 'kept';
 }
 

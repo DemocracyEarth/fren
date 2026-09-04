@@ -86,9 +86,12 @@ runtime is installed, fren uses a container instead. One is created only
 when you keep a proposal fren shows you first, with the schedule and the task
 in words. It does not receive what fren observed about you: not the activity
 timeline, not memories, not screenshots, not browser pages. It receives the
-task, fren's persona (`SOUL.md`), and whatever it fetches itself. Today it
-can reach the internet, which is stated on each automation; a per-domain
-allowlist is planned and until then that sentence is the honest one. What it
+task, fren's persona (`SOUL.md`), and whatever it fetches itself. It reaches
+the web only through fren's own proxy, which lets it out to the exact domains
+its automation declares and refuses every other host; each automation states
+the domains it may reach, and an automation that declares none reaches no
+website at all. The domains are worked out when you create it and shown before
+you keep it, so the reach is a thing you saw and agreed to. What it
 sends back is kept locally, listed under Automations with every run, and
 never sent anywhere by fren. An agent automation does not look at what you are
 doing, so the light does not gate it: it runs on its schedule whether fren is

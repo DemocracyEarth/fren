@@ -104,6 +104,14 @@ const MIGRATIONS = [
       `);
     },
   },
+  {
+    name: '002-automation-network',
+    up(db) {
+      // The egress allowlist an agent automation may reach. JSON {domains:[...]}
+      // or null (no allowlist declared; the environment keeps its current reach).
+      db.exec('ALTER TABLE automations ADD COLUMN network TEXT');
+    },
+  },
 ];
 
 const json = (v) => (v === undefined ? null : JSON.stringify(v));
@@ -128,6 +136,7 @@ function openCoreStore(dbPath) {
   });
   const rowToAutomation = (r) => (!r ? null : {
     id: r.id, name: r.name, trigger: parse(r.trigger), body: parse(r.body), permissions: parse(r.permissions, []),
+    network: parse(r.network, null),
     enabled: !!r.enabled, createdAt: r.created_at, updatedAt: r.updated_at, lastRunAt: r.last_run_at,
     nextRunAt: r.next_run_at, source: r.source, revision: r.revision, pausedByRuntime: r.paused_by_runtime,
     runtimeRef: parse(r.runtime_ref),
@@ -201,19 +210,19 @@ function openCoreStore(dbPath) {
 
     // ---- automations ----------------------------------------------------
     insertAutomation(a) {
-      db.prepare(`INSERT INTO automations (id, name, trigger, body, permissions, enabled, created_at, updated_at,
+      db.prepare(`INSERT INTO automations (id, name, trigger, body, permissions, network, enabled, created_at, updated_at,
                     next_run_at, source, revision, runtime_ref)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`)
-        .run(a.id, a.name, json(a.trigger), json(a.body), json(a.permissions || []), a.enabled === false ? 0 : 1,
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`)
+        .run(a.id, a.name, json(a.trigger), json(a.body), json(a.permissions || []), json(a.network ?? null), a.enabled === false ? 0 : 1,
           a.createdAt, a.updatedAt || a.createdAt, a.nextRunAt ?? null, a.source || 'user', json(a.runtimeRef ?? null));
     },
     updateAutomation(id, patch) {
       const map = {
-        name: 'name', trigger: 'trigger', body: 'body', permissions: 'permissions', enabled: 'enabled',
+        name: 'name', trigger: 'trigger', body: 'body', permissions: 'permissions', network: 'network', enabled: 'enabled',
         updatedAt: 'updated_at', lastRunAt: 'last_run_at', nextRunAt: 'next_run_at', pausedByRuntime: 'paused_by_runtime',
         runtimeRef: 'runtime_ref',
       };
-      const jsonCols = new Set(['trigger', 'body', 'permissions', 'runtime_ref']);
+      const jsonCols = new Set(['trigger', 'body', 'permissions', 'network', 'runtime_ref']);
       const sets = [];
       const args = [];
       for (const [key, col] of Object.entries(map)) {

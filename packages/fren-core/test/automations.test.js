@@ -334,3 +334,27 @@ test('intent: a moment and a "whenever" come back with a ready trigger and a des
   assert.deepEqual(repeat.trigger, { type: 'schedule', cron: '0 9 * * *' });
   await core.stop();
 });
+
+test('an automation carries a normalized egress allowlist that round-trips and reaches the runtime handoff', async () => {
+  const { core, store } = setup();
+  await core.start();
+  await core.startRuntime();
+  const a = await core.automations.create({
+    ...HN,
+    network: { domains: ['https://www.News.ycombinator.com/news', 'api.github.com', 'api.github.com', ''] },
+  });
+  // normalized, de-duped, scheme/www/path stripped
+  assert.deepEqual(a.network.domains, ['news.ycombinator.com', 'api.github.com']);
+  // persisted and read back
+  assert.deepEqual(store.getAutomation(a.id).network.domains, ['news.ycombinator.com', 'api.github.com']);
+  // no allowlist -> null (the environment keeps its current reach)
+  const b = await core.automations.create({ ...HN, name: 'no list', network: { domains: [] } });
+  assert.equal(b.network, null);
+  const c = await core.automations.create({ ...HN, name: 'unset' });
+  assert.equal(c.network, null);
+  // an update can add and later clear the allowlist
+  const upd = await core.automations.update(b.id, { network: { domains: ['example.com'] } });
+  assert.deepEqual(upd.network.domains, ['example.com']);
+  const cleared = await core.automations.update(b.id, { network: { domains: [] } });
+  assert.equal(cleared.network, null);
+});

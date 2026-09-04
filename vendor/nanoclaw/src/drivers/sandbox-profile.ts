@@ -59,7 +59,13 @@ const SHELL_TOOLS = ['/bin/sh', '/bin/bash', '/bin/zsh', '/bin/ls', '/bin/cat', 
 export const NEVER_EXEC = ['/usr/bin/open', '/usr/bin/osascript', '/usr/bin/security', '/usr/bin/sudo', '/usr/bin/su', '/usr/bin/defaults', '/usr/bin/screencapture', '/usr/sbin/systemsetup', '/usr/bin/tccutil', '/usr/bin/launchctl', '/bin/launchctl', '/usr/bin/killall'];
 
 const MACH_ALWAYS = ['com.apple.system.logger', 'com.apple.system.notification_center', 'com.apple.system.opendirectoryd.libinfo'];
-const MACH_TLS = ['com.apple.trustd', 'com.apple.trustd.agent', 'com.apple.SecurityServer', 'com.apple.system.DNSServiceDiscovery', 'com.apple.mDNSResponder'];
+// Cert validation: needed whenever the agent itself terminates TLS — under
+// 'internet' (direct) and under 'proxy' (end-to-end TLS through the CONNECT
+// tunnel; the proxy filters the host but never sees the plaintext).
+const MACH_TLS = ['com.apple.trustd', 'com.apple.trustd.agent', 'com.apple.SecurityServer'];
+// Name resolution: only 'internet' resolves for itself. Under 'proxy' the
+// proxy resolves (the client sends CONNECT host:port), so the agent needs none.
+const MACH_DNS = ['com.apple.system.DNSServiceDiscovery', 'com.apple.mDNSResponder'];
 
 export function renderSandboxProfile(input: SandboxProfileInput): string {
   const runtime = sbPath(input.runtimeDir);
@@ -81,7 +87,7 @@ export function renderSandboxProfile(input: SandboxProfileInput): string {
     '(allow file-ioctl (literal "/dev/null") (literal "/dev/tty") (subpath "/private/var/folders"))',
     '(allow sysctl-read)',
     '(allow ipc-posix-shm-read-data (ipc-posix-name "apple.shm.notification_center"))',
-    `(allow mach-lookup ${MACH_ALWAYS.map((n) => `(global-name "${n}")`).join(' ')}${input.network === 'internet' ? ' ' + MACH_TLS.map((n) => `(global-name "${n}")`).join(' ') : ''})`,
+    `(allow mach-lookup ${MACH_ALWAYS.map((n) => `(global-name "${n}")`).join(' ')}${input.network === 'proxy' || input.network === 'internet' ? ' ' + MACH_TLS.map((n) => `(global-name "${n}")`).join(' ') : ''}${input.network === 'internet' ? ' ' + MACH_DNS.map((n) => `(global-name "${n}")`).join(' ') : ''})`,
   ];
   if (input.network === 'proxy') {
     if (!Number.isInteger(input.proxyPort)) throw new Error('sandbox: the proxy grant needs a port');

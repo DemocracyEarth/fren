@@ -28,6 +28,11 @@ const TIMED = new Set(['schedule', 'at']);
 /** A window that stays in front is one sighting, not one every tick. */
 const EVENT_COOLDOWN_MS = 30 * 60 * 1000;
 
+/** A host as a bare allowlist domain: no scheme, no www, no path, lower-case. */
+function normalizeDomain(d) {
+  return String(d || '').trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').replace(/\/.*$/, '').replace(/:\d+$/, '').slice(0, 120);
+}
+
 /** The trigger an intent reading names, ready for the model. */
 function triggerFromIntent(r) {
   if (r.when === 'once') return { type: 'at', at: r.at };
@@ -58,8 +63,26 @@ function localTimezone() {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; }
 }
 
-function createAutomationService({ store, events, getRuntime, runs, complete = null, now = Date.now, log = () => {} }) {
+function createAutomationService({ store, events, getRuntime, runs, complete = null, now = Date.now, log = () => {}, setEgress = () => {} }) {
   const timezone = localTimezone();
+
+  /**
+   * The environment's egress allowlist: the union of the domains every enabled
+   * agent automation declares. Deny by default — an automation that declares
+   * none contributes nothing, and an install with no declared domain reaches
+   * nothing but the model. Pushed to the sandbox proxy after any change.
+   */
+  function egressPolicy() {
+    const domains = new Set();
+    for (const a of store.listAutomations()) {
+      if (!a.enabled || !a.body || a.body.kind !== 'agent') continue;
+      if (a.network && Array.isArray(a.network.domains)) a.network.domains.forEach((d) => domains.add(d));
+    }
+    return domains.size ? { mode: 'list', hosts: [...domains] } : { mode: 'off', hosts: [] };
+  }
+  function pushEgress() {
+    try { setEgress(egressPolicy()); } catch (err) { log(`[automations] egress push: ${err.message}`); }
+  }
 
   function runtime() {
     return getRuntime();
@@ -98,7 +121,7 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
       } else if (t.type === 'event') {
         const f = t.filter && typeof t.filter === 'object' ? t.filter : {};
         const app = String(f.app || '').trim().slice(0, 80);
-        const site = String(f.site || '').trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').replace(/\/.*$/, '').slice(0, 120);
+        const site = normalizeDomain(f.site);
         if (!app && !site) throw httpError(400, 'a "whenever" needs an app or a site to watch for');
         out.trigger = { type: 'event', event: 'observation', filter: app ? { app } : { site } };
       } else {
@@ -118,6 +141,14 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
       const bad = list.filter((p) => !isScope(p));
       if (bad.length) throw httpError(400, `unknown permission: ${bad.join(', ')}`);
       out.permissions = [...new Set(list)];
+    }
+    if (!partial || input.network !== undefined) {
+      // The domains an agent automation may reach. null (or absent) means no
+      // allowlist was declared — the environment keeps its current reach; a
+      // list confines it to hosts under those domains and nothing else.
+      const raw = input.network && typeof input.network === 'object' && !Array.isArray(input.network) ? input.network.domains : input.network;
+      const domains = [...new Set((Array.isArray(raw) ? raw : []).map(normalizeDomain).filter(Boolean))].slice(0, 30);
+      out.network = domains.length ? { domains } : null;
     }
     if (input.enabled !== undefined) out.enabled = !!input.enabled;
     return out;
@@ -147,6 +178,7 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
       automationId: a.id, name: a.name, cron: a.trigger.cron, at: a.trigger.at, timezone: a.trigger.timezone || timezone,
       instruction: compileInstruction({ name: a.name, instruction: a.body.instruction, deliveryName: `automation-${a.id}` }),
       deliveryName: `automation-${a.id}`, enabled: a.enabled,
+      domains: a.network && Array.isArray(a.network.domains) ? a.network.domains : null,
     };
   }
 
@@ -211,6 +243,7 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
         events.emit('schedule.orphan', { scheduleId: s.id, automationId: s.automationId, name: s.name });
       }
     }
+    pushEgress();
   }
 
   function runtimeGone() {
@@ -234,12 +267,14 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
     const at = now();
     const a = {
       id, name: clean.name, trigger: clean.trigger, body: clean.body, permissions: clean.permissions,
+      network: clean.network || null,
       enabled: clean.enabled !== false, createdAt: at, updatedAt: at,
       source: ['user', 'suggestion', 'agent'].includes(input.source) ? input.source : 'user',
     };
     store.insertAutomation({ ...a, nextRunAt: nextRunFor(a) });
     const synced = await sync(store.getAutomation(id));
     events.emit('automation.created', { automationId: id, name: a.name, describe: describeTrigger(a.trigger, now()) });
+    pushEgress();
     return present(synced);
   }
 
@@ -257,6 +292,7 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
     });
     const synced = await sync(store.getAutomation(id), { intent: 'user' });
     events.emit('automation.updated', { automationId: id, name: synced.name, enabled: synced.enabled });
+    pushEgress();
     return present(synced);
   }
 
@@ -266,6 +302,7 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
     await unsync(a);
     store.deleteAutomation(id);
     events.emit('automation.deleted', { automationId: id, name: a.name });
+    pushEgress();
     return { deleted: true };
   }
 
@@ -329,6 +366,7 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
   function finishOneOff(a, why) {
     store.updateAutomation(a.id, { enabled: false, nextRunAt: null, runtimeRef: null, updatedAt: now() });
     events.emit('automation.updated', { automationId: a.id, name: a.name, enabled: false, done: true, ...(why ? { detail: why } : {}) });
+    pushEgress();
   }
 
   /**
@@ -475,11 +513,13 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
         site = String(parsed.site || '').trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').replace(/\/.*$/, '').slice(0, 120);
         if (!app && !site && heuristic.when === 'event') { app = heuristic.app; site = heuristic.site; }
       }
+      const modelDomains = Array.isArray(parsed.domains) ? parsed.domains : [];
+      const domains = [...new Set(modelDomains.concat(intelligence.guessDomains(instruction)).map(normalizeDomain).filter(Boolean))].slice(0, 30);
       const readable = !!instruction && (
         (when === 'repeat' && !!cron) || (when === 'once' && Number.isFinite(at) && at > now()) || (when === 'event' && !!(app || site)));
       result = readable
-        ? { isAutomation: true, when, name, cron, at, app, site, instruction, reason: '', source: 'model' }
-        : { isAutomation: false, when: 'none', name: '', cron: '', at: null, app: '', site: '', instruction: '', reason: 'could not read a time from that', source: 'model' };
+        ? { isAutomation: true, when, name, cron, at, app, site, instruction, domains, reason: '', source: 'model' }
+        : { isAutomation: false, when: 'none', name: '', cron: '', at: null, app: '', site: '', instruction: '', domains: [], reason: 'could not read a time from that', source: 'model' };
     } else if (parsed) {
       result = { isAutomation: false, when: 'none', name: '', cron: '', at: null, app: '', site: '', instruction: '', reason: String(parsed.reason || '').slice(0, 200), source: 'model' };
     } else {
@@ -493,7 +533,8 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
     return result;
   }
 
-  return { list, get, create, update, remove, runNow, intent, reconcile, runtimeGone, onRuntimeEvent, onObservation, compileInstruction };
+  pushEgress();
+  return { list, get, create, update, remove, runNow, intent, reconcile, runtimeGone, onRuntimeEvent, onObservation, compileInstruction, egressPolicy };
 }
 
 module.exports = { createAutomationService, compileInstruction, MAX_FIRES_PER_DAY };
