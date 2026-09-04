@@ -358,3 +358,71 @@ test('an automation carries a normalized egress allowlist that round-trips and r
   const cleared = await core.automations.update(b.id, { network: { domains: [] } });
   assert.equal(cleared.network, null);
 });
+
+test('the egress ask: noise and no-audience are refused silently, a present person is asked, and the answer is recorded', async () => {
+  const grants = [];
+  const defaults = [];
+  const egress = {
+    setDefault: (p) => defaults.push(p),
+    grantSessionHost: (sid, host) => grants.push({ sid, host }),
+  };
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fren-egress-'));
+  const store = openCoreStore(path.join(dir, 'core.db'));
+  const core = createCore({ store, runtime: createMockRuntime({ replyDelayMs: 2 }), log: () => {}, reprobeMs: 0, egress });
+  await core.start();
+
+  // Noise is refused without a card.
+  assert.equal(await core.askEgress('s1', 'api.anthropic.com'), false);
+  // With nobody present (no running chat run), a real host is still refused.
+  assert.equal(await core.askEgress('s1', 'example.com'), false);
+
+  // A person is present: a running chat run. Now the same host raises a card.
+  store.insertRun({ id: 'run_live', sessionId: 's1', kind: 'chat', status: 'running' });
+  let asked = null;
+  const unsub = core.events.subscribe((e) => { if (e.type === 'permission.requested') asked = e.request; });
+  const pending = core.askEgress('s1', 'example.com');
+  await until(() => asked);
+  assert.match(asked.question, /reach example\.com/);
+  assert.deepEqual(asked.options, ['once', 'always', 'deny']);
+  // Answer "once": granted for the session, not persisted to the default.
+  await core.permissions.decide(asked.id, { decision: 'approve', remember: 'once' });
+  assert.equal(await pending, true);
+  assert.deepEqual(grants, [{ sid: 's1', host: 'example.com' }]);
+
+  // Asked once per session: a second ask for the same host is refused without a card.
+  asked = null;
+  assert.equal(await core.askEgress('s1', 'example.com'), false);
+  assert.equal(asked, null);
+
+  // "always" persists to the trusted set and re-pushes the default.
+  asked = null;
+  const pending2 = core.askEgress('s1', 'weather.example.org');
+  await until(() => asked);
+  await core.permissions.decide(asked.id, { decision: 'approve', remember: 'always' });
+  assert.equal(await pending2, true);
+  assert.equal(JSON.parse(store.getSetting('egress.trusted')).includes('weather.example.org'), true);
+  assert.ok(defaults.some((p) => p && p.hosts && p.hosts.includes('weather.example.org')), 'the trusted host reaches the default');
+
+  unsub();
+  await core.stop();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('a denied egress ask does not grant', async () => {
+  const grants = [];
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fren-egress-'));
+  const store = openCoreStore(path.join(dir, 'core.db'));
+  const core = createCore({ store, runtime: createMockRuntime({ replyDelayMs: 2 }), log: () => {}, reprobeMs: 0, egress: { grantSessionHost: (sid, host) => grants.push({ sid, host }) } });
+  await core.start();
+  store.insertRun({ id: 'run_live', sessionId: 's9', kind: 'chat', status: 'running' });
+  let asked = null;
+  const unsub = core.events.subscribe((e) => { if (e.type === 'permission.requested') asked = e.request; });
+  const pending = core.askEgress('s9', 'tracker.example.com');
+  await until(() => asked);
+  await core.permissions.decide(asked.id, { decision: 'deny' });
+  assert.equal(await pending, false);
+  assert.deepEqual(grants, []);
+  unsub();
+  await core.stop();
+  fs.rmSync(dir, { recursive: true, force: true });
+});

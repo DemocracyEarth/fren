@@ -237,3 +237,47 @@ test('the install-wide default applies to any authenticated session without its 
   await proxy.close();
   target.close();
 });
+
+test('a refused host is held and asked, then allowed or denied on the answer', async () => {
+  const target = http.createServer((_req, res) => { res.writeHead(200); res.end('OK'); });
+  target.listen(0, '127.0.0.1');
+  await once(target, 'listening');
+  const targetPort = target.address().port;
+  const asks = [];
+  let answer = true;
+  const proxy = createSandboxProxy({
+    upstream: chooseUpstream({}), token: 'host-secret', log: () => {},
+    askEgress: async (sessionId, host) => { asks.push({ sessionId, host }); return answer; },
+  });
+  const addr = await proxy.listen(0);
+  const sid = 'sess-ask';
+  const pass = proxy.sessionToken(sid);
+  // No policy: denied by default, so it asks — and the yes lets it through.
+  const yes = await connectThrough(addr.port, `s.${sid}`, pass, `127.0.0.1:${targetPort}`);
+  assert.match(yes.status, /200/, 'a yes to the ask opens the host');
+  yes.sock?.destroy();
+  assert.equal(asks.length, 1);
+  assert.deepEqual(asks[0], { sessionId: sid, host: '127.0.0.1' });
+  // A no refuses.
+  answer = false;
+  const no = await connectThrough(addr.port, `s.${sid}`, pass, `127.0.0.1:${targetPort}`);
+  assert.match(no.status, /403/, 'a no refuses');
+  no.sock?.destroy();
+  // Once granted for the session, it no longer asks.
+  proxy.grantSessionHost(sid, '127.0.0.1');
+  const asksBefore = asks.length;
+  const granted = await connectThrough(addr.port, `s.${sid}`, pass, `127.0.0.1:${targetPort}`);
+  assert.match(granted.status, /200/, 'a granted host needs no ask');
+  granted.sock?.destroy();
+  assert.equal(asks.length, asksBefore, 'no new ask for a granted host');
+  // A host already on the default is never asked.
+  proxy.setDefaultAllow({ mode: 'list', hosts: ['127.0.0.1'] });
+  proxy.clearSession(sid);
+  const nAsk = asks.length;
+  const onList = await connectThrough(addr.port, `s.${sid}`, pass, `127.0.0.1:${targetPort}`);
+  assert.match(onList.status, /200/);
+  onList.sock?.destroy();
+  assert.equal(asks.length, nAsk, 'a listed host is not asked');
+  await proxy.close();
+  target.close();
+});

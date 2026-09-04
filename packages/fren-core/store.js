@@ -112,6 +112,14 @@ const MIGRATIONS = [
       db.exec('ALTER TABLE automations ADD COLUMN network TEXT');
     },
   },
+  {
+    name: '003-settings',
+    up(db) {
+      // Small key/value store for install-wide settings that are Core's, not a
+      // session's — the persistent "always"-trusted egress domains, to begin.
+      db.exec('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)');
+    },
+  },
 ];
 
 const json = (v) => (v === undefined ? null : JSON.stringify(v));
@@ -206,6 +214,15 @@ function openCoreStore(dbPath) {
     /** Runs left open by a previous life of the process. */
     openRuns() {
       return db.prepare(`SELECT * FROM runs WHERE status IN ('queued', 'running')`).all().map(rowToRun);
+    },
+
+    // ---- settings -------------------------------------------------------
+    getSetting(key) {
+      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+      return row ? row.value : null;
+    },
+    setSetting(key, value) {
+      db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
     },
 
     // ---- automations ----------------------------------------------------

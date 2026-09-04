@@ -22,7 +22,16 @@ const SWEEP_MS = 30 * 1000;
 
 function createPermissionBroker({ store, events, getRuntime, now = Date.now, log = () => {}, expiryMs = EXPIRY_MS, sweepMs = SWEEP_MS }) {
   const sessionGrants = new Map(); // sessionId -> Set<scope>, this Core life only
+  const pendingEgress = new Map(); // request id -> resolve({ decision, remember }) for a held CONNECT
   let timer = null;
+
+  /** Answer a held egress ask, if one is waiting on this request. */
+  function resolveEgress(id, decision, remember) {
+    const resolve = pendingEgress.get(id);
+    if (!resolve) return;
+    pendingEgress.delete(id);
+    resolve({ decision, remember });
+  }
 
   function policy() {
     const automationGrants = {};
@@ -82,6 +91,29 @@ function createPermissionBroker({ store, events, getRuntime, now = Date.now, log
     return true;
   }
 
+  /**
+   * The proxy refused a host and is holding the connection. Raise a card and
+   * return a promise that settles when the person answers (or it expires): the
+   * caller records the grant and lets the connection through, or refuses.
+   */
+  function askEgress({ sessionId, host }) {
+    const at = now();
+    const row = {
+      id: newId('perm'), scope: 'network.request', source: 'runtime',
+      subject: { sessionId: sessionId || null, host },
+      detail: {
+        kind: 'egress', host,
+        title: `reach ${host}`,
+        question: `fren wants to reach ${host}. Allow it?`,
+        options: ['once', 'always', 'deny'],
+      },
+      runtimeRequestId: null, createdAt: at, expiresAt: at + expiryMs,
+    };
+    store.insertPermissionRequest(row);
+    events.emit('permission.requested', { request: present(store.getPermissionRequest(row.id)) });
+    return new Promise((resolve) => pendingEgress.set(row.id, resolve));
+  }
+
   function list({ status } = {}) {
     return store.listPermissionRequests({ status }).map(present);
   }
@@ -109,12 +141,14 @@ function createPermissionBroker({ store, events, getRuntime, now = Date.now, log
       sessionGrants.get(row.subject.sessionId).add(row.scope);
     }
     await answerRuntime(row, decision, clean);
+    resolveEgress(id, decision, remember);
     const after = present(store.getPermissionRequest(id));
     events.emit(decision === 'approve' ? 'permission.approved' : 'permission.denied', { request: after, auto: false, rule: 'user', reason: clean });
     return after;
   }
 
   function expire(row, why) {
+    resolveEgress(row.id, 'deny', 'once');
     store.resolvePermissionRequest(row.id, { status: 'expired', decision: 'deny', reason: why, resolvedAt: now() });
     answerRuntime(row, 'deny', why);
     events.emit('permission.expired', { request: present(store.getPermissionRequest(row.id)), reason: why });
@@ -132,6 +166,7 @@ function createPermissionBroker({ store, events, getRuntime, now = Date.now, log
   /** The runtime went away: whatever it was asking no longer exists. */
   function runtimeGone() {
     for (const row of store.listPermissionRequests({ status: 'open' })) expire(row, 'the secure execution environment restarted');
+    for (const id of [...pendingEgress.keys()]) resolveEgress(id, 'deny', 'once');
     sessionGrants.clear();
   }
 
@@ -146,7 +181,7 @@ function createPermissionBroker({ store, events, getRuntime, now = Date.now, log
     timer = null;
   }
 
-  return { onRuntimeEvent, list, get, decide: decideRequest, expireStale, runtimeGone, start, stop, policy };
+  return { onRuntimeEvent, askEgress, list, get, decide: decideRequest, expireStale, runtimeGone, start, stop, policy };
 }
 
 module.exports = { createPermissionBroker, EXPIRY_MS };

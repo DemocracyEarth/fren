@@ -977,7 +977,7 @@ app.whenReady().then(() => {
   ipcMain.handle('fren:decidePermission', passthrough(async (id, decision, opts) => (await gateway.decidePermission(String(id), {
     decision: decision === 'approve' ? 'approve' : 'deny',
     reason: opts && typeof opts.reason === 'string' ? opts.reason.slice(0, 200) : '',
-    remember: opts && opts.remember === 'session' ? 'session' : 'once',
+    remember: opts && ['session', 'always', 'once'].includes(opts.remember) ? opts.remember : 'once',
   })).request));
 
   /**
