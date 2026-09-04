@@ -426,3 +426,67 @@ test('a denied egress ask does not grant', async () => {
   await core.stop();
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('the notify tool asks the first time, remembers "always", and then alerts without asking', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fren-notify-'));
+  const store = openCoreStore(path.join(dir, 'core.db'));
+  const core = createCore({ store, runtime: createMockRuntime({ replyDelayMs: 2 }), log: () => {}, reprobeMs: 0 });
+  await core.start();
+
+  const notified = [];
+  let asked = null;
+  const unsub = core.events.subscribe((e) => {
+    if (e.type === 'permission.requested') asked = e.request;
+    if (e.type === 'notify') notified.push(e);
+  });
+
+  // manifest is what the tools lane advertises
+  assert.deepEqual(core.toolManifest().map((t) => t.name), ['notify']);
+
+  // First call raises a card; approving "always" alerts and persists.
+  const first = core.handleToolCall('notify', { title: 'Deploy done', body: 'It is green.' });
+  await until(() => asked);
+  assert.match(asked.question, /wants to send you a notification.*Deploy done/);
+  assert.deepEqual(asked.options, ['once', 'always', 'deny']);
+  await core.permissions.decide(asked.id, { decision: 'approve', remember: 'always' });
+  const r1 = await first;
+  assert.equal(r1.isError, undefined);
+  assert.equal(notified.length, 1);
+  assert.equal(notified[0].title, 'Deploy done');
+  assert.equal(store.getSetting('tools.notify'), 'allowed');
+
+  // Now it alerts with no card at all.
+  asked = null;
+  const r2 = await core.handleToolCall('notify', { title: 'Second' });
+  assert.equal(asked, null, 'no card once always-allowed');
+  assert.equal(r2.text, 'Shown.');
+  assert.equal(notified.length, 2);
+
+  // A missing title is refused; an unknown tool errors.
+  assert.equal((await core.handleToolCall('notify', {})).isError, true);
+  assert.equal((await core.handleToolCall('nope', {})).isError, true);
+
+  unsub();
+  await core.stop();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('a denied notification does not alert and is not remembered', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fren-notify-'));
+  const store = openCoreStore(path.join(dir, 'core.db'));
+  const core = createCore({ store, runtime: createMockRuntime({ replyDelayMs: 2 }), log: () => {}, reprobeMs: 0 });
+  await core.start();
+  const notified = [];
+  let asked = null;
+  const unsub = core.events.subscribe((e) => { if (e.type === 'permission.requested') asked = e.request; if (e.type === 'notify') notified.push(e); });
+  const pending = core.handleToolCall('notify', { title: 'nope' });
+  await until(() => asked);
+  await core.permissions.decide(asked.id, { decision: 'deny' });
+  const r = await pending;
+  assert.equal(r.isError, true);
+  assert.equal(notified.length, 0);
+  assert.equal(store.getSetting('tools.notify'), null);
+  unsub();
+  await core.stop();
+  fs.rmSync(dir, { recursive: true, force: true });
+});

@@ -87,6 +87,10 @@ const ASK_HOLD_MS = 90 * 1000;
 function createSandboxProxy({ upstream, token = crypto.randomBytes(16).toString('hex'), log = () => {}, requestImpl = null, askEgress = null }) {
   const prefix = '/anthropic';
   let askEgressFn = askEgress;
+  // The FREN tools lane (/mcp): a handler that runs a named tool for the agent
+  // and a manifest describing them. Injected by Core, which gates each tool.
+  let toolHandler = null;
+  let toolManifestFn = () => [];
   // sessionId -> { mode: 'open' | 'list' | 'off', hosts: string[] }
   //   open — forward anywhere (an interactive session, the person present)
   //   list — only hosts under these domains (an automation, confined)
@@ -172,6 +176,9 @@ function createSandboxProxy({ upstream, token = crypto.randomBytes(16).toString(
     // Forward-proxy lane for plain HTTP: an absolute-URI request (the shape a
     // client sends to a proxy). HTTPS arrives as CONNECT, handled separately.
     if (/^https?:\/\//i.test(url)) return handleForward(req, res);
+    // The FREN tools lane: the agent's MCP client talks to it here, direct
+    // (loopback, NO_PROXY-exempt), on the same port and install token.
+    if (url === '/mcp' || url.startsWith('/mcp?') || url.startsWith('/mcp/')) return handleTools(req, res);
     if (!url.startsWith(prefix + '/') && url !== prefix) {
       res.writeHead(404, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({ error: 'not found' }));
@@ -240,6 +247,66 @@ function createSandboxProxy({ upstream, token = crypto.randomBytes(16).toString(
     }
     forward(null);
   });
+
+  /**
+   * The FREN tools lane: a minimal MCP (Streamable-HTTP, JSON-RPC 2.0) server.
+   * The agent's MCP client connects here; the install token authenticates it,
+   * and each tools/call is handed to Core, which gates it before acting. Bodies
+   * are never logged, like the other lanes.
+   */
+  function handleTools(req, res) {
+    if (req.method !== 'POST') {
+      res.writeHead(405, { 'content-type': 'application/json', allow: 'POST' });
+      return res.end(JSON.stringify({ error: 'method not allowed' }));
+    }
+    const auth = req.headers.authorization || '';
+    const presented = auth.startsWith('Bearer ') ? auth.slice(7).trim() : (req.headers['x-api-key'] || '');
+    if (!presented || presented !== token) {
+      res.writeHead(401, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'unauthorized' }));
+    }
+    const chunks = [];
+    let size = 0;
+    req.on('data', (c) => { size += c.length; if (size <= MAX_JSON_BODY) chunks.push(c); });
+    req.on('end', async () => {
+      let msg;
+      try {
+        msg = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+      } catch {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'parse error' } }));
+      }
+      const send = (payload) => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(payload));
+      };
+      const reply = (result) => send({ jsonrpc: '2.0', id: msg.id, result });
+      // A notification (no id) — nothing to answer.
+      if (msg.id === undefined || msg.id === null) {
+        res.writeHead(202);
+        return res.end();
+      }
+      try {
+        if (msg.method === 'initialize') {
+          const wanted = msg.params && typeof msg.params.protocolVersion === 'string' ? msg.params.protocolVersion : '2025-06-18';
+          return reply({ protocolVersion: wanted, capabilities: { tools: {} }, serverInfo: { name: 'fren', version: '1.0.0' } });
+        }
+        if (msg.method === 'tools/list') {
+          return reply({ tools: toolManifestFn() });
+        }
+        if (msg.method === 'tools/call') {
+          const params = msg.params || {};
+          if (!toolHandler) return reply({ content: [{ type: 'text', text: 'tools are not available' }], isError: true });
+          const out = await toolHandler(String(params.name || ''), params.arguments || {});
+          return reply({ content: [{ type: 'text', text: String((out && out.text) || '') }], isError: !!(out && out.isError) });
+        }
+        if (msg.method === 'ping') return reply({});
+        return send({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: `method not found: ${msg.method}` } });
+      } catch (err) {
+        return send({ jsonrpc: '2.0', id: msg.id, error: { code: -32603, message: 'internal error' } });
+      }
+    });
+  }
 
   /** Plain-HTTP forward proxy: authenticate the session, check the host, relay. */
   function handleForward(req, res) {
@@ -335,6 +402,11 @@ function createSandboxProxy({ upstream, token = crypto.randomBytes(16).toString(
     /** Wire (or replace) the asker Core answers refused hosts with. */
     setAskEgress(fn) {
       askEgressFn = fn;
+    },
+    /** Wire the FREN tools lane: a runner of a named tool and a manifest of them. */
+    setToolHandler(handler, manifest) {
+      toolHandler = handler || null;
+      if (typeof manifest === 'function') toolManifestFn = manifest;
     },
     /** Record an "allow once" answer: this session may now reach this host. */
     grantSessionHost(sessionId, host) {

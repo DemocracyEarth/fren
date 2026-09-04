@@ -281,3 +281,39 @@ test('a refused host is held and asked, then allowed or denied on the answer', a
   await proxy.close();
   target.close();
 });
+
+test('the tools lane speaks MCP: initialize, tools/list, and a gated tools/call', async () => {
+  const calls = [];
+  const proxy = createSandboxProxy({ upstream: chooseUpstream({}), token: 'host-secret', log: () => {} });
+  proxy.setToolHandler(async (name, args) => { calls.push({ name, args }); return name === 'notify' ? { text: 'Shown.' } : { isError: true, text: 'unknown' }; },
+    () => [{ name: 'notify', description: 'Show a notification', inputSchema: { type: 'object', properties: { title: { type: 'string' } }, required: ['title'] } }]);
+  const addr = await proxy.listen(0);
+  const rpc = (body, headers = {}) => fetch(`http://127.0.0.1:${addr.port}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer host-secret', ...headers }, body: JSON.stringify(body) });
+
+  // Auth: the install token is required.
+  assert.equal((await fetch(`http://127.0.0.1:${addr.port}/mcp`, { method: 'POST', headers: { authorization: 'Bearer wrong' }, body: '{}' })).status, 401);
+  // GET is refused.
+  assert.equal((await fetch(`http://127.0.0.1:${addr.port}/mcp`, { headers: { authorization: 'Bearer host-secret' } })).status, 405);
+
+  const init = await (await rpc({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })).json();
+  assert.equal(init.result.serverInfo.name, 'fren');
+  assert.ok(init.result.capabilities.tools);
+
+  // A notification (no id) is accepted with no body.
+  assert.equal((await rpc({ jsonrpc: '2.0', method: 'notifications/initialized' })).status, 202);
+
+  const list = await (await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' })).json();
+  assert.deepEqual(list.result.tools.map((t) => t.name), ['notify']);
+
+  const call = await (await rpc({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'notify', arguments: { title: 'hi' } } })).json();
+  assert.equal(call.result.isError, false);
+  assert.equal(call.result.content[0].text, 'Shown.');
+  assert.deepEqual(calls, [{ name: 'notify', args: { title: 'hi' } }]);
+
+  const bad = await (await rpc({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'nope', arguments: {} } })).json();
+  assert.equal(bad.result.isError, true);
+
+  const unknown = await (await rpc({ jsonrpc: '2.0', id: 5, method: 'resources/list' })).json();
+  assert.equal(unknown.error.code, -32601);
+  await proxy.close();
+});

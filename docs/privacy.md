@@ -103,6 +103,16 @@ doing, so the light does not gate it: it runs on its schedule whether fren is
 watching or paused, and stops when fren quits. If an agent asks for something
 beyond what it was granted, fren asks you, and an unanswered request is a no.
 
+An agent can also ask fren to *do* a few things for you through fren's own
+tools, reached over the same one loopback door as the model, and each one is
+fren's to grant, not the agent's to take. Today that is a notification: an
+agent that has something for you — a result you asked to be alerted about — can
+ask fren to show you a desktop notification. The first time, fren asks whether
+to allow it and remembers your answer, the way the operating system asks once
+before an app may notify you; after that, an allowed automation can reach you
+even while you are away. The notification carries only the words the agent
+wrote; the agent never gets your attention without fren's leave.
+
 **Script automations** are the older kind, and this is the one thing fren does
 that changes your machine rather than reading it, so the constraints are worth
 stating plainly.
