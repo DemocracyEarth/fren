@@ -105,13 +105,21 @@ beyond what it was granted, fren asks you, and an unanswered request is a no.
 
 An agent can also ask fren to *do* a few things for you through fren's own
 tools, reached over the same one loopback door as the model, and each one is
-fren's to grant, not the agent's to take. Today that is a notification: an
-agent that has something for you — a result you asked to be alerted about — can
-ask fren to show you a desktop notification. The first time, fren asks whether
-to allow it and remembers your answer, the way the operating system asks once
-before an app may notify you; after that, an allowed automation can reach you
-even while you are away. The notification carries only the words the agent
-wrote; the agent never gets your attention without fren's leave.
+fren's to grant, not the agent's to take. One is a notification: an agent that
+has something for you — a result you asked to be alerted about — can ask fren
+to show you a desktop notification. The first time, fren asks whether to allow
+it and remembers your answer, the way the operating system asks once before an
+app may notify you; after that, an allowed automation can reach you even while
+you are away. The notification carries only the words the agent wrote.
+
+The other is reading the page you are looking at. The contents of the pages you
+visit live only in the app on your machine and are never sent to the core or
+the environment on their own — the environment only ever learns *where* you are
+(the address and title), never *what the page says*. So when an agent asks to
+read the page, fren asks you first, names the site, and only on your yes fetches
+that one page from the app and hands it over — once, or always if you let it.
+Turn fren's light off, or be on a page you excluded, and there is nothing to
+hand over. The agent never sees a page you did not agree to show it.
 
 **Script automations** are the older kind, and this is the one thing fren does
 that changes your machine rather than reading it, so the constraints are worth

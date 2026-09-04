@@ -441,7 +441,7 @@ test('the notify tool asks the first time, remembers "always", and then alerts w
   });
 
   // manifest is what the tools lane advertises
-  assert.deepEqual(core.toolManifest().map((t) => t.name), ['notify']);
+  assert.deepEqual(core.toolManifest().map((t) => t.name), ['notify', 'browser_read']);
 
   // First call raises a card; approving "always" alerts and persists.
   const first = core.handleToolCall('notify', { title: 'Deploy done', body: 'It is green.' });
@@ -486,6 +486,86 @@ test('a denied notification does not alert and is not remembered', async () => {
   assert.equal(r.isError, true);
   assert.equal(notified.length, 0);
   assert.equal(store.getSetting('tools.notify'), null);
+  unsub();
+  await core.stop();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+function mockRes() { return { writeHead() { return this; }, setHeader() {}, end() {}, statusCode: 0 }; }
+
+test('browser.read asks, then pulls the page from the desktop on the person\'s yes', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fren-br-'));
+  const store = openCoreStore(path.join(dir, 'core.db'));
+  const core = createCore({ store, runtime: createMockRuntime({ replyDelayMs: 2 }), log: () => {}, reprobeMs: 0 });
+  await core.start();
+  // fren already knows which domain (trimmed), from an observation.
+  core.observations.publish({ timestamp: Date.now(), source: 'browser', type: 'page', payload: { domain: 'news.ycombinator.com', title: 'HN', url: 'https://news.ycombinator.com/' } });
+
+  let asked = null; let requestId = null;
+  const unsub = core.events.subscribe((e) => {
+    if (e.type === 'permission.requested') asked = e.request;
+    // stand in for the desktop: answer the request with the current page
+    if (e.type === 'browser.read.request') {
+      requestId = e.id;
+      core.handle({ method: 'POST' }, mockRes(), '/v1/browser-read', { id: e.id, page: { title: 'Hacker News', url: 'https://news.ycombinator.com/', content: 'Top story: a thing happened.' } }, {});
+    }
+  });
+
+  assert.ok(core.toolManifest().some((t) => t.name === 'browser_read'));
+
+  const call = core.handleToolCall('browser_read', {});
+  await until(() => asked);
+  assert.match(asked.question, /read the page you are looking at.*news\.ycombinator\.com/);
+  assert.deepEqual(asked.options, ['once', 'always', 'deny']);
+  await core.permissions.decide(asked.id, { decision: 'approve', remember: 'once' });
+  const out = await call;
+  assert.ok(requestId, 'a request event was emitted');
+  assert.equal(out.isError, undefined);
+  assert.match(out.text, /# Hacker News/);
+  assert.match(out.text, /news\.ycombinator\.com/);
+  assert.match(out.text, /Top story: a thing happened\./);
+
+  unsub();
+  await core.stop();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('a denied browser.read returns nothing and never requests the page', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fren-br-'));
+  const store = openCoreStore(path.join(dir, 'core.db'));
+  const core = createCore({ store, runtime: createMockRuntime({ replyDelayMs: 2 }), log: () => {}, reprobeMs: 0 });
+  await core.start();
+  let asked = null; let requested = false;
+  const unsub = core.events.subscribe((e) => { if (e.type === 'permission.requested') asked = e.request; if (e.type === 'browser.read.request') requested = true; });
+  const call = core.handleToolCall('browser_read', {});
+  await until(() => asked);
+  await core.permissions.decide(asked.id, { decision: 'deny' });
+  const out = await call;
+  assert.equal(out.isError, true);
+  assert.equal(requested, false, 'the page is never requested on a deny');
+  unsub();
+  await core.stop();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('an allowed read of a private/absent page returns an absence, not content', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fren-br-'));
+  const store = openCoreStore(path.join(dir, 'core.db'));
+  const core = createCore({ store, runtime: createMockRuntime({ replyDelayMs: 2 }), log: () => {}, reprobeMs: 0 });
+  await core.start();
+  let asked = null;
+  const unsub = core.events.subscribe((e) => {
+    if (e.type === 'permission.requested') asked = e.request;
+    if (e.type === 'browser.read.request') core.handle({ method: 'POST' }, mockRes(), '/v1/browser-read', { id: e.id, page: null }, {}); // desktop: light off / excluded
+  });
+  const call = core.handleToolCall('browser_read', {});
+  await until(() => asked);
+  await core.permissions.decide(asked.id, { decision: 'approve', remember: 'always' });
+  const out = await call;
+  assert.equal(out.isError, true);
+  assert.match(out.text, /not available/);
+  // "always" persisted, so a second read skips the card
+  assert.equal(store.getSetting('tools.browserRead'), 'allowed');
   unsub();
   await core.stop();
   fs.rmSync(dir, { recursive: true, force: true });
