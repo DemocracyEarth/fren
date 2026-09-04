@@ -688,12 +688,18 @@ function buildCore(provider) {
   });
   // The fast lane's model, for reading intent out of what someone said.
   // The environment's one exit is the sandbox proxy; its allowlist is the union
-  // of the domains the enabled automations declare. FREN_EGRESS=open keeps the
-  // old open reach for anyone who needs it; the default confines.
-  const setEgressAllow = (policy) => sandbox.setDefaultAllow(
-    process.env.FREN_EGRESS === 'open' ? { mode: 'open', hosts: [] } : policy,
-  );
-  const core = createCore({ store, runtime, complete: (request) => provider.complete(request), log: console.log, setEgressAllow });
+  // of the domains the enabled automations declare (plus any a person trusted
+  // "always"). FREN_EGRESS=open keeps the old open reach for anyone who needs
+  // it; the default confines.
+  const egress = {
+    setDefault: (policy) => sandbox.setDefaultAllow(
+      process.env.FREN_EGRESS === 'open' ? { mode: 'open', hosts: [] } : policy,
+    ),
+    grantSessionHost: (sessionId, host) => sandbox.grantSessionHost(sessionId, host),
+  };
+  const core = createCore({ store, runtime, complete: (request) => provider.complete(request), log: console.log, egress });
+  // When the proxy refuses a host, it asks Core, which may raise an ask-card.
+  sandbox.setAskEgress(core.askEgress);
   const stop = core.stop.bind(core);
   core.stop = async () => { await stop(); await sandbox.close(); };
   return core;

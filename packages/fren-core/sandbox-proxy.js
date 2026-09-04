@@ -81,8 +81,12 @@ function hostUnderDomain(host, domain) {
   return h === d || h.endsWith(`.${d}`);
 }
 
-function createSandboxProxy({ upstream, token = crypto.randomBytes(16).toString('hex'), log = () => {}, requestImpl = null }) {
+/** How long a held CONNECT waits for a person to answer before it gives up. */
+const ASK_HOLD_MS = 90 * 1000;
+
+function createSandboxProxy({ upstream, token = crypto.randomBytes(16).toString('hex'), log = () => {}, requestImpl = null, askEgress = null }) {
   const prefix = '/anthropic';
+  let askEgressFn = askEgress;
   // sessionId -> { mode: 'open' | 'list' | 'off', hosts: string[] }
   //   open — forward anywhere (an interactive session, the person present)
   //   list — only hosts under these domains (an automation, confined)
@@ -95,6 +99,9 @@ function createSandboxProxy({ upstream, token = crypto.randomBytes(16).toString(
   // the model host — nothing else. Null means deny (an install with no
   // automation that declares a domain reaches nothing but the model).
   let defaultAllow = null;
+  // Hosts a person allowed on the spot for one session (an "allow once" answer
+  // to an ask-card). Additive over the policy, and gone when the session clears.
+  const sessionGrantedHosts = new Map(); // sessionId -> Set<host/domain>
 
   /** Recover the session id from a CONNECT/forward request's proxy credential, or null. */
   function egressSession(req) {
@@ -123,11 +130,32 @@ function createSandboxProxy({ upstream, token = crypto.randomBytes(16).toString(
 
   /** May this session reach this host? Deny-by-default; the model host is not decided here. */
   function egressAllowed(sessionId, host) {
+    const granted = sessionGrantedHosts.get(sessionId);
+    if (granted) { for (const d of granted) if (hostUnderDomain(host, d)) return true; }
     const policy = sessionAllow.get(sessionId) || defaultAllow;
     if (!policy) return false;
     if (policy.mode === 'open') return true;
     if (policy.mode === 'off') return false;
     return policy.hosts.some((d) => hostUnderDomain(host, d));
+  }
+
+  /**
+   * A host was refused. Ask the person (if Core wired an asker), holding the
+   * connection meanwhile, and resolve to whether it may now proceed. The wait
+   * is bounded and abandoned if the client hangs up first; a "yes" that lands
+   * after that still records the grant, so the agent's retry gets through.
+   */
+  function holdAndAsk(sessionId, host, clientSocket) {
+    if (!askEgressFn) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      let done = false;
+      const settle = (v) => { if (done) return; done = true; clearTimeout(timer); clientSocket.removeListener('close', onGone); clientSocket.removeListener('error', onGone); resolve(v); };
+      const onGone = () => settle(false);
+      const timer = setTimeout(() => settle(false), ASK_HOLD_MS);
+      clientSocket.on('close', onGone);
+      clientSocket.on('error', onGone);
+      Promise.resolve(askEgressFn(sessionId, host)).then((ok) => settle(!!ok)).catch(() => settle(false));
+    });
   }
 
   /** Coerce a policy input into {mode, hosts}; null clears (deny). */
@@ -249,7 +277,7 @@ function createSandboxProxy({ upstream, token = crypto.randomBytes(16).toString(
   }
 
   // HTTPS (and any tunnelled protocol): authenticate, check the host, splice raw.
-  server.on('connect', (req, clientSocket, head) => {
+  server.on('connect', async (req, clientSocket, head) => {
     const sessionId = egressSession(req);
     if (!sessionId) {
       clientSocket.write('HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="fren-egress"\r\n\r\n');
@@ -258,7 +286,13 @@ function createSandboxProxy({ upstream, token = crypto.randomBytes(16).toString(
     const [rawHost, rawPort] = String(req.url || '').split(':');
     const host = normalizeHost(rawHost);
     const port = Number(rawPort) || 443;
-    if (!host || !egressAllowed(sessionId, host)) {
+    let allowed = !!host && egressAllowed(sessionId, host);
+    if (!allowed && host) {
+      // Not on the list — hold the line and ask the person before refusing.
+      allowed = await holdAndAsk(sessionId, host, clientSocket);
+    }
+    if (clientSocket.destroyed) return;
+    if (!allowed) {
       log(`[sandbox] egress DENY ${sessionId} connect ${host}:${port}`);
       clientSocket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
       return clientSocket.destroy();
@@ -296,6 +330,18 @@ function createSandboxProxy({ upstream, token = crypto.randomBytes(16).toString(
     },
     clearSession(sessionId) {
       sessionAllow.delete(sessionId);
+      sessionGrantedHosts.delete(sessionId);
+    },
+    /** Wire (or replace) the asker Core answers refused hosts with. */
+    setAskEgress(fn) {
+      askEgressFn = fn;
+    },
+    /** Record an "allow once" answer: this session may now reach this host. */
+    grantSessionHost(sessionId, host) {
+      const h = normalizeHost(host);
+      if (!h) return;
+      if (!sessionGrantedHosts.has(sessionId)) sessionGrantedHosts.set(sessionId, new Set());
+      sessionGrantedHosts.get(sessionId).add(h);
     },
     /** The fallback policy for every authenticated session without its own. */
     setDefaultAllow(spec) {

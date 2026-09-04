@@ -482,7 +482,7 @@ function createAutomationService({ store, events, getRuntime, runs, complete = n
   async function intent(text) {
     const clean = String(text || '').trim().slice(0, 2000);
     if (!clean) throw httpError(400, 'text is required');
-    const heuristic = intelligence.heuristicIntent(clean);
+    const heuristic = intelligence.heuristicIntent(clean, now());
     let parsed = null;
     if (complete) {
       try {

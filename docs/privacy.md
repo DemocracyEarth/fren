@@ -91,7 +91,12 @@ the web only through fren's own proxy, which lets it out to the exact domains
 its automation declares and refuses every other host; each automation states
 the domains it may reach, and an automation that declares none reaches no
 website at all. The domains are worked out when you create it and shown before
-you keep it, so the reach is a thing you saw and agreed to. What it
+you keep it, so the reach is a thing you saw and agreed to. When you are there
+talking to fren and something it is doing needs a host it was not given, fren
+holds the connection and asks — reach this one site, once or always, or no —
+rather than failing quietly; a yes opens exactly that host (an "always" is
+remembered for next time) and nothing else, and if no one answers, the answer
+is no. What it
 sends back is kept locally, listed under Automations with every run, and
 never sent anywhere by fren. An agent automation does not look at what you are
 doing, so the light does not gate it: it runs on its schedule whether fren is

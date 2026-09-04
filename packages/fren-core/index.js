@@ -25,7 +25,7 @@ const HTTP_STATUS = Symbol('httpStatus');
 const accepted = (payload) => ({ ...payload, [HTTP_STATUS]: 202 });
 const PRUNE_AFTER_MS = 30 * 24 * 3600 * 1000;
 
-function createCore({ runTimeoutMs, scheduleTimeoutMs, store, runtime, complete = null, now = Date.now, log = console.log, reprobeMs = REPROBE_MS, setEgressAllow = () => {} }) {
+function createCore({ runTimeoutMs, scheduleTimeoutMs, store, runtime, complete = null, now = Date.now, log = console.log, reprobeMs = REPROBE_MS, egress = {} }) {
   if (runtime) assertRuntime(runtime);
   const events = createEventLog({ store, now, log });
   const observations = createObservationBus();
@@ -34,10 +34,62 @@ function createCore({ runTimeoutMs, scheduleTimeoutMs, store, runtime, complete 
   let reprobeTimer = null;
   let starting = null;
 
+  // The environment's egress reach, set on the sandbox proxy: the union of the
+  // domains enabled automations declare, plus the domains a person has trusted
+  // "always" through an ask-card. `grantHost` records an "allow once" answer.
+  const setEgressDefault = egress.setDefault || (() => {});
+  const grantEgressHost = egress.grantSessionHost || (() => {});
+  let trustedDomains = [];
+  try { trustedDomains = JSON.parse(store.getSetting('egress.trusted') || '[]'); } catch { trustedDomains = []; }
+  function pushEgress(autoPolicy) {
+    if (autoPolicy && autoPolicy.mode === 'open') return setEgressDefault({ mode: 'open', hosts: [] });
+    const hosts = new Set(trustedDomains);
+    if (autoPolicy && autoPolicy.mode === 'list') autoPolicy.hosts.forEach((h) => hosts.add(h));
+    setEgressDefault(hosts.size ? { mode: 'list', hosts: [...hosts] } : { mode: 'off', hosts: [] });
+  }
+  function trustDomain(host) {
+    const h = String(host || '').toLowerCase();
+    if (!h || trustedDomains.includes(h)) return;
+    trustedDomains.push(h);
+    store.setSetting('egress.trusted', JSON.stringify(trustedDomains));
+    pushEgress(automations.egressPolicy());
+  }
+
   const runs = createRunService({ store, events, getRuntime: () => runtime, now, log, runTimeoutMs, scheduleTimeoutMs });
-  const automations = createAutomationService({ store, events, getRuntime: () => runtime, runs, complete, now, log, setEgress: setEgressAllow });
+  const automations = createAutomationService({ store, events, getRuntime: () => runtime, runs, complete, now, log, setEgress: pushEgress });
   const permissions = createPermissionBroker({ store, events, getRuntime: () => runtime, now, log });
   const services = { runs, automations, permissions };
+
+  // Hosts the agent reaches that are noise, not the task — refuse them silently
+  // rather than ask about them. Telemetry and infra the environment should not
+  // reach anyway; asking would be a card storm.
+  const EGRESS_NOISE = [/(^|\.)anthropic\.com$/, /(^|\.)statsig\.(com|anthropic\.com)$/, /(^|\.)sentry\.io$/, /(^|\.)segment\.(io|com)$/, /(^|\.)datadoghq\.com$/, /(^|\.)amplitude\.com$/, /(^|\.)google-analytics\.com$/, /(^|\.)doubleclick\.net$/];
+  const askedHosts = new Map(); // sessionId -> Set<host>, so one host is asked once a session
+  /** Is a person present and waiting — an interactive chat run underway? */
+  function interactivePresent() {
+    try { return store.listRuns({ status: 'running' }).some((r) => r.kind === 'chat'); } catch { return false; }
+  }
+  /**
+   * The proxy refused a host. Decide whether to ask, and answer whether it may
+   * proceed: never for noise, never twice for the same host in a session, never
+   * when no one is present to answer. Otherwise raise a card and wait; on yes,
+   * record the grant ("once" for the session, "always" persisted) and allow.
+   */
+  async function askEgress(sessionId, host) {
+    const h = String(host || '').toLowerCase();
+    if (!h || EGRESS_NOISE.some((re) => re.test(h))) return false;
+    const asked = askedHosts.get(sessionId) || new Set();
+    if (asked.has(h)) return false;
+    if (!interactivePresent()) return false;
+    asked.add(h);
+    askedHosts.set(sessionId, asked);
+    let answer;
+    try { answer = await permissions.askEgress({ sessionId, host: h }); } catch { return false; }
+    if (!answer || answer.decision !== 'approve') return false;
+    if (answer.remember === 'always') trustDomain(h);
+    else grantEgressHost(sessionId, h);
+    return true;
+  }
   // What the desktop notices reaches the automations that wait for it.
   observations.subscribe(null, (obs) => { automations.onObservation(obs).catch((err) => log(`[automations] observation: ${err.message}`)); });
 
@@ -199,7 +251,7 @@ function createCore({ runTimeoutMs, scheduleTimeoutMs, store, runtime, complete 
   }
 
   return {
-    events, observations, runs, automations, permissions, services,
+    events, observations, runs, automations, permissions, services, askEgress,
     handle, owns, start, stop, startRuntime, stopRuntime,
     runtimeStatus: () => runtimeStatus,
     runtimeKind: () => (runtime ? runtime.kind : null),
