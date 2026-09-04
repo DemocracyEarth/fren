@@ -2188,6 +2188,39 @@ function stopBeckoning() {
   beckonTimer = null;
 }
 
+/**
+ * The first-run offer to set up browser awareness: a friendly line and a card.
+ * The primary button opens the Web Store (once published) or the extension
+ * folder for a developer load; "Not now" waves it off for good.
+ */
+function browserSetupCard({ storeUrl } = {}) {
+  const viaStore = !!storeUrl;
+  const pitch = viaStore
+    ? "Want me to see what you're reading in your browser? I use a small extension — one click to add it, and then I can help with whatever's on your screen."
+    : "Want me to see what you're reading in your browser? I use a small extension. To add it: open chrome://extensions, turn on Developer mode, choose “Load unpacked,” and pick the folder I'll open for you.";
+  speak(pitch, {
+    after(bubble) {
+      const row = document.createElement('div');
+      row.className = 'chips';
+      const primary = document.createElement('button');
+      primary.className = 'chip';
+      primary.textContent = viaStore ? 'Add to Chrome' : 'Open the folder';
+      const no = document.createElement('button');
+      no.className = 'chip';
+      no.textContent = 'Not now';
+      primary.addEventListener('click', async () => {
+        try { await window.fren.openBrowserExtension(); } catch { /* nothing more to do */ }
+        primary.textContent = viaStore ? 'Opening…' : 'Opened — load it from chrome://extensions';
+        primary.disabled = true;
+      });
+      no.addEventListener('click', () => { try { window.fren.dismissBrowserSetup(); } catch { /* fine */ } row.remove(); });
+      row.append(primary, no);
+      bubble.append(row);
+      scrollDown();
+    },
+  });
+}
+
 async function onSuggestion({ message }) {
   // Show it on the tab regardless of whether it is spoken: noticing is
   // visible, interrupting is opt-in.
@@ -2267,6 +2300,10 @@ scheduleWander();
 
   window.fren.onSuggestion(onSuggestion);
   window.fren.onCurious(onCurious);
+  // First run: offer to add the browser extension, so fren can see the page
+  // you are on. One card, dismissable; a paired browser is confirmed with a hello.
+  window.fren.onBrowserSetup((s) => sayWhenFree(() => browserSetupCard(s || {})));
+  window.fren.onBrowserConnected(() => sayWhenFree(() => speak('There you are — I can see your browser now. ✓')));
   // Wear whatever colour was chosen. Before anything is drawn, so fren never
   // appears in the default and then changes.
   const wearColour = (hex) => {

@@ -38,6 +38,10 @@ module.exports = {
   BROWSER_CONTENT_MAX_CHARS: 24_000,
   BROWSER_SELECTION_MAX_CHARS: 2_000,
   BROWSER_HEARTBEAT_MS: 30_000,
+  // The extension's Web Store page. Empty until published: first-run onboarding
+  // then guides the developer load-unpacked path. Set it (or FREN_BROWSER_STORE_URL)
+  // and onboarding flips to a one-click "Add to Chrome" with no other change.
+  BROWSER_EXTENSION_STORE_URL: process.env.FREN_BROWSER_STORE_URL || '',
   BROWSER_STALE_MS: 75_000,         // no heartbeat for this long = disconnected
 
   // Gateway

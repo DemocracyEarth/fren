@@ -17,6 +17,9 @@ contextBridge.exposeInMainWorld('fren', {
   setBrowserSettings: (patch) => ipcRenderer.invoke('fren:setBrowserSettings', patch),
   openBrowserExtension: () => ipcRenderer.invoke('fren:openBrowserExtension'),
   onBrowserState: (fn) => ipcRenderer.on('fren:browserState', (_e, s) => fn(s)),
+  onBrowserSetup: (cb) => ipcRenderer.on('fren:browserSetup', (_e, s) => cb(s)),
+  onBrowserConnected: (cb) => ipcRenderer.on('fren:browserConnected', () => cb()),
+  dismissBrowserSetup: () => ipcRenderer.invoke('fren:dismissBrowserSetup'),
   // The orb's advanced look: read, write (null clears), and hear about changes.
   getOrbLook: () => ipcRenderer.invoke('fren:getOrbLook'),
   setOrbLook: (look) => ipcRenderer.invoke('fren:setOrbLook', look),
