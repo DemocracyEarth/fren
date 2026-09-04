@@ -89,6 +89,7 @@ module.exports = {
     request('/v1/summarize', { method: 'POST', body: { observations } }),
   // What was noticed, for the automations that wait for it. Local, and kept in memory for a day.
   observe: (observations) => request('/v1/observations', { method: 'POST', body: { observations }, timeoutMs: 5_000 }),
+  browserRead: (body) => request('/v1/browser-read', { method: 'POST', body, timeoutMs: 5_000 }),
   chat: (payload) => request('/v1/chat', { method: 'POST', body: payload, timeoutMs: 90_000 }),
   extract: (payload) => request('/v1/extract', { method: 'POST', body: payload, timeoutMs: 20_000 }),
   pattern: (payload) => request('/v1/pattern', { method: 'POST', body: payload, timeoutMs: 60_000 }),

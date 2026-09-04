@@ -572,6 +572,22 @@ function broadcast(channel, payload) {
   }
 }
 
+/**
+ * Answer a browser-read request from Core: the one page the person is on, with
+ * its content, but only when the light is on and the page is not private. The
+ * content leaves this process only here, and only because they approved it.
+ */
+function respondBrowserRead(id) {
+  let page = null;
+  try {
+    const ctx = currentBrowserContext();
+    if (ctx && ctx.tab && ctx.tab.url && ctx.page && !ctx.page.excluded && ctx.page.content) {
+      page = { title: ctx.tab.title || '', url: ctx.tab.url || '', domain: ctx.tab.domain || '', content: ctx.page.content || '' };
+    }
+  } catch { /* treat as not available */ }
+  gateway.browserRead({ id, page }).catch(() => {});
+}
+
 /** A native OS notification from fren; clicking it brings fren forward. */
 function showOsNotification({ title, body }) {
   try {
@@ -959,6 +975,10 @@ app.whenReady().then(() => {
     } else if (e.type === 'notify' && e.title) {
       // The agent asked to reach the person; fren already got their go-ahead.
       showOsNotification({ title: String(e.title), body: String(e.body || '') });
+    } else if (e.type === 'browser.read.request' && e.id) {
+      // Core (with the person's go-ahead) wants the page they are on. The
+      // content lives only here; hand back this one page, or an absence.
+      respondBrowserRead(e.id);
     }
     broadcast('fren:coreEvent', e);
   }

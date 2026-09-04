@@ -109,6 +109,14 @@ function createCore({ runTimeoutMs, scheduleTimeoutMs, store, runtime, complete 
         required: ['title'],
       },
     },
+    {
+      name: 'browser_read',
+      description:
+        'Read the web page the person is currently looking at — its title, address, and readable text — so ' +
+        'you can act on what is in front of them. fren asks their permission each time (or once, if they let ' +
+        'it always). Returns nothing if their browser light is off, the page is private, or they decline.',
+      inputSchema: { type: 'object', properties: {}, required: [] },
+    },
   ];
   function toolManifest() {
     return TOOL_MANIFEST;
@@ -138,6 +146,50 @@ function createCore({ runTimeoutMs, scheduleTimeoutMs, store, runtime, complete 
     return true;
   }
 
+  // Reading the page the person is on. The content lives in the desktop, not
+  // here, and Core only pushes to the desktop — so a read is a request event
+  // the desktop answers by posting the page back (POST /v1/browser-read), which
+  // settles the promise. It crosses to the agent only after the person allows
+  // it, and only the one page. `latestBrowser` is the trimmed {domain} fren
+  // already sees, used to name the page in the ask — never the content.
+  let latestBrowser = null;
+  observations.subscribe({ source: 'browser', type: 'page' }, (obs) => {
+    const p = obs && obs.payload && typeof obs.payload === 'object' ? obs.payload : {};
+    latestBrowser = { domain: String(p.domain || ''), title: String(p.title || ''), at: now() };
+  });
+  const browserReadPending = new Map(); // requestId -> resolve(page|null)
+  const BROWSER_READ_TIMEOUT_MS = 6_000;
+  function requestBrowserRead() {
+    const id = `br_${Math.random().toString(36).slice(2, 12)}`;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => { if (browserReadPending.delete(id)) resolve(null); }, BROWSER_READ_TIMEOUT_MS);
+      if (timer.unref) timer.unref();
+      // Register the waiter BEFORE asking, so even an instant answer is caught.
+      browserReadPending.set(id, (page) => { clearTimeout(timer); resolve(page || null); });
+      events.emit('browser.read.request', { id });
+    });
+  }
+  let browserReadAllowed = store.getSetting('tools.browserRead') === 'allowed';
+  async function askBrowserRead() {
+    if (!browserReadAllowed) {
+      const where = latestBrowser && latestBrowser.domain ? ` (${latestBrowser.domain})` : '';
+      let answer;
+      try {
+        answer = await permissions.ask({
+          kind: 'browser-read', scope: 'browser.read', subject: {},
+          title: 'read the page you are looking at',
+          question: `fren wants to read the page you are looking at${where}. Allow it?`,
+          options: ['once', 'always', 'deny'],
+        });
+      } catch {
+        return null;
+      }
+      if (!answer || answer.decision !== 'approve') return null;
+      if (answer.remember === 'always') { browserReadAllowed = true; store.setSetting('tools.browserRead', 'allowed'); }
+    }
+    return requestBrowserRead();
+  }
+
   /** Run a tool the agent called, gating each through the broker before it acts. */
   async function handleToolCall(name, args) {
     const a = args && typeof args === 'object' ? args : {};
@@ -147,7 +199,25 @@ function createCore({ runTimeoutMs, scheduleTimeoutMs, store, runtime, complete 
       const ok = await askNotify({ title, body: a.body });
       return ok ? { text: 'Shown.' } : { isError: true, text: 'The person did not allow that notification.' };
     }
+    if (name === 'browser_read') {
+      const page = await askBrowserRead();
+      if (!page) return { isError: true, text: 'The page is not available — the person declined, their browser light is off, or the page is private.' };
+      const parts = [];
+      if (page.title) parts.push(`# ${String(page.title).slice(0, 200)}`);
+      if (page.url) parts.push(String(page.url).slice(0, 500));
+      if (page.content) parts.push('', String(page.content).slice(0, 16_000));
+      return { text: parts.join('\n') || '(the page had no readable text)' };
+    }
     return { isError: true, text: `unknown tool: ${name}` };
+  }
+
+  /** The desktop's answer to a browser-read request: the page, or an absence. */
+  function fulfillBrowserRead(id, page) {
+    const resolve = browserReadPending.get(String(id));
+    if (!resolve) return false;
+    browserReadPending.delete(String(id));
+    resolve(page || null);
+    return true;
   }
   // What the desktop notices reaches the automations that wait for it.
   observations.subscribe(null, (obs) => { automations.onObservation(obs).catch((err) => log(`[automations] observation: ${err.message}`)); });
@@ -275,6 +345,9 @@ function createCore({ runTimeoutMs, scheduleTimeoutMs, store, runtime, complete 
     return accepted({ accepted: count });
   });
 
+  // The desktop answering a browser-read request with the page (or an absence).
+  route('POST', '/v1/browser-read', (_p, body) => ({ ok: fulfillBrowserRead(body && body.id, body && body.page) }));
+
   route('GET', '/v1/events', (_p, _b, query, req, res) => {
     let since = req.headers['last-event-id'] || query.since || 0;
     if (since === 'latest') since = events.lastId(); // no history, only what happens next
@@ -283,7 +356,7 @@ function createCore({ runTimeoutMs, scheduleTimeoutMs, store, runtime, complete 
   });
 
   function owns(pathname) {
-    return /^\/v1\/(runtime|sessions|runs|automations|permissions|observations|events)(\/|$)/.test(pathname);
+    return /^\/v1\/(runtime|sessions|runs|automations|permissions|observations|browser-read|events)(\/|$)/.test(pathname);
   }
 
   /**
