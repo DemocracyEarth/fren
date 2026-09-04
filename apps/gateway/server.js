@@ -700,6 +700,8 @@ function buildCore(provider) {
   const core = createCore({ store, runtime, complete: (request) => provider.complete(request), log: console.log, egress });
   // When the proxy refuses a host, it asks Core, which may raise an ask-card.
   sandbox.setAskEgress(core.askEgress);
+  // The tools lane (/mcp): the agent's tool calls run through Core, gated.
+  sandbox.setToolHandler(core.handleToolCall, core.toolManifest);
   const stop = core.stop.bind(core);
   core.stop = async () => { await stop(); await sandbox.close(); };
   return core;

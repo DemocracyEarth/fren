@@ -92,26 +92,36 @@ function createPermissionBroker({ store, events, getRuntime, now = Date.now, log
   }
 
   /**
-   * The proxy refused a host and is holding the connection. Raise a card and
-   * return a promise that settles when the person answers (or it expires): the
-   * caller records the grant and lets the connection through, or refuses.
+   * Raise a card fren is waiting on, and return a promise that settles with the
+   * person's answer ({ decision, remember }) — or a deny on expiry/restart. The
+   * general shape behind both the egress hold and a tool that pauses to ask.
    */
-  function askEgress({ sessionId, host }) {
+  function ask({ kind, scope, subject, title, question, options }) {
     const at = now();
     const row = {
-      id: newId('perm'), scope: 'network.request', source: 'runtime',
-      subject: { sessionId: sessionId || null, host },
-      detail: {
-        kind: 'egress', host,
-        title: `reach ${host}`,
-        question: `fren wants to reach ${host}. Allow it?`,
-        options: ['once', 'always', 'deny'],
-      },
+      id: newId('perm'), scope: scope || 'unknown', source: 'runtime',
+      subject: subject || {},
+      detail: { kind, title, question, options: options || ['approve', 'deny'] },
       runtimeRequestId: null, createdAt: at, expiresAt: at + expiryMs,
     };
     store.insertPermissionRequest(row);
     events.emit('permission.requested', { request: present(store.getPermissionRequest(row.id)) });
     return new Promise((resolve) => pendingEgress.set(row.id, resolve));
+  }
+
+  /**
+   * The proxy refused a host and is holding the connection. Raise a card and
+   * return a promise that settles when the person answers (or it expires): the
+   * caller records the grant and lets the connection through, or refuses.
+   */
+  function askEgress({ sessionId, host }) {
+    return ask({
+      kind: 'egress', scope: 'network.request',
+      subject: { sessionId: sessionId || null, host },
+      title: `reach ${host}`,
+      question: `fren wants to reach ${host}. Allow it?`,
+      options: ['once', 'always', 'deny'],
+    });
   }
 
   function list({ status } = {}) {
@@ -181,7 +191,7 @@ function createPermissionBroker({ store, events, getRuntime, now = Date.now, log
     timer = null;
   }
 
-  return { onRuntimeEvent, askEgress, list, get, decide: decideRequest, expireStale, runtimeGone, start, stop, policy };
+  return { onRuntimeEvent, ask, askEgress, list, get, decide: decideRequest, expireStale, runtimeGone, start, stop, policy };
 }
 
 module.exports = { createPermissionBroker, EXPIRY_MS };

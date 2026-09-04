@@ -507,7 +507,11 @@ function createNanoclawRuntime(opts) {
     supervisor.onExit(onHostExit);
     supervisor.start();
     await Promise.all([bridge.waitForPeer(connectTimeoutMs), waitForNcl(connectTimeoutMs)]);
-    const entities = await ensureEntities({ ncl, timezone, model, log });
+    // The tools server lives on the sandbox proxy, at the tier-correct origin
+    // (127.0.0.1 for the process tier, host.docker.internal for a container).
+    const frenOrigin = (tierChosen === 'process' ? processProbe.sandboxUrlFor(sandboxUrl) : sandboxUrl) || '';
+    const toolsUrl = frenOrigin ? frenOrigin.replace(/\/anthropic\/?$/, '/mcp') : null;
+    const entities = await ensureEntities({ ncl, timezone, model, log, toolsUrl, toolsToken: sandboxToken });
     agentGroupId = entities.agentGroupId;
     writePersona(null);
     schedules = createScheduleStore({ ncl, agentGroupId, log });

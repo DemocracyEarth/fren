@@ -38,7 +38,7 @@ async function createIfMissing(ncl, exists, command, args) {
  * @param {(msg: string) => void} [opts.log]
  * @returns {Promise<{ agentGroupId: string, messagingGroupId: string, steps: Record<string,string> }>}
  */
-async function ensureEntities({ ncl, timezone, model, displayName = 'you', log = () => {} }) {
+async function ensureEntities({ ncl, timezone, model, displayName = 'you', toolsUrl = null, toolsToken = null, log = () => {} }) {
   const steps = {};
 
   // 1. The agent group: fren's workspace.
@@ -58,6 +58,22 @@ async function ensureEntities({ ncl, timezone, model, displayName = 'you', log =
   } catch (err) {
     steps.config = `skipped: ${err.message}`;
     log(`[runtime] group config not applied: ${err.message}`);
+  }
+
+  // 2b. FREN's own tool server, so the agent can do things for its owner (notify
+  // them, …), each gated by fren. A fixed loopback URL on the sandbox proxy,
+  // authorised by the same token the model lane uses. Takes effect next spawn.
+  if (toolsUrl && toolsToken) {
+    try {
+      await ncl.call('groups-config-add-mcp-server', {
+        id: agentGroupId, name: 'fren', url: toolsUrl,
+        headers: JSON.stringify({ Authorization: `Bearer ${toolsToken}` }),
+      });
+      steps.tools = 'wired';
+    } catch (err) {
+      steps.tools = `skipped: ${err.message}`;
+      log(`[runtime] fren tools not wired: ${err.message}`);
+    }
   }
 
   // 3. The owner, and their role.

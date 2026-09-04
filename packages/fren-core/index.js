@@ -90,6 +90,65 @@ function createCore({ runTimeoutMs, scheduleTimeoutMs, store, runtime, complete 
     else grantEgressHost(sessionId, h);
     return true;
   }
+
+  // ---- FREN tools: what an agent can ask fren to do for it, each gated -------
+  // The manifest the tool server (the proxy's /mcp lane) hands the agent.
+  const TOOL_MANIFEST = [
+    {
+      name: 'notify',
+      description:
+        'Show the person a desktop notification: a short title and an optional line of body. Use it to reach ' +
+        'them about something worth their attention — a result they asked to be alerted about, a heads-up while ' +
+        'they are away. It is not for conversation; ordinary replies still go through send_message.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'A few words: the headline of the notification.' },
+          body: { type: 'string', description: 'One or two sentences of detail. Optional.' },
+        },
+        required: ['title'],
+      },
+    },
+  ];
+  function toolManifest() {
+    return TOOL_MANIFEST;
+  }
+
+  // Whether the person has let fren show them notifications. Asked once (like an
+  // OS notification prompt) and remembered, so an automation can alert them
+  // later even while they are away.
+  let notifyAllowed = store.getSetting('tools.notify') === 'allowed';
+  async function askNotify({ title, body }) {
+    if (!notifyAllowed) {
+      let answer;
+      try {
+        answer = await permissions.ask({
+          kind: 'notify', scope: 'notification.send', subject: {},
+          title: 'send you a notification',
+          question: `fren wants to send you a notification: "${title}". Allow it?`,
+          options: ['once', 'always', 'deny'],
+        });
+      } catch {
+        return false;
+      }
+      if (!answer || answer.decision !== 'approve') return false;
+      if (answer.remember === 'always') { notifyAllowed = true; store.setSetting('tools.notify', 'allowed'); }
+    }
+    events.emit('notify', { title: String(title).slice(0, 120), body: String(body || '').slice(0, 400), at: now() });
+    return true;
+  }
+
+  /** Run a tool the agent called, gating each through the broker before it acts. */
+  async function handleToolCall(name, args) {
+    const a = args && typeof args === 'object' ? args : {};
+    if (name === 'notify') {
+      const title = String(a.title || '').trim().slice(0, 120);
+      if (!title) return { isError: true, text: 'a notification needs a title' };
+      const ok = await askNotify({ title, body: a.body });
+      return ok ? { text: 'Shown.' } : { isError: true, text: 'The person did not allow that notification.' };
+    }
+    return { isError: true, text: `unknown tool: ${name}` };
+  }
   // What the desktop notices reaches the automations that wait for it.
   observations.subscribe(null, (obs) => { automations.onObservation(obs).catch((err) => log(`[automations] observation: ${err.message}`)); });
 
@@ -251,7 +310,7 @@ function createCore({ runTimeoutMs, scheduleTimeoutMs, store, runtime, complete 
   }
 
   return {
-    events, observations, runs, automations, permissions, services, askEgress,
+    events, observations, runs, automations, permissions, services, askEgress, handleToolCall, toolManifest,
     handle, owns, start, stop, startRuntime, stopRuntime,
     runtimeStatus: () => runtimeStatus,
     runtimeKind: () => (runtime ? runtime.kind : null),

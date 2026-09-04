@@ -1,7 +1,7 @@
 // Electron main process: creates the mascot window and wires the loop
 // observe -> remember -> summarize -> chat. Owns the observation on/off state.
 const path = require('path');
-const { app, BrowserWindow, ipcMain, screen, protocol, net, shell, dialog, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, protocol, net, shell, dialog, Menu, Notification } = require('electron');
 const arrival = require('./arrival');
 const { pathToFileURL } = require('node:url');
 const { config, loadEnv } = require('../../../packages/shared');
@@ -572,6 +572,18 @@ function broadcast(channel, payload) {
   }
 }
 
+/** A native OS notification from fren; clicking it brings fren forward. */
+function showOsNotification({ title, body }) {
+  try {
+    if (!Notification || !Notification.isSupported()) return;
+    const n = new Notification({ title: title.slice(0, 120), body: (body || '').slice(0, 400), silent: false });
+    n.on('click', () => { try { recenter(); setPanelOpen(true); } catch { /* window gone */ } });
+    n.show();
+  } catch (err) {
+    log(`[notify] could not show: ${err.message}`);
+  }
+}
+
 /** The light status every window may know. Never page content. */
 function broadcastBrowserState() {
   if (!browserSensor) return;
@@ -944,6 +956,9 @@ app.whenReady().then(() => {
       // What the agent said in the conversation belongs in the transcript, the
       // same as a reply from the fast lane.
       remember('fren', e.message.text);
+    } else if (e.type === 'notify' && e.title) {
+      // The agent asked to reach the person; fren already got their go-ahead.
+      showOsNotification({ title: String(e.title), body: String(e.body || '') });
     }
     broadcast('fren:coreEvent', e);
   }
