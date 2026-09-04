@@ -285,8 +285,9 @@ what fren notices on your desktop; see [docs/privacy.md](docs/privacy.md).
 An agent automation runs in isolation: its own workspace, no access to your
 files or accounts unless you grant it, and the model reached through fren's
 own proxy so no key ever enters the environment. It does not receive what fren
-observed about you. Today the environment can reach the internet; that is
-stated on the automation and in [docs/privacy.md](docs/privacy.md). The
+observed about you. It reaches the web only through fren's proxy, which lets it
+out to the exact domains its automation declares and nothing else; the reach is
+stated on each automation and in [docs/privacy.md](docs/privacy.md). The
 environment is the vendored runtime host in `vendor/nanoclaw`. On a Mac nothing
 else is needed: `npm run runtime:build -- --runner` installs the runner, and
 fren runs each agent as a process confined by macOS itself (the system

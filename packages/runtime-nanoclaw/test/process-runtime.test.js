@@ -24,7 +24,7 @@ test('finds the sandbox, a Bun, the runner, and the newest desktop Claude Code',
   assert.equal(found.bun, path.join(HOME, '.bun/bin/bun'));
   assert.equal(found.claude, appClaude('2.1.255'));
   assert.equal(found.reason, null);
-  assert.deepEqual(pr.hostEnv(found), { NANOCLAW_RUNTIME_DRIVER: 'process', NANOCLAW_PROCESS_BUN: found.bun, NANOCLAW_PROCESS_CLAUDE: found.claude });
+  assert.deepEqual(pr.hostEnv(found), { NANOCLAW_RUNTIME_DRIVER: 'process', NANOCLAW_PROCESS_BUN: found.bun, NANOCLAW_PROCESS_CLAUDE: found.claude, NANOCLAW_PROCESS_NETWORK: 'proxy' });
 });
 
 test('an explicit FREN_BUN and FREN_CLAUDE win over whatever else is around', () => {

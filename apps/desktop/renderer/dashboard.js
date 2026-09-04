@@ -334,6 +334,11 @@ function agentAutomationCard(a) {
   gates.append(gate('In the secure environment', a.runtimeState === 'scheduled',
     a.runtimeState === 'waiting' ? 'waiting for it' : ''));
   card.append(gates);
+  // What the environment will let this automation reach on the web, in words.
+  const domains = a.network && Array.isArray(a.network.domains) ? a.network.domains : [];
+  card.append(el('p', 'caveat', domains.length
+    ? `Can reach: ${domains.join(', ')} — nothing else.`
+    : 'Reaches no websites — it works from the model and its own workspace.'));
   if (a.pausedByRuntime) {
     card.append(el('p', 'caveat', `Stopped by the secure execution environment: ${a.pausedByRuntime}. Fix what it does, then resume it.`));
   }

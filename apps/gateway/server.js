@@ -687,7 +687,13 @@ function buildCore(provider) {
     model: upstream.model,
   });
   // The fast lane's model, for reading intent out of what someone said.
-  const core = createCore({ store, runtime, complete: (request) => provider.complete(request), log: console.log });
+  // The environment's one exit is the sandbox proxy; its allowlist is the union
+  // of the domains the enabled automations declare. FREN_EGRESS=open keeps the
+  // old open reach for anyone who needs it; the default confines.
+  const setEgressAllow = (policy) => sandbox.setDefaultAllow(
+    process.env.FREN_EGRESS === 'open' ? { mode: 'open', hosts: [] } : policy,
+  );
+  const core = createCore({ store, runtime, complete: (request) => provider.complete(request), log: console.log, setEgressAllow });
   const stop = core.stop.bind(core);
   core.stop = async () => { await stop(); await sandbox.close(); };
   return core;
