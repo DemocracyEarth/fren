@@ -18,7 +18,7 @@ const dumpAt = process.argv.indexOf('--env-dump');
 if (dumpAt > 0) require('fs').writeFileSync(process.argv[dumpAt + 1], JSON.stringify(process.env));
 const corePath = process.env.FREN_CORE_SOCKET;
 const token = process.env.FREN_RUNTIME_TOKEN;
-const dataDir = path.join(process.cwd(), 'data');
+const dataDir = path.join(process.env.NANOCLAW_DATA_ROOT || process.cwd(), 'data');
 fs.mkdirSync(dataDir, { recursive: true });
 const nclPath = path.join(dataDir, 'ncl.sock');
 

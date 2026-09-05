@@ -663,6 +663,10 @@ function pickRuntime(provider, { sandboxUrl, sandboxToken, model }) {
   const { createNanoclawRuntime } = require('../../packages/runtime-nanoclaw');
   return createNanoclawRuntime({
     dataDir: config.DATA_DIR, runtimeDir, sandboxUrl, sandboxToken, model,
+    // Where the host writes its state (data/groups/store). The read-only code
+    // stays at runtimeDir; a packaged app sets FREN_RUNTIME_STATE_DIR to a
+    // writable user-data path. Unset, state lives beside the code as before.
+    stateDir: process.env.FREN_RUNTIME_STATE_DIR || runtimeDir,
     // FREN_RUNTIME_TIER: process (sandboxed process, nothing to install) | container | auto.
     tier: process.env.FREN_RUNTIME_TIER || 'auto',
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, log: console.log,

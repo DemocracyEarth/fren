@@ -367,3 +367,35 @@ test('an answer that beats the watch to a due row still lands on one run, the on
     await rt.stop();
   }
 });
+
+test('the host writes its state where stateDir points, and the socket moves with it', async () => {
+  const base = fs.mkdtempSync(path.join('/tmp', 'frn-'));
+  const stateDir = path.join(base, 'state');
+  const envDump = path.join(base, 'env.json');
+  const rt = makeRuntime({
+    base, stateDir,
+    hostCommand: [process.execPath, [FAKE_HOST, '--env-dump', envDump]],
+  });
+  await rt.start();
+  try {
+    // the host is told the writable root, and the control socket lives under it
+    const env = JSON.parse(fs.readFileSync(envDump, 'utf8'));
+    assert.equal(env.NANOCLAW_DATA_ROOT, stateDir);
+    assert.ok(fs.existsSync(path.join(stateDir, 'data')), 'the state data dir was created');
+  } finally {
+    await rt.stop();
+  }
+});
+
+test('stateDir defaults to runtimeDir, so nothing moves unless asked', async () => {
+  const base = fs.mkdtempSync(path.join('/tmp', 'frn-'));
+  const envDump = path.join(base, 'env.json');
+  const rt = makeRuntime({ base, hostCommand: [process.execPath, [FAKE_HOST, '--env-dump', envDump]] });
+  await rt.start();
+  try {
+    const env = JSON.parse(fs.readFileSync(envDump, 'utf8'));
+    assert.equal(env.NANOCLAW_DATA_ROOT, rt.testDirs.runtimeDir);
+  } finally {
+    await rt.stop();
+  }
+});
