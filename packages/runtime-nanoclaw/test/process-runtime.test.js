@@ -47,7 +47,7 @@ test('says what is missing, the first thing to do first', () => {
   const found = pr.detect(machine([pr.SANDBOX_EXEC, appClaude('2.1.255')]));
   assert.equal(found.available, false);
   assert.equal(found.reason, 'Bun is not installed; the agent runner is not installed');
-  assert.match(found.hint, /bun\.sh/);
+  assert.match(found.hint, /first run|FREN_BUN/);
 });
 
 test('is not offered outside macOS', () => {

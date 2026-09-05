@@ -21,6 +21,7 @@ const { RuntimeUnavailable, newId, isTerminal } = require('../runtime');
 const { parseCron } = require('../shared/cron');
 const containerRuntime = require('./container-runtime');
 const processRuntime = require('./process-runtime');
+const runtimeSetup = require('./runtime-setup');
 const { createNclClient } = require('./ncl-client');
 const { createBridge } = require('./bridge');
 const { createSupervisor } = require('./supervisor');
@@ -431,7 +432,18 @@ function createNanoclawRuntime(opts) {
   async function ensureHostReady() {
     if (!skipContainerProbe) {
       const want = String(tier || 'auto').toLowerCase();
-      const proc = want === 'container' ? null : processProbe.detect({ runtimeDir });
+      let proc = want === 'container' ? null : processProbe.detect({ runtimeDir, dataDir });
+      // First run: fetch what the no-container tier is missing (a Bun, Claude
+      // Code, the runner's deps), reporting each step, so the person installs
+      // nothing by hand. On a machine that already has them, this does nothing.
+      if (proc && !proc.available && want !== 'container' && process.platform === 'darwin' && proc.sandbox) {
+        try {
+          await runtimeSetup.setup({ runtimeDir, dataDir, found: proc, onProgress: (m) => setState('starting', { reason: m }) });
+          proc = processProbe.detect({ runtimeDir, dataDir });
+        } catch (err) {
+          log(`[runtime] first-run setup could not finish: ${err.message}`);
+        }
+      }
       if (proc && proc.available) {
         tierChosen = 'process';
         tierFound = proc;
