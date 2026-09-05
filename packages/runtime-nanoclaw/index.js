@@ -104,6 +104,10 @@ function createNanoclawRuntime(opts) {
     scheduleWatchMs = SCHEDULE_WATCH_MS, settleGraceMs = SETTLE_GRACE_MS,
   } = opts;
   if (!dataDir || !runtimeDir) throw new Error('the runtime needs dataDir and runtimeDir');
+  // Where the host writes: data, groups, store. Defaults to the code dir; a
+  // packaged app points it at a writable user-data path (NANOCLAW_DATA_ROOT).
+  const stateDir = opts.stateDir || runtimeDir;
+  fs.mkdirSync(path.join(stateDir, 'data'), { recursive: true });
 
   let state = 'stopped';
   let since = 0;
@@ -129,7 +133,7 @@ function createNanoclawRuntime(opts) {
   const runtimeToken = crypto.randomBytes(24).toString('hex');
   const slug = installSlug(runtimeDir);
   const socketPath = bridgeSocketPath(dataDir);
-  const nclPath = path.join(runtimeDir, 'data', 'ncl.sock');
+  const nclPath = path.join(stateDir, 'data', 'ncl.sock');
 
   const bridge = createBridge({ socketPath, token: runtimeToken, onFrame, log });
   const ncl = createNclClient({ socketPath: nclPath });
@@ -408,9 +412,9 @@ function createNanoclawRuntime(opts) {
 
   /** Write the standing instructions when they changed. Takes effect at the next spawn. */
   function writePersona(persona) {
-    const text = composePersona(persona, { workspace: tierChosen === 'process' ? path.join(runtimeDir, 'groups', GROUP_FOLDER) : null });
+    const text = composePersona(persona, { workspace: tierChosen === 'process' ? path.join(stateDir, 'groups', GROUP_FOLDER) : null });
     if (text === personaText) return;
-    const dir = path.join(runtimeDir, 'groups', GROUP_FOLDER);
+    const dir = path.join(stateDir, 'groups', GROUP_FOLDER);
     try {
       fs.mkdirSync(dir, { recursive: true });
       const file = path.join(dir, 'instructions.prepend.md');
@@ -476,8 +480,8 @@ function createNanoclawRuntime(opts) {
       try { return execFileSync('git', ['-C', runtimeDir, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return 'unknown'; }
     };
     const marker = { version, commit: git(['rev-parse', 'HEAD']), tree: git(['rev-parse', 'HEAD^{tree}']), updatedAt: new Date(now()).toISOString(), via: 'fren-core' };
-    fs.mkdirSync(path.join(runtimeDir, 'data'), { recursive: true });
-    fs.writeFileSync(path.join(runtimeDir, 'data', 'upgrade-state.json'), JSON.stringify(marker, null, 2) + '\n');
+    fs.mkdirSync(path.join(stateDir, 'data'), { recursive: true });
+    fs.writeFileSync(path.join(stateDir, 'data', 'upgrade-state.json'), JSON.stringify(marker, null, 2) + '\n');
   }
 
   function hostEnv() {
@@ -492,6 +496,7 @@ function createNanoclawRuntime(opts) {
       FREN_SANDBOX_URL: (tierChosen === 'process' ? processProbe.sandboxUrlFor(sandboxUrl) : sandboxUrl) || '',
       FREN_SANDBOX_TOKEN: sandboxToken || '',
       NANOCLAW_GATEWAY_PROVIDER: 'fren',
+      NANOCLAW_DATA_ROOT: stateDir,
       NANOCLAW_NO_DIAGNOSTICS: '1',
       LOG_LEVEL: process.env.FREN_RUNTIME_LOG_LEVEL || 'info',
       ...(tierChosen === 'process' ? processProbe.hostEnv(tierFound) : {}),
@@ -509,7 +514,7 @@ function createNanoclawRuntime(opts) {
 
   async function boot() {
     fs.mkdirSync(dataDir, { recursive: true });
-    fs.mkdirSync(path.join(runtimeDir, 'data'), { recursive: true });
+    fs.mkdirSync(path.join(stateDir, 'data'), { recursive: true });
     await bridge.listen();
     supervisor = createSupervisor({
       runtimeDir, env: hostEnv(), logDir: path.join(dataDir, 'logs'), log,
@@ -690,7 +695,7 @@ function createNanoclawRuntime(opts) {
     if (scheduleWatch) { scheduleWatch.stop(); scheduleWatch = null; }
     if (supervisor) await supervisor.stop();
     if (!skipContainerProbe && tierChosen === 'process') {
-      try { await processProbe.stopAll(runtimeDir); } catch (err) { log(`[runtime] agent processes not stopped: ${err.message}`); }
+      try { await processProbe.stopAll(stateDir); } catch (err) { log(`[runtime] agent processes not stopped: ${err.message}`); }
     } else if (!skipContainerProbe && tierChosen === 'container') {
       try { await probe.stopLabeled(`nanoclaw-install=${slug}`); } catch (err) { log(`[runtime] containers not stopped: ${err.message}`); }
     }

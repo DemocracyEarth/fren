@@ -67,12 +67,21 @@ export const ASSISTANT_HAS_OWN_NUMBER =
 const PROJECT_ROOT = process.cwd();
 const HOME_DIR = process.env.HOME || os.homedir();
 
+// The writable state (data, groups, store) may live apart from the read-only
+// code, so a packaged app can bundle the host and keep everything it writes
+// under a user-data directory. NANOCLAW_DATA_ROOT relocates it; unset, it is
+// the project root as before. The install identity (INSTALL_SLUG) and the code
+// surfaces (container/*) stay on PROJECT_ROOT — only what the host writes moves.
+const STATE_ROOT = process.env.NANOCLAW_DATA_ROOT
+  ? path.resolve(process.env.NANOCLAW_DATA_ROOT)
+  : PROJECT_ROOT;
+
 // Mount security: allowlist stored OUTSIDE project root, never mounted into containers
 export const MOUNT_ALLOWLIST_PATH = path.join(HOME_DIR, '.config', 'nanoclaw', 'mount-allowlist.json');
 export const SENDER_ALLOWLIST_PATH = path.join(HOME_DIR, '.config', 'nanoclaw', 'sender-allowlist.json');
-export const STORE_DIR = path.resolve(PROJECT_ROOT, 'store');
-export const GROUPS_DIR = path.resolve(PROJECT_ROOT, 'groups');
-export const DATA_DIR = path.resolve(PROJECT_ROOT, 'data');
+export const STORE_DIR = path.resolve(STATE_ROOT, 'store');
+export const GROUPS_DIR = path.resolve(STATE_ROOT, 'groups');
+export const DATA_DIR = path.resolve(STATE_ROOT, 'data');
 export const CENTRAL_DB_PATH = path.join(DATA_DIR, 'v2.db');
 // Local agent-template library. Committed but ships empty (+ README). Resolved
 // once at load. Override to another LOCAL path via NANOCLAW_TEMPLATES_DIR; never
