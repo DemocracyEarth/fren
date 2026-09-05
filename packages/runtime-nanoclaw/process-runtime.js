@@ -47,9 +47,11 @@ function onPath(name, env) {
 }
 
 /** Where a Bun may be, most deliberate first. */
-function bunCandidates(env = process.env) {
+function bunCandidates(env = process.env, dataDir = null) {
   return [
     env.FREN_BUN,
+    // fren's own managed Bun (first-run setup) is preferred over the machine's.
+    dataDir ? path.join(dataDir, 'runtime', 'bin', 'bun') : null,
     path.join(home(env), '.bun', 'bin', 'bun'),
     '/opt/homebrew/bin/bun',
     '/usr/local/bin/bun',
@@ -74,8 +76,9 @@ function desktopVersions(dir, { readdir = fs.readdirSync } = {}) {
 }
 
 /** Where a native Claude Code may be, most deliberate first. */
-function claudeCandidates(env = process.env, { platform = process.platform, readdir } = {}) {
+function claudeCandidates(env = process.env, { platform = process.platform, readdir, dataDir = null } = {}) {
   const out = [env.FREN_CLAUDE];
+  if (dataDir) out.push(path.join(dataDir, 'runtime', 'claude'));
   if (platform === 'darwin') {
     const app = path.join(home(env), 'Library', 'Application Support', 'Claude', 'claude-code');
     for (const v of desktopVersions(app, readdir ? { readdir } : {})) {
@@ -92,7 +95,7 @@ function claudeCandidates(env = process.env, { platform = process.platform, read
  * @returns {{kind:'process', available:boolean, sandbox:string|null, bun:string|null, claude:string|null,
  *            runnerDeps:boolean, reason:string|null, hint:string|null}}
  */
-function detect({ runtimeDir, env = process.env, platform = process.platform, exists = fs.existsSync, native = isNativeExecutable, readdir } = {}) {
+function detect({ runtimeDir, dataDir = null, env = process.env, platform = process.platform, exists = fs.existsSync, native = isNativeExecutable, readdir } = {}) {
   const found = { kind: 'process', available: false, sandbox: null, bun: null, claude: null, runnerDeps: false, reason: null, hint: null };
   const missing = [];
   if (platform !== 'darwin') {
@@ -100,12 +103,12 @@ function detect({ runtimeDir, env = process.env, platform = process.platform, ex
   }
   found.sandbox = exists(SANDBOX_EXEC) ? SANDBOX_EXEC : null;
   if (!found.sandbox) missing.push(['the macOS sandbox is missing', 'This build of macOS has no sandbox-exec; install Docker Desktop instead.']);
-  found.bun = bunCandidates(env).find((c) => exists(c)) || null;
-  if (!found.bun) missing.push(['Bun is not installed', 'Install Bun (https://bun.sh) or set FREN_BUN to a Bun binary.']);
+  found.bun = bunCandidates(env, dataDir).find((c) => exists(c)) || null;
+  if (!found.bun) missing.push(['Bun is not installed', 'fren can fetch it on first run, or set FREN_BUN to a Bun binary.']);
   found.runnerDeps = Boolean(runtimeDir) && exists(path.join(runtimeDir, 'container', 'agent-runner', 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'package.json'));
-  if (!found.runnerDeps) missing.push(['the agent runner is not installed', 'Run: npm run runtime:build -- --runner']);
-  found.claude = claudeCandidates(env, readdir ? { platform, readdir } : { platform }).find((c) => exists(c) && native(c)) || null;
-  if (!found.claude) missing.push(['Claude Code is not installed', 'Install Claude Code (https://claude.com/claude-code) or set FREN_CLAUDE to its binary.']);
+  if (!found.runnerDeps) missing.push(['the agent runner is not installed', 'fren can install it on first run.']);
+  found.claude = claudeCandidates(env, { platform, dataDir, ...(readdir ? { readdir } : {}) }).find((c) => exists(c) && native(c)) || null;
+  if (!found.claude) missing.push(['Claude Code is not installed', 'fren can fetch it on first run, or set FREN_CLAUDE to its binary.']);
   if (missing.length > 0) {
     found.reason = missing.map(([r]) => r).join('; ');
     found.hint = missing[0][1];
