@@ -16,3 +16,7 @@ vendor/nanoclaw/groups/*
 vendor/nanoclaw/logs/
 vendor/nanoclaw/store/
 vendor/nanoclaw/.env
+
+# Packaging: the bundled stock Node (fetched by scripts/fetch-node.js) and the built app.
+packaging/node
+dist-app/

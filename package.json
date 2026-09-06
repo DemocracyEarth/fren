@@ -3,19 +3,60 @@
   "version": "0.1.0",
   "private": true,
   "description": "fren — a minimal ambient AI companion that lives on your desktop (macOS proof of concept)",
+  "main": "apps/desktop/main/index.js",
   "scripts": {
     "start": "node start.js",
     "gateway": "node apps/gateway/server.js",
     "desktop": "electron apps/desktop",
     "test": "node --test \"packages/shared/test/*.test.js\" \"packages/runtime/test/*.test.js\" \"packages/runtime-mock/test/*.test.js\" \"packages/runtime-nanoclaw/test/*.test.js\" \"packages/fren-core/test/*.test.js\" \"packages/observer/test/*.test.js\" \"packages/permissions/test/*.test.js\" \"packages/memory/test/*.test.js\" \"packages/intelligence/test/*.test.js\" \"apps/gateway/test/*.test.js\" \"apps/desktop/test/*.test.js\" \"apps/browser-extension/test/*.test.js\"",
     "runtime:build": "node scripts/runtime-build.js",
-    "runtime:check": "node scripts/nanoclaw-overlay-check.js"
+    "runtime:check": "node scripts/nanoclaw-overlay-check.js",
+    "fetch-node": "node scripts/fetch-node.js",
+    "pack": "node scripts/pack-app.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1"
   },
   "devDependencies": {
     "electron": "^38.8.6",
+    "electron-builder": "^26.15.3",
     "three": "^0.185.1"
+  },
+  "build": {
+    "appId": "earth.democracy.fren",
+    "productName": "fren",
+    "asar": false,
+    "npmRebuild": false,
+    "directories": {
+      "output": "dist-app",
+      "buildResources": "packaging/build-resources"
+    },
+    "files": [
+      "package.json",
+      "start.js",
+      "apps/**/*",
+      "packages/**/*",
+      "vendor/nanoclaw/package.json",
+      "vendor/nanoclaw/dist/**/*",
+      "vendor/nanoclaw/container/**/*",
+      "vendor/nanoclaw/node_modules/**/*",
+      "!**/test/**",
+      "!**/*.test.js",
+      "!**/.git/**",
+      "!**/*.map",
+      "!**/tsconfig*.json",
+      "!vendor/nanoclaw/**/{data,groups,store,logs,src}/**"
+    ],
+    "extraResources": [
+      {
+        "from": "packaging/node",
+        "to": "node"
+      }
+    ],
+    "mac": {
+      "target": "dir",
+      "identity": null,
+      "category": "public.app-category.productivity"
+    }
   }
 }
