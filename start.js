@@ -27,5 +27,6 @@ function shutdown(code = 0) {
 process.on('SIGINT', () => shutdown(0));
 process.on('SIGTERM', () => shutdown(0));
 
-run('gateway', process.execPath, [path.join(root, 'apps/gateway/server.js')]);
+// The desktop app owns the gateway now — it starts one if none is running, in
+// dev and in a packaged build alike — so the runner only launches the app.
 run('desktop', path.join(root, 'node_modules/.bin/electron'), [path.join(root, 'apps/desktop')]);
