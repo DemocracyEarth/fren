@@ -8,6 +8,7 @@ const { config, loadEnv } = require('../../../packages/shared');
 const { openMemory } = require('../../../packages/memory');
 const state = require('./state');
 const gateway = require('./gatewayClient');
+const { ensureGateway, stopGateway } = require('./gateway-process');
 const { createObserver } = require('./observer');
 const { createBrowserSensor, EVENTS: BROWSER_EVENTS } = require('./browser-sensor');
 const { createBrowserTransport } = require('./browser-transport');
@@ -632,6 +633,11 @@ function currentBrowserContext() {
 
 app.whenReady().then(() => {
   serveRenderer();
+  // The gateway (FREN Core) must be up. The dev runner starts it, so we find it
+  // live and leave it; a packaged app has no runner, so we start it ourselves.
+  // Fire-and-forget: the health checks and the event stream below wait for it.
+  ensureGateway({ health: gateway.health, log }).catch((err) => log(`[gateway] ensure: ${err.message}`));
+
   memory = openMemory(path.join(app.getPath('userData'), 'fren.db'));
 
   // What the desktop notices also reaches Core, where an automation may be
@@ -2106,6 +2112,7 @@ app.on('before-quit', () => {
   // and was then blocked by a dialog asking a question already answered.
   // Choosing "Cancel" there left fren running on a closed database.
   quitting = true;
+  stopGateway();                                  // only if we started it
   if (gazeTimer) clearInterval(gazeTimer);
   if (drag) clearInterval(drag.timer);
   if (observer) observer.stop();

@@ -639,6 +639,17 @@ if (require.main === module) {
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+  // When the desktop app launches the gateway, it hands us its pid. If it goes
+  // away — even a hard kill that skips its own teardown — we go too, rather
+  // than linger and hold the ports. The dev runner sets no pid, so nothing polls.
+  const parentPid = Number(process.env.FREN_PARENT_PID);
+  if (Number.isInteger(parentPid) && parentPid > 1) {
+    console.log(`[gateway] watching launcher pid ${parentPid}`);
+    const watch = setInterval(() => {
+      try { process.kill(parentPid, 0); } catch { console.log('[gateway] launcher gone; shutting down'); shutdown(); }
+    }, 3_000);
+    if (watch.unref) watch.unref();
+  }
 }
 
 /**
