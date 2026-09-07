@@ -672,23 +672,45 @@ app.whenReady().then(() => {
   // granted pairs persist in settings (token hashes only).
   browserSensor = createBrowserSensor({
     onEvent: (type, detail) => {
+      // A browsing signal for the thinking stream — read fresh from the sensor,
+      // never for an excluded page, so a thought can be about the actual page or
+      // the text they just highlighted. The narrator keys off the URL, so moving
+      // around one site keeps producing thoughts while a re-render of the same
+      // page does not, and it holds its own floor so none of this becomes noise.
+      const noteBrowsing = (kind) => {
+        if (!narrator) return;
+        const ctx = currentBrowserContext();
+        if (!ctx || !ctx.tab || (ctx.page && ctx.page.excluded)) return;
+        const tab = ctx.tab;
+        const sel = ctx.selection && ctx.selection.text ? String(ctx.selection.text) : '';
+        narrator.note({
+          kind,
+          url: String(tab.url || '').slice(0, 500),
+          domain: String(tab.domain || ''),
+          pageTitle: String(tab.title || '').slice(0, 200),
+          selection: sel.slice(0, 300),
+        });
+      };
+
       // Development visibility, without page contents.
       if (type === BROWSER_EVENTS.CONNECTED) log(`[browser] connected: ${detail.browser}`);
       else if (type === BROWSER_EVENTS.DISCONNECTED) log(`[browser] disconnected (${detail.reason})`);
       else if (type === BROWSER_EVENTS.TAB_CHANGED) log(`[browser] tab changed: ${detail.domain || '(opaque)'}`);
       else if (type === BROWSER_EVENTS.PAGE_OPENED) {
         log(`[browser] page opened: ${detail.excluded ? '(excluded domain)' : detail.domain}`);
+        // The reading trail (deep-reading moments) counts distinct pages, so only
+        // a freshly opened page feeds it — not every re-render below.
         if (proactive && !detail.excluded) proactive.noteBrowser(currentBrowserContext());
         if (!detail.excluded) {
           const ctx = currentBrowserContext();
           const tab = ctx && ctx.tab ? ctx.tab : {};
           notice('browser', 'page', { url: String(tab.url || '').slice(0, 500), domain: String(tab.domain || detail.domain || ''), title: String(tab.title || '').slice(0, 200) });
-          if (narrator) narrator.note({ kind: 'browser', domain: String(tab.domain || detail.domain || ''), pageTitle: String(tab.title || '').slice(0, 200) });
         }
+        noteBrowsing('browser');
       }
-      else if (type === BROWSER_EVENTS.PAGE_UPDATED) log(`[browser] page context updated`);
-      else if (type === BROWSER_EVENTS.SELECTION_CHANGED) log(`[browser] selection changed (${detail.chars} chars)`);
-      else if (type === BROWSER_EVENTS.BROWSER_FOCUSED) log('[browser] focused');
+      else if (type === BROWSER_EVENTS.PAGE_UPDATED) { log('[browser] page context updated'); noteBrowsing('browser'); }
+      else if (type === BROWSER_EVENTS.SELECTION_CHANGED) { log(`[browser] selection changed (${detail.chars} chars)`); noteBrowsing('selection'); }
+      else if (type === BROWSER_EVENTS.BROWSER_FOCUSED) { log('[browser] focused'); noteBrowsing('browser'); }
       else if (type === BROWSER_EVENTS.BROWSER_BLURRED) log('[browser] blurred');
       else if (type === BROWSER_EVENTS.PAGE_CLOSED) log('[browser] page closed');
       broadcastBrowserState();

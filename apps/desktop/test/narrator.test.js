@@ -52,6 +52,28 @@ test('a new place, a new thought', async () => {
   assert.equal(thoughts.length, 2);
 });
 
+test('moving to a new page on the same site gets a fresh thought', async () => {
+  const { narrator, thoughts } = harness({ options: { minIntervalMs: 0 } });
+  narrator.note({ kind: 'browser', domain: 'react.dev', url: 'https://react.dev/learn' }); await narrator.fire();
+  narrator.note({ kind: 'browser', domain: 'react.dev', url: 'https://react.dev/reference' }); await narrator.fire();
+  assert.equal(thoughts.length, 2);
+});
+
+test('a re-render of the same page gets no new thought', async () => {
+  const { narrator, thoughts } = harness({ options: { minIntervalMs: 0 } });
+  narrator.note({ kind: 'browser', domain: 'react.dev', url: 'https://react.dev/learn' }); await narrator.fire();
+  narrator.note({ kind: 'browser', domain: 'react.dev', url: 'https://react.dev/learn' }); await narrator.fire();
+  assert.equal(thoughts.length, 1);
+});
+
+test('a highlight gets its own thought, even on a page already narrated', async () => {
+  const { narrator, thoughts } = harness({ options: { minIntervalMs: 0 } });
+  narrator.note({ kind: 'browser', domain: 'react.dev', url: 'https://react.dev/learn' }); await narrator.fire();
+  narrator.note({ kind: 'selection', domain: 'react.dev', url: 'https://react.dev/learn', selection: 'useMemo' }); await narrator.fire();
+  assert.equal(thoughts.length, 2);
+  assert.equal(thoughts[1].kind, 'selection');
+});
+
 test('the floor defers a too-soon thought until enough time has passed', async () => {
   const { narrator, thoughts, clock } = harness({ options: { minIntervalMs: 60_000 } });
   narrator.note({ kind: 'app', app: 'Code' }); await narrator.fire();

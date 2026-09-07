@@ -38,7 +38,12 @@ function createNarrator({
 
   function contextKey(sig) {
     if (!sig) return '';
-    if (sig.kind === 'browser') return 'web:' + (sig.domain || '?');
+    // By URL, not domain, so moving around one site keeps producing thoughts
+    // while a re-render of the same page does not.
+    if (sig.kind === 'browser') return 'web:' + (sig.url || sig.domain || '?');
+    // A selection is its own thing — a new highlight is worth a fresh thought
+    // even on a page already narrated, but the same highlight is not.
+    if (sig.kind === 'selection') return 'sel:' + (sig.url || sig.domain || '?') + '|' + String(sig.selection || '').slice(0, 32);
     if (sig.kind === 'app') return 'app:' + (sig.app || '?');
     return sig.kind || '';
   }
@@ -47,6 +52,9 @@ function createNarrator({
     if (!sig) return '';
     if (sig.kind === 'browser') {
       return `browsing ${sig.domain || 'the web'}${sig.pageTitle ? ` — "${sig.pageTitle}"` : ''}`;
+    }
+    if (sig.kind === 'selection') {
+      return `reading ${sig.domain || 'a page'}${sig.pageTitle ? ` — "${sig.pageTitle}"` : ''}, and just highlighted some of the text`;
     }
     if (sig.kind === 'app') return `in ${sig.app || 'an app'}${sig.title ? ` — ${sig.title}` : ''}`;
     if (sig.kind === 'back') return 'just back at the computer';
@@ -74,7 +82,9 @@ function createNarrator({
     try {
       const out = await gateway.narrate({
         activity: activityLine(sig),
-        browser: sig.kind === 'browser' ? getBrowser() : null,
+        // The live page (and any selection) go to the model for browser and
+        // selection thoughts, so the thought can be about the actual text.
+        browser: (sig.kind === 'browser' || sig.kind === 'selection') ? getBrowser() : null,
         soul: soulFor(),
         previous: recent.slice(-4),
       });
