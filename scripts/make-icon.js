@@ -59,18 +59,44 @@ const fpt = (fx, fy) => [cx + (fx - 100) * faceScale, cy + (fy - 100) * faceScal
 const [ex1, eyeY] = fpt(100 - 38, 90);  // EYE_DX 38, EYE_Y 90
 const [ex2] = fpt(100 + 38, 90);
 const eRx = 15.2 * faceScale, eRy = 15.2 * 1.06 * faceScale; // EYE_R, a touch taller
-const mStroke = 7.8 * faceScale;        // resting-smile stroke width
-const sm0 = fpt(100 - 32, 126.8), smC = fpt(100, 135.2), sm2 = fpt(100 + 32, 126.8); // MOUTH_W 32, MOUTH_Y 128, curve 0.8
-const smile = [];
-for (let i = 0; i <= 56; i++) {
-  const t = i / 56, u = 1 - t;
-  smile.push([u * u * sm0[0] + 2 * u * t * smC[0] + t * t * sm2[0], u * u * sm0[1] + 2 * u * t * smC[1] + t * t * sm2[1]]);
+// The open smile: the filled mouth shape from face-texture.js mouthPath (two
+// cubic edges — a shallow top lip and a deeper bottom), sampled into a polygon.
+const MOUTH_OPEN = 0.5, MOUTH_W = 32, MOUTH_Y = 128, kx = MOUTH_W * 0.94, kk = 1.3333;
+const lip = 0.8 * 5.0, drop = MOUTH_OPEN * (7 + MOUTH_W * 0.42);
+const topY = lip - drop * 0.1, botY = lip + drop;
+const cubic = (p0, c1, c2, p3, n) => {
+  const o = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, u = 1 - t;
+    o.push([u*u*u*p0[0] + 3*u*u*t*c1[0] + 3*u*t*t*c2[0] + t*t*t*p3[0],
+            u*u*u*p0[1] + 3*u*u*t*c1[1] + 3*u*t*t*c2[1] + t*t*t*p3[1]]);
+  }
+  return o;
+};
+const mouthPoly = [
+  ...cubic([100 - MOUTH_W, MOUTH_Y], [100 - kx, MOUTH_Y + topY*kk], [100 + kx, MOUTH_Y + topY*kk], [100 + MOUTH_W, MOUTH_Y], 30),
+  ...cubic([100 + MOUTH_W, MOUTH_Y], [100 + kx, MOUTH_Y + botY*kk], [100 - kx, MOUTH_Y + botY*kk], [100 - MOUTH_W, MOUTH_Y], 30),
+].map(([fx, fy]) => fpt(fx, fy));
+const mStrokeHalf = 7.0 * faceScale / 2; // the mouth is filled AND stroked (round)
+const AA = 1.4 * SS;
+let mbx0 = 1e9, mby0 = 1e9, mbx1 = -1e9, mby1 = -1e9;
+for (const [px, py] of mouthPoly) { mbx0 = Math.min(mbx0, px); mby0 = Math.min(mby0, py); mbx1 = Math.max(mbx1, px); mby1 = Math.max(mby1, py); }
+const eyeBox = [Math.min(ex1, ex2) - eRx - AA, eyeY - eRy - AA, Math.max(ex1, ex2) + eRx + AA, eyeY + eRy + AA];
+const mouthBox = [mbx0 - mStrokeHalf - AA, mby0 - mStrokeHalf - AA, mbx1 + mStrokeHalf + AA, mby1 + mStrokeHalf + AA];
+
+// Signed distance to the mouth polygon (negative inside), for a crisp filled edge.
+function polySD(px, py, poly) {
+  let inside = false, minD = 1e18;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+    const dx = xj - xi, dy = yj - yi;
+    const t = Math.max(0, Math.min(1, ((px - xi) * dx + (py - yi) * dy) / (dx*dx + dy*dy || 1)));
+    const ex = xi + t*dx - px, ey = yi + t*dy - py, d = ex*ex + ey*ey;
+    if (d < minD) minD = d;
+    if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return (inside ? -1 : 1) * Math.sqrt(minD);
 }
-// Pad the boxes far enough that the glow has fully faded at their edge, or the
-// cut-off shows as a rectangle.
-const PAD = 170;
-const eyeBox = [Math.min(ex1, ex2) - eRx - PAD, eyeY - eRy - PAD, Math.max(ex1, ex2) + eRx + PAD, eyeY + eRy + PAD];
-const mouthBox = [sm0[0] - mStroke - PAD, sm0[1] - mStroke - PAD, sm2[0] + mStroke + PAD, smC[1] + mStroke + PAD];
 
 function sdRoundRect(px, py) {
   const qx = Math.abs(px - cx) - half + radius;
@@ -115,28 +141,21 @@ for (let y = 0; y < H; y++) {
         const spec = Math.exp(-Math.pow(hd / (54 * SS), 2)) * 0.9;
         col = [col[0] + (255 - col[0]) * spec, col[1] + (255 - col[1]) * spec, col[2] + (250 - col[2]) * spec];
 
-        // --- the face: white-hot eyes + smile with a warm halo ---
-        let fCore = 0, fGlow = 0;
+        // --- the face: clean white eyes + open smile, no halo ---
+        let fCore = 0;
         if (x >= eyeBox[0] && x <= eyeBox[2] && y >= eyeBox[1] && y <= eyeBox[3]) {
           for (const ex of [ex1, ex2]) {
             const nd = Math.hypot((x - ex) / eRx, (y - eyeY) / eRy);
             const aa = 1.4 / eRx;
             fCore = Math.max(fCore, smooth(1 + aa, 1 - aa, nd));
-            fGlow = Math.max(fGlow, Math.exp(-Math.max(0, nd - 1) / 0.26));
           }
         }
         if (x >= mouthBox[0] && x <= mouthBox[2] && y >= mouthBox[1] && y <= mouthBox[3]) {
-          let dm = 1e9;
-          for (const [sx, sy] of smile) { const dd = (x - sx) * (x - sx) + (y - sy) * (y - sy); if (dd < dm) dm = dd; }
-          dm = Math.sqrt(dm);
-          const half = mStroke / 2;
-          fCore = Math.max(fCore, smooth(half + 1.4 * SS, half - 1.4 * SS, dm));
-          fGlow = Math.max(fGlow, Math.exp(-Math.max(0, dm - half) / (half * 1.05)));
+          const sd = polySD(x, y, mouthPoly);
+          fCore = Math.max(fCore, smooth(mStrokeHalf + AA, mStrokeHalf - AA, sd));
         }
-        if (fGlow > 0.002 || fCore > 0.002) {
-          const gl = fGlow * 0.5;
-          col = [col[0] + 255 * gl, col[1] + 150 * gl, col[2] + 45 * gl];
-          col = [lerp(col[0], 255, fCore), lerp(col[1], 249, fCore), lerp(col[2], 233, fCore)];
+        if (fCore > 0.002) {
+          col = [lerp(col[0], 255, fCore), lerp(col[1], 250, fCore), lerp(col[2], 238, fCore)];
         }
 
         r = lerp(r, col[0], orbCov); g = lerp(g, col[1], orbCov); b = lerp(b, col[2], orbCov);
