@@ -492,6 +492,12 @@
       this._wake();
     }
 
+    /** A jump — the beckon's "hey, over here": a bigger upward bob than a bounce. */
+    hop() {
+      if (!this.reduced) { this.v.bob -= 340; this.v.squash -= 5.5; }
+      this._wake();
+    }
+
     _spring(k, dt) {
       const [stiff, damp] = SPRING[k] || SPRING._default;
       this.v[k] += ((this.target[k] - this.p[k]) * stiff - this.v[k] * damp) * dt;

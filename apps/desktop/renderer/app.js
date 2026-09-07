@@ -2183,7 +2183,7 @@ function learnFrom(answer) {
  * worse than none, so an undelivered thought quietly expires and the orb
  * settles back down.
  */
-const BECKON_EVERY_MS = 5000;
+const BECKON_EVERY_MS = 2400;      // a hop this often — a gentle, persistent "hey"
 const SUGGESTION_TTL_MS = 30 * 60 * 1000;
 let beckonTimer = null;
 let pendingAt = 0;
@@ -2202,8 +2202,8 @@ function startBeckoning() {
       stopBeckoning();
       return;
     }
-    // Never over speech or reduced motion — the thought keeps, the bounce waits.
-    if (!speaking && !REDUCED.matches) face.pulse('bounce');
+    // Never over speech or reduced motion — the thought keeps, the hop waits.
+    if (!speaking && !REDUCED.matches) face.hop();
   }, BECKON_EVERY_MS);
 }
 
@@ -2254,7 +2254,7 @@ async function onSuggestion({ message }) {
   pendingAt = Date.now();
   mood.note('idea');
   setFace('realization');
-  face.pulse('bounce');
+  face.hop();
 
   if (volunteersOutLoud()) {
     pendingSuggestion = null;
@@ -2277,6 +2277,9 @@ async function deliverPendingSuggestion() {
   hintNote = null;                 // delivered; the card goes back to gestures
   // Coming to hear it is the acceptance the governor learns from.
   window.fren.suggestionOutcome('heard').catch(() => {});
+  // Land it IN the chat as a fren message you can reply to — so open the panel
+  // first if it is closed, then let speak() add the bubble (and voice it).
+  if (!state.panelOpen) await setPanel(true);
   await speak(message);
   // It said its thing; now it listens. A suggestion is a conversational move,
   // and ending one with a closed microphone made every delivery a monologue.
