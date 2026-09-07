@@ -64,6 +64,8 @@ contextBridge.exposeInMainWorld('fren', {
   speak: (text) => ipcRenderer.invoke('fren:speak', text),
   onStateChanged: (cb) => ipcRenderer.on('fren:stateChanged', (_e, state) => cb(state)),
   onSuggestion: (cb) => ipcRenderer.on('fren:suggestion', (_e, s) => cb(s)),
+  // A passing thought for the thought-bubble stream: {text, kind, at}.
+  onNarration: (cb) => ipcRenderer.on('fren:narration', (_e, t) => cb(t)),
   // How a held suggestion ended: 'heard' or 'faded'. Feeds the pace governor.
   suggestionOutcome: (kind) => ipcRenderer.invoke('fren:suggestionOutcome', kind),
   onCurious: (cb) => ipcRenderer.on('fren:curious', (_e, q) => cb(q)),

@@ -315,6 +315,37 @@ function buildSuggestRequest({ moment = 'check-in', memories = [], observations 
   return { system, messages: [{ role: 'user', content }] };
 }
 
+/**
+ * A single quiet thought about what the owner is doing right now — the words
+ * behind fren's thought bubble. Unlike a suggestion, this is NOT gated on being
+ * worth an interruption: it is fren thinking to itself where its owner can see,
+ * so they can tell it is paying attention. One short first-person line, specific
+ * to the actual activity, never invented, never advice — just what it notices.
+ */
+function buildNarrationRequest({ activity = '', browser = null, soul = '',
+                                 previous = [], now = Date.now() } = {}) {
+  const character = String(soul || '').trim();
+  const system = [
+    character ? `Your character, as its owner wrote it:\n\n${character}\n\nFollow it.` : '',
+    'You are fren, a small desktop companion thinking quietly to yourself while you watch',
+    'over your owner\'s shoulder. Write ONE short thought — the kind that would sit in a',
+    'comic thought bubble: at most about ten words, first person, lowercase is fine, no',
+    'quotation marks. Notice the SPECIFIC thing in front of you (the app, the page, what',
+    'they seem to be up to) and never invent activity you cannot see. It is a passing',
+    'thought, not advice and not a question — you are not speaking TO them, just noticing.',
+    'Do not repeat your recent thoughts.',
+    'Answer with STRICT JSON, nothing else: {"thought": "..."}',
+  ].filter(Boolean).join('\n\n');
+
+  const content = [
+    `Current local time: ${clock(now)}`,
+    activity ? `Right now they are: ${activity}` : '',
+    ...(browser && formatBrowser(browser) ? ['', formatBrowser(browser)] : []),
+    previous.length ? `\nYour last few thoughts (do not repeat these):\n- ${previous.slice(-4).join('\n- ')}` : '',
+  ].filter(Boolean).join('\n');
+  return { system, messages: [{ role: 'user', content }] };
+}
+
 function buildChatRequest({ question, memories = [], observations = [], profile = null,
                             soul = '', userDoc = '', browser = null, now = Date.now() } = {}) {
   const who = formatProfile(profile);
@@ -1352,6 +1383,7 @@ module.exports = {
   parseSummary,
   buildChatRequest,
   buildSuggestRequest,
+  buildNarrationRequest,
   classifyPage,
   formatBrowser,
   browserSense,

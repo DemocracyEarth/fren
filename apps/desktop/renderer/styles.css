@@ -556,6 +556,45 @@ button { font-family: inherit; -webkit-app-region: no-drag; cursor: pointer; }
   color: var(--orange-ink);
 }
 
+/* fren thinking out loud — a comic thought-cloud, clearly NOT a message to you:
+ * dimmer, italic, no label, and a little tail of shrinking bubbles trailing down
+ * toward the orb, the way a thought rises from the one thinking it. */
+.thought {
+  align-self: flex-start;
+  position: relative;
+  max-width: 80%;
+  margin: 4px 0 16px 10px;
+  animation: thought-pop 0.34s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+.thought-text {
+  display: inline-block;
+  padding: 8px 14px;
+  border-radius: 17px;
+  background: rgba(255, 255, 255, 0.52);
+  border: 1px solid rgba(26, 23, 18, 0.05);
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  font-style: italic;
+  line-height: 1.4;
+  box-shadow: 0 1px 6px rgba(24, 16, 6, 0.045);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+.thought::before,
+.thought::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.42);
+  border: 1px solid rgba(26, 23, 18, 0.05);
+}
+.thought::before { width: 9px; height: 9px; left: 14px; bottom: -5px; }
+.thought::after  { width: 5px; height: 5px; left: 8px;  bottom: -13px; }
+@keyframes thought-pop {
+  from { opacity: 0; transform: translateY(6px) scale(0.94); }
+  to   { opacity: 1; transform: none; }
+}
+
 #empty { margin: auto 0; text-align: center; padding: 0 6px; }
 .empty-line {
   margin: 0 0 5px;

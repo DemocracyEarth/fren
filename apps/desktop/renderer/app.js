@@ -199,6 +199,7 @@ function scrollDown() {
 }
 
 function addBubble(who, text) {
+  lastConversationAt = Date.now();       // a real exchange — thoughts step aside
   if (els.empty) els.empty.remove(), (els.empty = null);
   const bubble = document.createElement('div');
   bubble.className = 'bubble ' + who;
@@ -207,6 +208,29 @@ function addBubble(who, text) {
   scrollDown();
   return bubble;
 }
+
+// fren thinking out loud: a passing thought, shown as a comic thought-cloud in
+// the stream — no label, dimmer, ephemeral, and clearly NOT a message to you.
+// It stays out of the way while an actual conversation is going.
+let lastConversationAt = 0;
+const THOUGHT_KEEP = 4;                  // a small rolling window; thoughts pass
+function addThought(text) {
+  text = String(text || '').trim();
+  if (!text || !state.observing) return;                 // paused: no thoughts
+  if (Date.now() - lastConversationAt < 45_000) return;  // not mid-conversation
+  if (els.empty) els.empty.remove(), (els.empty = null);
+  const t = document.createElement('div');
+  t.className = 'thought';
+  const span = document.createElement('span');
+  span.className = 'thought-text';
+  span.textContent = text;
+  t.appendChild(span);
+  els.messages.insertBefore(t, els.typing);
+  const all = els.messages.querySelectorAll('.thought');
+  for (let i = 0; i < all.length - THOUGHT_KEEP; i++) all[i].remove();
+  scrollDown();
+}
+function onNarration(t) { addThought(t && t.text); }
 
 /** fren's words carry Markdown, rendered as nodes, never as HTML; yours show as typed. */
 function setBubbleText(bubble, text, rich) {
@@ -2299,6 +2323,7 @@ scheduleWander();
   }
 
   window.fren.onSuggestion(onSuggestion);
+  window.fren.onNarration(onNarration);
   window.fren.onCurious(onCurious);
   // First run: offer to add the browser extension, so fren can see the page
   // you are on. One card, dismissable; a paired browser is confirmed with a hello.

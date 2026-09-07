@@ -16,6 +16,7 @@ const { createSummarizer } = require('./summarizer');
 const { createPatternWatcher } = require('./patterns');
 const { createCuriosityWatcher } = require('./curiosity');
 const { createProactiveWatcher } = require('./proactive');
+const { createNarrator } = require('./narrator');
 const { wakeOnLaunchFrom } = require('./wake');
 const {
   clampInto, offsetInWindow, windowFor, chooseSide,
@@ -204,6 +205,7 @@ let patterns = null;
 let routines = null;
 let curiosity = null;
 let proactive = null;
+let narrator = null;
 let heartbeat = null;
 // Set once the user has actually chosen to quit, so the dashboard's close
 // handler does not ask again while app.quit() is closing that same window.
@@ -653,7 +655,10 @@ app.whenReady().then(() => {
   observer = createObserver({
     onObservation: (obs) => {
       memory.addObservation(obs);
-      if (obs && obs.activeApp) notice('os', 'active-window', { app: String(obs.activeApp), title: String(obs.windowTitle || '').slice(0, 200) });
+      if (obs && obs.activeApp) {
+        notice('os', 'active-window', { app: String(obs.activeApp), title: String(obs.windowTitle || '').slice(0, 200) });
+        if (narrator) narrator.note({ kind: 'app', app: String(obs.activeApp), title: String(obs.windowTitle || '').slice(0, 200) });
+      }
       // The login window in front means they are away; anything else after it
       // means they are back. This sees a return the power monitor can miss.
       if (obs && obs.activeApp === 'loginwindow') away('login window');
@@ -678,6 +683,7 @@ app.whenReady().then(() => {
           const ctx = currentBrowserContext();
           const tab = ctx && ctx.tab ? ctx.tab : {};
           notice('browser', 'page', { url: String(tab.url || '').slice(0, 500), domain: String(tab.domain || detail.domain || ''), title: String(tab.title || '').slice(0, 200) });
+          if (narrator) narrator.note({ kind: 'browser', domain: String(tab.domain || detail.domain || ''), pageTitle: String(tab.title || '').slice(0, 200) });
         }
       }
       else if (type === BROWSER_EVENTS.PAGE_UPDATED) log(`[browser] page context updated`);
@@ -799,6 +805,22 @@ app.whenReady().then(() => {
     },
   });
   proactive.start();
+
+  // Thinking out loud — the ordinary sign of life, the opposite of the rare
+  // suggestion. When the active app or the open site changes, and no more often
+  // than a gentle floor, fren has one short thought, and it shows as a thought
+  // bubble so its owner can see it is paying attention. It thinks only while the
+  // light is on, and it is fed from the same change signals fren already senses.
+  narrator = createNarrator({
+    gateway,
+    state,
+    getBrowser: () => currentBrowserContext(),
+    soulFor: () => soul.readContext(app.getPath('userData')).soul,
+    log,
+    onThought: ({ text, kind, at }) => {
+      if (win && !win.isDestroyed()) win.webContents.send('fren:narration', { text, kind, at });
+    },
+  });
 
   // "Any thoughts?" — the same moment machinery, on demand. force skips the
   // timing gates (you ASKED, so the timing is right by definition); the

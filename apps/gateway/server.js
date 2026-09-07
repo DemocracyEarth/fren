@@ -335,6 +335,28 @@ async function handleSuggest(provider, body, res) {
   }
 }
 
+/**
+ * One quiet thought about what the owner is doing — the words behind fren's
+ * thought bubble. Always returns a line (or an empty one on failure); the caller
+ * throttles how often this is even asked, so there is no "worth it" gate here.
+ */
+async function handleNarrate(provider, body, res) {
+  const request = intelligence.buildNarrationRequest({
+    activity: typeof body.activity === 'string' ? body.activity.slice(0, 300) : '',
+    browser: body.browser && typeof body.browser === 'object' ? body.browser : null,
+    soul: typeof body.soul === 'string' ? body.soul : '',
+    previous: Array.isArray(body.previous) ? body.previous.map(String).slice(0, 6) : [],
+  });
+  const raw = await callProvider(provider, request, res);
+  if (raw === null) return;
+  try {
+    const p = JSON.parse(String(raw).replace(/^```(?:json)?|```$/gm, '').trim());
+    send(res, 200, { thought: String(p.thought || '').trim().slice(0, 140) });
+  } catch {
+    send(res, 200, { thought: '' });
+  }
+}
+
 async function handleCuriosity(provider, body, res) {
   const quiet = { ask: false, question: '', about: '', why: '' };
   const request = intelligence.buildCuriosityRequest({
@@ -469,7 +491,7 @@ async function handle(provider, voice, vision, core, req, res, pathname) {
                                 pathname === '/v1/pattern' || pathname === '/v1/vision' ||
                                 pathname === '/v1/automate' || pathname === '/v1/routine' ||
                                 pathname === '/v1/curious' || pathname === '/v1/learn' ||
-                                pathname === '/v1/suggest' ||
+                                pathname === '/v1/suggest' || pathname === '/v1/narrate' ||
                                 pathname === '/v1/greet')) {
     if (req.headers.authorization !== `Bearer ${config.GATEWAY_TOKEN}`) {
       return send(res, 401, { error: 'unauthorized' });
@@ -502,6 +524,7 @@ async function handle(provider, voice, vision, core, req, res, pathname) {
     if (pathname === '/v1/routine') return handleRoutine(provider, body, res);
     if (pathname === '/v1/curious') return handleCuriosity(provider, body, res);
     if (pathname === '/v1/suggest') return handleSuggest(provider, body, res);
+    if (pathname === '/v1/narrate') return handleNarrate(provider, body, res);
     if (pathname === '/v1/learn') return handleLearn(provider, body, res);
     if (pathname === '/v1/greet') return handleGreet(provider, body, res);
     if (pathname === '/v1/speak') return handleSpeak(voice, body, res);
