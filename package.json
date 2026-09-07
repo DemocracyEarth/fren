@@ -39,13 +39,21 @@
       "vendor/nanoclaw/package.json",
       "vendor/nanoclaw/dist/**/*",
       "vendor/nanoclaw/container/**/*",
-      "vendor/nanoclaw/node_modules/**/*",
+      "!vendor/nanoclaw/container/agent-runner/node_modules/**/*",
+      {
+        "from": "packaging/host-prod/node_modules",
+        "to": "vendor/nanoclaw/node_modules"
+      },
+      {
+        "from": "packaging/runner-prod/node_modules",
+        "to": "vendor/nanoclaw/container/agent-runner/node_modules"
+      },
       "!**/test/**",
       "!**/*.test.js",
+      "!**/*.test.ts",
       "!**/.git/**",
       "!**/*.map",
-      "!**/tsconfig*.json",
-      "!vendor/nanoclaw/**/{data,groups,store,logs,src}/**"
+      "!vendor/nanoclaw/src/**/*"
     ],
     "extraResources": [
       {
@@ -56,6 +64,7 @@
     "mac": {
       "target": "dir",
       "identity": null,
+      "icon": "packaging/icon.icns",
       "category": "public.app-category.productivity"
     }
   }

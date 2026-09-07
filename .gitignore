@@ -17,6 +17,10 @@ vendor/nanoclaw/logs/
 vendor/nanoclaw/store/
 vendor/nanoclaw/.env
 
-# Packaging: the bundled stock Node (fetched by scripts/fetch-node.js) and the built app.
+# Packaging: the bundled stock Node (fetched by scripts/fetch-node.js), the icon's
+# intermediate render (scripts/make-icon.js keeps the .icns), and the built app.
 packaging/node
+packaging/icon-1024.png
+packaging/host-prod/
+packaging/runner-prod/
 dist-app/
