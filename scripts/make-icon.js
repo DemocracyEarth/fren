@@ -51,6 +51,27 @@ const radius = 200 * SS;                // corner radius
 const R = 306 * SS;                     // orb radius
 const hx = cx - 96 * SS, hy = cy - 120 * SS; // highlight centre (up-left)
 
+// fren's face, mapped onto the orb. Geometry mirrors renderer/face/face-texture.js
+// (FACE): a 200-unit box the size of the orb, wide-set round eyes and a small
+// resting smile, all drawn as white-hot features with a warm amber halo.
+const faceScale = (2 * R) / 200;
+const fpt = (fx, fy) => [cx + (fx - 100) * faceScale, cy + (fy - 100) * faceScale];
+const [ex1, eyeY] = fpt(100 - 38, 90);  // EYE_DX 38, EYE_Y 90
+const [ex2] = fpt(100 + 38, 90);
+const eRx = 15.2 * faceScale, eRy = 15.2 * 1.06 * faceScale; // EYE_R, a touch taller
+const mStroke = 7.8 * faceScale;        // resting-smile stroke width
+const sm0 = fpt(100 - 32, 126.8), smC = fpt(100, 135.2), sm2 = fpt(100 + 32, 126.8); // MOUTH_W 32, MOUTH_Y 128, curve 0.8
+const smile = [];
+for (let i = 0; i <= 56; i++) {
+  const t = i / 56, u = 1 - t;
+  smile.push([u * u * sm0[0] + 2 * u * t * smC[0] + t * t * sm2[0], u * u * sm0[1] + 2 * u * t * smC[1] + t * t * sm2[1]]);
+}
+// Pad the boxes far enough that the glow has fully faded at their edge, or the
+// cut-off shows as a rectangle.
+const PAD = 170;
+const eyeBox = [Math.min(ex1, ex2) - eRx - PAD, eyeY - eRy - PAD, Math.max(ex1, ex2) + eRx + PAD, eyeY + eRy + PAD];
+const mouthBox = [sm0[0] - mStroke - PAD, sm0[1] - mStroke - PAD, sm2[0] + mStroke + PAD, smC[1] + mStroke + PAD];
+
 function sdRoundRect(px, py) {
   const qx = Math.abs(px - cx) - half + radius;
   const qy = Math.abs(py - cy) - half + radius;
@@ -93,6 +114,31 @@ for (let y = 0; y < H; y++) {
         // tiny hot specular dot
         const spec = Math.exp(-Math.pow(hd / (54 * SS), 2)) * 0.9;
         col = [col[0] + (255 - col[0]) * spec, col[1] + (255 - col[1]) * spec, col[2] + (250 - col[2]) * spec];
+
+        // --- the face: white-hot eyes + smile with a warm halo ---
+        let fCore = 0, fGlow = 0;
+        if (x >= eyeBox[0] && x <= eyeBox[2] && y >= eyeBox[1] && y <= eyeBox[3]) {
+          for (const ex of [ex1, ex2]) {
+            const nd = Math.hypot((x - ex) / eRx, (y - eyeY) / eRy);
+            const aa = 1.4 / eRx;
+            fCore = Math.max(fCore, smooth(1 + aa, 1 - aa, nd));
+            fGlow = Math.max(fGlow, Math.exp(-Math.max(0, nd - 1) / 0.26));
+          }
+        }
+        if (x >= mouthBox[0] && x <= mouthBox[2] && y >= mouthBox[1] && y <= mouthBox[3]) {
+          let dm = 1e9;
+          for (const [sx, sy] of smile) { const dd = (x - sx) * (x - sx) + (y - sy) * (y - sy); if (dd < dm) dm = dd; }
+          dm = Math.sqrt(dm);
+          const half = mStroke / 2;
+          fCore = Math.max(fCore, smooth(half + 1.4 * SS, half - 1.4 * SS, dm));
+          fGlow = Math.max(fGlow, Math.exp(-Math.max(0, dm - half) / (half * 1.05)));
+        }
+        if (fGlow > 0.002 || fCore > 0.002) {
+          const gl = fGlow * 0.5;
+          col = [col[0] + 255 * gl, col[1] + 150 * gl, col[2] + 45 * gl];
+          col = [lerp(col[0], 255, fCore), lerp(col[1], 249, fCore), lerp(col[2], 233, fCore)];
+        }
+
         r = lerp(r, col[0], orbCov); g = lerp(g, col[1], orbCov); b = lerp(b, col[2], orbCov);
       }
     }
