@@ -122,23 +122,24 @@ for (let y = 0; y < H; y++) {
 
       const d = Math.hypot(x - cx, y - cy);
 
-      // outer amber glow (additive), fading out from the orb rim
-      const glow = Math.exp(-Math.max(0, d - R) / (108 * SS)) * 0.44;
+      // outer amber glow (additive), fading out from the orb rim — kept tight
+      // and low so the sphere reads crisp against the dark ground, not radiant
+      const glow = Math.exp(-Math.max(0, d - R) / (52 * SS)) * 0.18;
       if (glow > 0.002) { r += glowCol[0] * glow; g += glowCol[1] * glow; b += glowCol[2] * glow; }
 
       // the orb itself
       const orbCov = smooth(R + 1.2 * SS, R - 1.2 * SS, d);
       if (orbCov > 0) {
         const hd = Math.hypot(x - hx, y - hy);
-        let col = ramp(hd / (R * 1.52));
+        let col = ramp(hd / (R * 1.24));
         // rim darkening at the very edge for a rounder read
         const rim = smooth(R * 0.82, R, d);
         col = mix(col, hex('#7A3600'), rim * 0.35);
         // warm bounce light along the lower-right limb
         const bounce = smooth(R, R * 0.86, d) * smooth(-0.2, 1, ((x - cx) + (y - cy)) / (R * 1.4));
         col = [col[0] + 60 * bounce, col[1] + 26 * bounce, col[2] + 6 * bounce];
-        // tiny hot specular dot
-        const spec = Math.exp(-Math.pow(hd / (54 * SS), 2)) * 0.9;
+        // tiny hot specular dot — tighter, so it reads as a glossy hotspot
+        const spec = Math.exp(-Math.pow(hd / (40 * SS), 2)) * 0.85;
         col = [col[0] + (255 - col[0]) * spec, col[1] + (255 - col[1]) * spec, col[2] + (250 - col[2]) * spec];
 
         // --- the face: clean white eyes + open smile, no halo ---
