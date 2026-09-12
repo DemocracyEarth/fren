@@ -199,6 +199,7 @@ function scrollDown() {
 }
 
 function addBubble(who, text) {
+  lastConversationAt = Date.now();       // a real exchange — thoughts step aside
   if (els.empty) els.empty.remove(), (els.empty = null);
   const bubble = document.createElement('div');
   bubble.className = 'bubble ' + who;
@@ -206,6 +207,72 @@ function addBubble(who, text) {
   els.messages.insertBefore(bubble, els.typing);
   scrollDown();
   return bubble;
+}
+
+// fren thinking out loud: a passing thought, shown in the stream as a quiet
+// secondary caption — no label, frosted, ephemeral, clearly NOT a message to
+// you. It stays out of the way while an actual conversation is going.
+let lastConversationAt = 0;
+const THOUGHT_KEEP = 4;                  // a small rolling window; thoughts pass
+function addThought(text) {
+  text = String(text || '').trim();
+  if (!text || !state.observing) return false;                 // paused: no thoughts
+  if (Date.now() - lastConversationAt < 45_000) return false;  // not mid-conversation
+  if (els.empty) els.empty.remove(), (els.empty = null);
+  const t = document.createElement('div');
+  t.className = 'thought';
+  const mark = document.createElement('span');
+  mark.className = 'thought-mark';
+  mark.setAttribute('aria-hidden', 'true');
+  for (let i = 0; i < 3; i++) mark.appendChild(document.createElement('i'));
+  const span = document.createElement('span');
+  span.className = 'thought-text';
+  span.textContent = text;
+  t.append(mark, span);
+  els.messages.insertBefore(t, els.typing);
+  const all = els.messages.querySelectorAll('.thought');
+  for (let i = 0; i < all.length - THOUGHT_KEEP; i++) all[i].remove();
+  scrollDown();
+  return true;
+}
+function onNarration(t) {
+  const shown = addThought(t && t.text);
+  // With the chat closed there is nothing to read, so the orb marks the thought
+  // itself — a small gesture, put together on the spot.
+  if (shown && !state.panelOpen) thoughtGesture();
+}
+
+/**
+ * The orb having a thought where nobody can read it: "hm", not "hey".
+ *
+ * Procedural rather than played back — a motion drawn from a pool (a little
+ * hop, a nod, a blink, a glance aside, a squash), sized by a random amplitude,
+ * paired most of the time with a fleeting expression from the `thought` pool,
+ * a random beat between the two, and never the same motion twice running. Held
+ * back while it is talking, listening or answering; under reduced motion only
+ * the expression plays.
+ */
+let lastGesture = -1;
+function thoughtGesture() {
+  if (!state.observing || speaking || awaitingReply) return;
+  if (document.body.dataset.recording === '1') return;
+  const r = Math.random;
+  const motions = [
+    () => face.hop(0.35 + r() * 0.3),
+    () => face.pulse('nod'),
+    () => face.pulse('blink'),
+    () => face.pulse(r() < 0.5 ? 'squash' : 'stretch'),
+    () => {                                  // a glance aside, then back
+      face.lookAt((r() < 0.5 ? -1 : 1) * (0.3 + r() * 0.35), -0.12 - r() * 0.25);
+      setTimeout(() => face.lookAway(), 450 + r() * 500);
+    },
+  ];
+  let i = Math.floor(r() * motions.length);
+  if (i === lastGesture) i = (i + 1) % motions.length;
+  lastGesture = i;
+  const withFace = r() < 0.7;
+  if (withFace) react('thought');
+  if (!REDUCED.matches) setTimeout(motions[i], withFace ? 60 + r() * 220 : 0);
 }
 
 /** fren's words carry Markdown, rendered as nodes, never as HTML; yours show as typed. */
@@ -743,17 +810,8 @@ function describeWhen(r) {
 const liveRuns = new Map();
 const RUN_WAIT_MS = 10 * 60 * 1000;
 
-/** A quick word before a long job, so a wait never starts in silence. */
-const SPOKEN_ACKS = ['Sure thing.', 'On it.', 'Aight, let me do that.', 'Okay, one sec.', 'Yep, let me look.', 'Got it — working on it.', 'Cool, give me a moment.', 'On it, hang tight.'];
-let lastAck = -1;
-function pickAck() {
-  let i = Math.floor(Math.random() * SPOKEN_ACKS.length);
-  if (i === lastAck) i = (i + 1) % SPOKEN_ACKS.length;
-  lastAck = i;
-  return SPOKEN_ACKS[i];
-}
-/** How long a runtime run may go wordless before the orb says it is on it. */
-const ACK_AFTER_MS = 1500;
+/** How long a runtime run may go wordless before the orb SHOWS it is working. */
+const WORKING_AFTER_MS = 1500;
 
 /** Ask through the runtime; fall back to the fast lane if it refuses. */
 async function askThroughRuntime(question, thinkingTimer) {
@@ -770,21 +828,17 @@ async function askThroughRuntime(question, thinkingTimer) {
     let said = 0;
     const timer = setTimeout(() => end('That took too long, so I stopped waiting.'), RUN_WAIT_MS);
     // A real task takes a beat — the container wakes, tools run. If nothing has
-    // been said by now it is not a quick answer, so acknowledge out loud rather
-    // than leave the wait silent; the real reply follows when it is ready.
-    const ackTimer = setTimeout(() => {
-      if (said) return;
-      chain = chain.then(async () => {
-        if (said) return;
-        await speak(pickAck());
-        if (!said) { setFace('thinking'); thinking(true); }
-      });
-    }, ACK_AFTER_MS);
+    // been said by now it is not a quick answer, so SHOW it is working — the
+    // thinking face, not a word. (It used to say "on it" first; a stock line in
+    // front of every real answer wore thin fast.) The reply follows when ready.
+    const workingTimer = setTimeout(() => {
+      if (!said) { setFace('thinking'); thinking(true); }
+    }, WORKING_AFTER_MS);
     function end(error) {
       if (!liveRuns.has(res.runId)) return;
       liveRuns.delete(res.runId);
       clearTimeout(timer);
-      clearTimeout(ackTimer);
+      clearTimeout(workingTimer);
       clearTimeout(thinkingTimer);
       chain.then(async () => {
         showTyping(false);
@@ -803,7 +857,7 @@ async function askThroughRuntime(question, thinkingTimer) {
       message(m) {
         if (!m || !m.text) return;
         said += 1;
-        clearTimeout(ackTimer);
+        clearTimeout(workingTimer);
         clearTimeout(thinkingTimer);
         showTyping(false);
         // One at a time, in order, spoken like any other reply.
@@ -2159,7 +2213,7 @@ function learnFrom(answer) {
  * worse than none, so an undelivered thought quietly expires and the orb
  * settles back down.
  */
-const BECKON_EVERY_MS = 5000;
+const BECKON_EVERY_MS = 2400;      // a hop this often — a gentle, persistent "hey"
 const SUGGESTION_TTL_MS = 30 * 60 * 1000;
 let beckonTimer = null;
 let pendingAt = 0;
@@ -2178,8 +2232,8 @@ function startBeckoning() {
       stopBeckoning();
       return;
     }
-    // Never over speech or reduced motion — the thought keeps, the bounce waits.
-    if (!speaking && !REDUCED.matches) face.pulse('bounce');
+    // Never over speech or reduced motion — the thought keeps, the hop waits.
+    if (!speaking && !REDUCED.matches) face.hop();
   }, BECKON_EVERY_MS);
 }
 
@@ -2230,7 +2284,7 @@ async function onSuggestion({ message }) {
   pendingAt = Date.now();
   mood.note('idea');
   setFace('realization');
-  face.pulse('bounce');
+  face.hop();
 
   if (volunteersOutLoud()) {
     pendingSuggestion = null;
@@ -2253,6 +2307,9 @@ async function deliverPendingSuggestion() {
   hintNote = null;                 // delivered; the card goes back to gestures
   // Coming to hear it is the acceptance the governor learns from.
   window.fren.suggestionOutcome('heard').catch(() => {});
+  // Land it IN the chat as a fren message you can reply to — so open the panel
+  // first if it is closed, then let speak() add the bubble (and voice it).
+  if (!state.panelOpen) await setPanel(true);
   await speak(message);
   // It said its thing; now it listens. A suggestion is a conversational move,
   // and ending one with a closed microphone made every delivery a monologue.
@@ -2299,6 +2356,7 @@ scheduleWander();
   }
 
   window.fren.onSuggestion(onSuggestion);
+  window.fren.onNarration(onNarration);
   window.fren.onCurious(onCurious);
   // First run: offer to add the browser extension, so fren can see the page
   // you are on. One card, dismissable; a paired browser is confirmed with a hello.

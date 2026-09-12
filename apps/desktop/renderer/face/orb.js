@@ -28,6 +28,12 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 const TAU = Math.PI * 2;
 
+// A single hop of the beckon: a vertical arc over HOP_DUR seconds, rising HOP_H
+// of the orb's radius. Kept under the 0.287 of headroom above centre, and the
+// sphere draws in at the apex besides, so the jump never clips the top edge.
+const HOP_DUR = 0.5;
+const HOP_H = 0.17;
+
 /**
  * Recording, said by the whole character.
  *
@@ -103,6 +109,8 @@ class Orb {
     this.squashAmt = 0;
     this.nodAmt = 0;
     this.shakeAmt = 0;
+    this.hopT = 0;          // time left in the current hop
+    this.hopAmp = 1;        // how big a hop: 1 is the beckon's jump, less is a "hm"
     // Scroll-to-resize spins the sphere. Two numbers, not one: the velocity is
     // what a scroll adds to, and the angle is what it turns into. Both bleed
     // off, so the face always comes back to front — a ball that stopped
@@ -575,6 +583,16 @@ class Orb {
     this._wake();
   }
 
+  /**
+   * A jump. At full amplitude it is the beckon's "hey, over here", repeated
+   * until it is heard; smaller, it is the little hop of having had a thought.
+   */
+  hop(amp = 1) {
+    this.hopT = HOP_DUR;
+    this.hopAmp = clamp(amp, 0.15, 1);
+    this._wake();
+  }
+
   destroy() {
     if (this.raf !== null) cancelAnimationFrame(this.raf);
     this.raf = null;
@@ -602,6 +620,7 @@ class Orb {
     if (this.listenLevel !== null) return false;
     if (Math.abs(this.wobbleAmt) > 0.001 || Math.abs(this.squashAmt) > 0.001) return false;
     if (Math.abs(this.nodAmt) > 0.001 || Math.abs(this.shakeAmt) > 0.001) return false;
+    if (this.hopT > 0) return false;            // or a hop freezes mid-air
     if (this.jiggleAmt > 0.001) return false;   // or a wobble freezes mid-wobble
     if (Math.abs(this.gaze.x - this.gazeTarget.x) > 0.002) return false;
     if (Math.abs(this.gaze.y - this.gazeTarget.y) > 0.002) return false;
@@ -777,8 +796,14 @@ class Orb {
       this.uSeed.value = w.seed;
     }
 
+    // The hop: a vertical arc with a stretch on launch and a squash on landing.
+    if (this.hopT > 0) this.hopT = Math.max(0, this.hopT - dt);
+    const hu = this.hopT > 0 ? 1 - this.hopT / HOP_DUR : 0;   // 0 → 1 across the hop
+    const hopY = hu > 0 ? Math.sin(hu * Math.PI) * HOP_H * this.hopAmp : 0;      // up, then back down
+    const hopSquash = hu > 0 ? -Math.cos(hu * Math.PI) * 0.05 * this.hopAmp : 0; // stretch, then squash
+
     this.uWobble.value = this.wobbleAmt + j * 0.15;
-    this.uSquash.value = this.squashAmt + jSquash;
+    this.uSquash.value = this.squashAmt + jSquash + hopSquash;
 
     // Scale, composed from both its owners.
     //
@@ -788,7 +813,7 @@ class Orb {
     // silhouette would push past the top edge and the wobble would clip instead
     // of wobble. Pulling it in buys the room back, and a ball drawing into
     // itself as it is rattled looks deliberate.
-    this.orb.scale.setScalar(breathe * (1 - j * 0.10));
+    this.orb.scale.setScalar(breathe * (1 - j * 0.10) * (1 - hopY * 0.5));
 
     // Working on an answer: eyes up and wandering, the way a person looks for a word.
     if (this.thinking && !this.reduced) {
@@ -824,7 +849,7 @@ class Orb {
     this.orb.rotation.x = jPitch + this.gaze.y * 0.26 + Math.sin(this.t * 22) * this.nodAmt * 0.4
       + this.rollAngle;
     this.orb.position.x = this.gaze.x * 0.10 + jx;
-    this.orb.position.y = -this.gaze.y * 0.07 + jy +
+    this.orb.position.y = -this.gaze.y * 0.07 + jy + hopY +
       (this.reduced ? 0 : Math.sin(this.t * 1.4) * 0.022);
 
 

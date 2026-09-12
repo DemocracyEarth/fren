@@ -16,6 +16,7 @@ const { createSummarizer } = require('./summarizer');
 const { createPatternWatcher } = require('./patterns');
 const { createCuriosityWatcher } = require('./curiosity');
 const { createProactiveWatcher } = require('./proactive');
+const { createNarrator } = require('./narrator');
 const { wakeOnLaunchFrom } = require('./wake');
 const {
   clampInto, offsetInWindow, windowFor, chooseSide,
@@ -204,6 +205,7 @@ let patterns = null;
 let routines = null;
 let curiosity = null;
 let proactive = null;
+let narrator = null;
 let heartbeat = null;
 // Set once the user has actually chosen to quit, so the dashboard's close
 // handler does not ask again while app.quit() is closing that same window.
@@ -653,7 +655,10 @@ app.whenReady().then(() => {
   observer = createObserver({
     onObservation: (obs) => {
       memory.addObservation(obs);
-      if (obs && obs.activeApp) notice('os', 'active-window', { app: String(obs.activeApp), title: String(obs.windowTitle || '').slice(0, 200) });
+      if (obs && obs.activeApp) {
+        notice('os', 'active-window', { app: String(obs.activeApp), title: String(obs.windowTitle || '').slice(0, 200) });
+        if (narrator) narrator.note({ kind: 'app', app: String(obs.activeApp), title: String(obs.windowTitle || '').slice(0, 200) });
+      }
       // The login window in front means they are away; anything else after it
       // means they are back. This sees a return the power monitor can miss.
       if (obs && obs.activeApp === 'loginwindow') away('login window');
@@ -667,22 +672,45 @@ app.whenReady().then(() => {
   // granted pairs persist in settings (token hashes only).
   browserSensor = createBrowserSensor({
     onEvent: (type, detail) => {
+      // A browsing signal for the thinking stream — read fresh from the sensor,
+      // never for an excluded page, so a thought can be about the actual page or
+      // the text they just highlighted. The narrator keys off the URL, so moving
+      // around one site keeps producing thoughts while a re-render of the same
+      // page does not, and it holds its own floor so none of this becomes noise.
+      const noteBrowsing = (kind) => {
+        if (!narrator) return;
+        const ctx = currentBrowserContext();
+        if (!ctx || !ctx.tab || (ctx.page && ctx.page.excluded)) return;
+        const tab = ctx.tab;
+        const sel = ctx.selection && ctx.selection.text ? String(ctx.selection.text) : '';
+        narrator.note({
+          kind,
+          url: String(tab.url || '').slice(0, 500),
+          domain: String(tab.domain || ''),
+          pageTitle: String(tab.title || '').slice(0, 200),
+          selection: sel.slice(0, 300),
+        });
+      };
+
       // Development visibility, without page contents.
       if (type === BROWSER_EVENTS.CONNECTED) log(`[browser] connected: ${detail.browser}`);
       else if (type === BROWSER_EVENTS.DISCONNECTED) log(`[browser] disconnected (${detail.reason})`);
       else if (type === BROWSER_EVENTS.TAB_CHANGED) log(`[browser] tab changed: ${detail.domain || '(opaque)'}`);
       else if (type === BROWSER_EVENTS.PAGE_OPENED) {
         log(`[browser] page opened: ${detail.excluded ? '(excluded domain)' : detail.domain}`);
+        // The reading trail (deep-reading moments) counts distinct pages, so only
+        // a freshly opened page feeds it — not every re-render below.
         if (proactive && !detail.excluded) proactive.noteBrowser(currentBrowserContext());
         if (!detail.excluded) {
           const ctx = currentBrowserContext();
           const tab = ctx && ctx.tab ? ctx.tab : {};
           notice('browser', 'page', { url: String(tab.url || '').slice(0, 500), domain: String(tab.domain || detail.domain || ''), title: String(tab.title || '').slice(0, 200) });
         }
+        noteBrowsing('browser');
       }
-      else if (type === BROWSER_EVENTS.PAGE_UPDATED) log(`[browser] page context updated`);
-      else if (type === BROWSER_EVENTS.SELECTION_CHANGED) log(`[browser] selection changed (${detail.chars} chars)`);
-      else if (type === BROWSER_EVENTS.BROWSER_FOCUSED) log('[browser] focused');
+      else if (type === BROWSER_EVENTS.PAGE_UPDATED) { log('[browser] page context updated'); noteBrowsing('browser'); }
+      else if (type === BROWSER_EVENTS.SELECTION_CHANGED) { log(`[browser] selection changed (${detail.chars} chars)`); noteBrowsing('selection'); }
+      else if (type === BROWSER_EVENTS.BROWSER_FOCUSED) { log('[browser] focused'); noteBrowsing('browser'); }
       else if (type === BROWSER_EVENTS.BROWSER_BLURRED) log('[browser] blurred');
       else if (type === BROWSER_EVENTS.PAGE_CLOSED) log('[browser] page closed');
       broadcastBrowserState();
@@ -799,6 +827,22 @@ app.whenReady().then(() => {
     },
   });
   proactive.start();
+
+  // Thinking out loud — the ordinary sign of life, the opposite of the rare
+  // suggestion. When the active app or the open site changes, and no more often
+  // than a gentle floor, fren has one short thought, and it shows as a thought
+  // bubble so its owner can see it is paying attention. It thinks only while the
+  // light is on, and it is fed from the same change signals fren already senses.
+  narrator = createNarrator({
+    gateway,
+    state,
+    getBrowser: () => currentBrowserContext(),
+    soulFor: () => soul.readContext(app.getPath('userData')).soul,
+    log,
+    onThought: ({ text, kind, at }) => {
+      if (win && !win.isDestroyed()) win.webContents.send('fren:narration', { text, kind, at });
+    },
+  });
 
   // "Any thoughts?" — the same moment machinery, on demand. force skips the
   // timing gates (you ASKED, so the timing is right by definition); the

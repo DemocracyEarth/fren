@@ -492,6 +492,13 @@
       this._wake();
     }
 
+    /** A jump: at full amplitude the beckon's "hey", smaller the hop of a thought. */
+    hop(amp = 1) {
+      const a = Math.max(0.15, Math.min(1, amp));
+      if (!this.reduced) { this.v.bob -= 340 * a; this.v.squash -= 5.5 * a; }
+      this._wake();
+    }
+
     _spring(k, dt) {
       const [stiff, damp] = SPRING[k] || SPRING._default;
       this.v[k] += ((this.target[k] - this.p[k]) * stiff - this.v[k] * damp) * dt;
