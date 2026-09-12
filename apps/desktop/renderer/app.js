@@ -226,6 +226,9 @@ function addThought(text) {
   span.textContent = text;
   t.appendChild(span);
   els.messages.insertBefore(t, els.typing);
+  // Once it is laid out, draw the cloud to fit it — trail toward the orb,
+  // which sits below and to the right of the panel.
+  if (window.FrenCloud) window.FrenCloud.decorate(t);
   const all = els.messages.querySelectorAll('.thought');
   for (let i = 0; i < all.length - THOUGHT_KEEP; i++) all[i].remove();
   scrollDown();
@@ -767,17 +770,8 @@ function describeWhen(r) {
 const liveRuns = new Map();
 const RUN_WAIT_MS = 10 * 60 * 1000;
 
-/** A quick word before a long job, so a wait never starts in silence. */
-const SPOKEN_ACKS = ['Sure thing.', 'On it.', 'Aight, let me do that.', 'Okay, one sec.', 'Yep, let me look.', 'Got it — working on it.', 'Cool, give me a moment.', 'On it, hang tight.'];
-let lastAck = -1;
-function pickAck() {
-  let i = Math.floor(Math.random() * SPOKEN_ACKS.length);
-  if (i === lastAck) i = (i + 1) % SPOKEN_ACKS.length;
-  lastAck = i;
-  return SPOKEN_ACKS[i];
-}
-/** How long a runtime run may go wordless before the orb says it is on it. */
-const ACK_AFTER_MS = 1500;
+/** How long a runtime run may go wordless before the orb SHOWS it is working. */
+const WORKING_AFTER_MS = 1500;
 
 /** Ask through the runtime; fall back to the fast lane if it refuses. */
 async function askThroughRuntime(question, thinkingTimer) {
@@ -794,21 +788,17 @@ async function askThroughRuntime(question, thinkingTimer) {
     let said = 0;
     const timer = setTimeout(() => end('That took too long, so I stopped waiting.'), RUN_WAIT_MS);
     // A real task takes a beat — the container wakes, tools run. If nothing has
-    // been said by now it is not a quick answer, so acknowledge out loud rather
-    // than leave the wait silent; the real reply follows when it is ready.
-    const ackTimer = setTimeout(() => {
-      if (said) return;
-      chain = chain.then(async () => {
-        if (said) return;
-        await speak(pickAck());
-        if (!said) { setFace('thinking'); thinking(true); }
-      });
-    }, ACK_AFTER_MS);
+    // been said by now it is not a quick answer, so SHOW it is working — the
+    // thinking face, not a word. (It used to say "on it" first; a stock line in
+    // front of every real answer wore thin fast.) The reply follows when ready.
+    const workingTimer = setTimeout(() => {
+      if (!said) { setFace('thinking'); thinking(true); }
+    }, WORKING_AFTER_MS);
     function end(error) {
       if (!liveRuns.has(res.runId)) return;
       liveRuns.delete(res.runId);
       clearTimeout(timer);
-      clearTimeout(ackTimer);
+      clearTimeout(workingTimer);
       clearTimeout(thinkingTimer);
       chain.then(async () => {
         showTyping(false);
@@ -827,7 +817,7 @@ async function askThroughRuntime(question, thinkingTimer) {
       message(m) {
         if (!m || !m.text) return;
         said += 1;
-        clearTimeout(ackTimer);
+        clearTimeout(workingTimer);
         clearTimeout(thinkingTimer);
         showTyping(false);
         // One at a time, in order, spoken like any other reply.
