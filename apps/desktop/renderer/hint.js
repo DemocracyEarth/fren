@@ -4,21 +4,7 @@
 const q = new URLSearchParams(location.search);
 const card = document.getElementById('card');
 const note = q.get('n');
-const thought = q.get('t');
-if (thought) {
-  // A passing thought: the comic cloud, its trail aimed at the orb below.
-  document.body.classList.add('thought');
-  const cloud = document.getElementById('cloud');
-  cloud.querySelector('.thought-text').textContent = thought;   // model output: text only
-  const tx = Number(q.get('tx'));
-  const rect = cloud.getBoundingClientRect();
-  const aim = Number.isFinite(tx) ? tx - rect.left : rect.width - 22;
-  if (window.FrenCloud) {
-    window.FrenCloud.decorate(cloud, {
-      trail: { x: Math.max(18, Math.min(rect.width - 18, aim)), side: 'below' },
-    });
-  }
-} else if (note) {
+if (note) {
   card.classList.add('note');
   card.textContent = note;         // textContent: the note can be model output
 } else {

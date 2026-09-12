@@ -79,35 +79,6 @@
     border-top: 1px solid rgba(255, 255, 255, 0.6);
   }
 
-  /* A passing thought, peeking beside the orb while the chat is closed: the
-     same comic cloud the chat draws (cloud.js), its trail leading down to the
-     orb. No diamond tail — the trail of circles IS the tail. Room below for it. */
-  body.thought { padding: 14px 16px 44px; align-items: center; }
-  body.thought #card, body.thought #tail { display: none; }
-  /* Sized to its words explicitly (max-content, capped at the window), because
-     cloud.js draws the cloud from the measured box: a shrink-to-fit box around
-     a legacy line-clamp measured ZERO wide on first layout and drew a blob.
-     A thought is short enough to wrap to two lines on its own. */
-  #cloud {
-    display: none;
-    position: relative;
-    width: max-content;
-    max-width: 100%;
-    box-sizing: border-box;
-    padding: 10px 16px;
-    font-size: 13px;
-    line-height: 1.38;
-    color: var(--ink);
-    --cloud-ink: #2b241b;
-  }
-  body.thought #cloud { display: block; }
-  #cloud .thought-text {
-    position: relative;
-    z-index: 1;
-    display: block;
-    overflow-wrap: anywhere;
-  }
-
   @media (prefers-reduced-motion: no-preference) {
     body { animation: in .16s ease-out both; }
     @keyframes in { from { opacity: 0; } to { opacity: 1; } }
@@ -116,9 +87,7 @@
 </head>
 <body>
   <div id="card"></div>
-  <div id="cloud"><span class="thought-text"></span></div>
   <div id="tail"></div>
-  <script src="cloud.js"></script>
   <script src="hint.js"></script>
 </body>
 </html>

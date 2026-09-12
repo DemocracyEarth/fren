@@ -408,21 +408,15 @@ function setPanelOpen(open) {
  * a tooltip appears far too rarely for creation to be worth caching.
  */
 const HINT_WIN = { width: 380, height: 84 };
-// A thought cloud is taller than a tip: two lines, the puffs, and the trail of
-// circles leading down to the orb.
-const THOUGHT_WIN = { width: 380, height: 190 };
 let hintWin = null;
-let hintKind = null;      // 'tip' | 'note' | 'thought' — what the window holds now
 
 function hideHint() {
   if (hintWin && !hintWin.isDestroyed()) hintWin.destroy();
   hintWin = null;
-  hintKind = null;
 }
 
 function showHint(info) {
   hideHint();
-  const size = info.thought ? THOUGHT_WIN : HINT_WIN;
   const orb = characterRect();
   const { workArea } = screen.getDisplayNearestPoint({
     x: Math.round(orb.x + orb.width / 2),
@@ -430,23 +424,21 @@ function showHint(info) {
   });
 
   // Above the orb, unless the orb is against the top of the screen.
-  const below = orb.y - size.height - 2 < workArea.y;
-  const y = below ? orb.y + orb.height - 6 : orb.y - size.height + 6;
+  const below = orb.y - HINT_WIN.height - 2 < workArea.y;
+  const y = below ? orb.y + orb.height - 6 : orb.y - HINT_WIN.height + 6;
   const cx = orb.x + orb.width / 2;
   const x = Math.round(Math.min(
-    Math.max(cx - size.width / 2, workArea.x),
-    workArea.x + workArea.width - size.width));
+    Math.max(cx - HINT_WIN.width / 2, workArea.x),
+    workArea.x + workArea.width - HINT_WIN.width));
 
   const q = new URLSearchParams();
   if (info.voice) q.set('v', '1');
   if (info.note) q.set('n', String(info.note).slice(0, 200));
-  if (info.thought) q.set('t', String(info.thought).slice(0, 160));
   if (below) q.set('b', '1');
   q.set('tx', String(Math.round(cx - x)));    // where the tail finds the orb
-  hintKind = info.thought ? 'thought' : info.note ? 'note' : 'tip';
 
   hintWin = new BrowserWindow({
-    x, y, ...size,
+    x, y, ...HINT_WIN,
     frame: false,
     transparent: true,
     resizable: false,
@@ -849,23 +841,8 @@ app.whenReady().then(() => {
     log,
     onThought: ({ text, kind, at }) => {
       if (win && !win.isDestroyed()) win.webContents.send('fren:narration', { text, kind, at });
-      // With the chat closed there is nowhere to read it, so the thought peeks
-      // beside the orb for a moment instead — the same cloud, in the tooltip's
-      // own click-through window, gone on its own or the instant the chat opens.
-      if (!state.get().panelOpen) peekThought(text);
     },
   });
-
-  const PEEK_MS = 9000;
-  let peekTimer = null;
-  function peekThought(text) {
-    showHint({ thought: text });
-    if (peekTimer) clearTimeout(peekTimer);
-    peekTimer = setTimeout(() => {
-      peekTimer = null;
-      if (hintKind === 'thought') hideHint();   // only ours — never a tip that took over
-    }, PEEK_MS);
-  }
 
   // "Any thoughts?" — the same moment machinery, on demand. force skips the
   // timing gates (you ASKED, so the timing is right by definition); the

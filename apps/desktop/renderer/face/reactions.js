@@ -51,6 +51,13 @@
       neutral: [['content', 3], ['curious', 2], ['calm', 2], ['thinking', 1], ['hopeful', 1]],
       low: [['calm', 3], ['tired', 2], ['resting', 2], ['content', 1], ['peaceful', 1]],
     },
+    // Having had a thought, with nobody looking: "hm". Quiet faces only — the
+    // gesture is the tell; the expression just colours it.
+    thought: {
+      bright: [['curious', 3], ['hopeful', 2], ['playful', 1], ['surprised', 1], ['content', 1]],
+      neutral: [['curious', 4], ['thinking', 2], ['content', 2], ['hopeful', 1], ['calm', 1]],
+      low: [['thinking', 3], ['calm', 3], ['curious', 1], ['content', 1]],
+    },
   };
 
   const HOLD = {          // how long the reaction lingers, in ms
@@ -62,6 +69,7 @@
     // unrelated animations.
     shake: [1400, 2600],
     idle: [1200, 2600],
+    thought: [900, 1900],
   };
 
   function createReactions(opts = {}) {

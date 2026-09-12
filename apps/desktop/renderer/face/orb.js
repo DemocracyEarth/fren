@@ -109,7 +109,8 @@ class Orb {
     this.squashAmt = 0;
     this.nodAmt = 0;
     this.shakeAmt = 0;
-    this.hopT = 0;          // time left in the current hop (the beckon's jump)
+    this.hopT = 0;          // time left in the current hop
+    this.hopAmp = 1;        // how big a hop: 1 is the beckon's jump, less is a "hm"
     // Scroll-to-resize spins the sphere. Two numbers, not one: the velocity is
     // what a scroll adds to, and the angle is what it turns into. Both bleed
     // off, so the face always comes back to front — a ball that stopped
@@ -582,9 +583,13 @@ class Orb {
     this._wake();
   }
 
-  /** A jump — the beckon's "hey, over here", repeated until it is heard. */
-  hop() {
+  /**
+   * A jump. At full amplitude it is the beckon's "hey, over here", repeated
+   * until it is heard; smaller, it is the little hop of having had a thought.
+   */
+  hop(amp = 1) {
     this.hopT = HOP_DUR;
+    this.hopAmp = clamp(amp, 0.15, 1);
     this._wake();
   }
 
@@ -794,8 +799,8 @@ class Orb {
     // The hop: a vertical arc with a stretch on launch and a squash on landing.
     if (this.hopT > 0) this.hopT = Math.max(0, this.hopT - dt);
     const hu = this.hopT > 0 ? 1 - this.hopT / HOP_DUR : 0;   // 0 → 1 across the hop
-    const hopY = hu > 0 ? Math.sin(hu * Math.PI) * HOP_H : 0; // up, then back down
-    const hopSquash = hu > 0 ? -Math.cos(hu * Math.PI) * 0.05 : 0; // stretch, then squash
+    const hopY = hu > 0 ? Math.sin(hu * Math.PI) * HOP_H * this.hopAmp : 0;      // up, then back down
+    const hopSquash = hu > 0 ? -Math.cos(hu * Math.PI) * 0.05 * this.hopAmp : 0; // stretch, then squash
 
     this.uWobble.value = this.wobbleAmt + j * 0.15;
     this.uSquash.value = this.squashAmt + jSquash + hopSquash;

@@ -556,27 +556,54 @@ button { font-family: inherit; -webkit-app-region: no-drag; cursor: pointer; }
   color: var(--orange-ink);
 }
 
-/* fren thinking out loud — a proper comic thought-cloud, unmistakably a thought
- * and not a message: a puffy scalloped outline drawn by cloud.js to fit the
- * words, opaque white with an ink line, and a trail of shrinking circles down
- * toward the orb thinking it. The margins leave room for the puffs and the
- * trail, which cloud.js draws outside the text's own box. */
+/* fren thinking out loud — quiet and secondary, the way a system caption sits
+ * beside a conversation rather than in it: a frosted hairline capsule in the
+ * secondary label colour, no speaker label, led by three fading dots (someone
+ * mid-thought), and a soft settle-in — a breath of blur clearing — instead of a
+ * pop. It reads as a thought by its weight and material, not by its shape. */
 .thought {
   align-self: flex-start;
-  position: relative;
-  max-width: 78%;
-  margin: 14px 0 26px 16px;
-  padding: 10px 16px;
-  color: var(--ink);
-  font-size: 13px;
-  line-height: 1.38;
-  --cloud-ink: #2b241b;
-  animation: thought-pop 0.34s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: 82%;
+  margin: 2px 0 8px 4px;
+  padding: 7px 13px 7px 11px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 1px 1px rgba(24, 16, 6, 0.03);
+  -webkit-backdrop-filter: blur(10px) saturate(1.15);
+  backdrop-filter: blur(10px) saturate(1.15);
+  color: rgba(26, 23, 18, 0.62);
+  font-size: 12.5px;
+  line-height: 1.4;
+  animation: thought-settle 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
-.thought .thought-text { position: relative; z-index: 1; }
-@keyframes thought-pop {
-  from { opacity: 0; transform: translateY(6px) scale(0.94); }
-  to   { opacity: 1; transform: none; }
+.thought-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  transform: translateY(-1px);
+}
+.thought-mark i {
+  width: 3.5px;
+  height: 3.5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.26;
+}
+.thought-mark i:nth-child(2) { opacity: 0.42; }
+.thought-mark i:nth-child(3) { opacity: 0.64; }
+@keyframes thought-settle {
+  from { opacity: 0; transform: translateY(4px); filter: blur(4px); }
+  60%  { opacity: 1; }
+  to   { opacity: 1; transform: none; filter: blur(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .thought { animation: thought-fade 0.25s ease-out both; }
+  @keyframes thought-fade { from { opacity: 0; } to { opacity: 1; } }
 }
 
 #empty { margin: auto 0; text-align: center; padding: 0 6px; }

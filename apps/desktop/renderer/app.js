@@ -209,31 +209,71 @@ function addBubble(who, text) {
   return bubble;
 }
 
-// fren thinking out loud: a passing thought, shown as a comic thought-cloud in
-// the stream — no label, dimmer, ephemeral, and clearly NOT a message to you.
-// It stays out of the way while an actual conversation is going.
+// fren thinking out loud: a passing thought, shown in the stream as a quiet
+// secondary caption — no label, frosted, ephemeral, clearly NOT a message to
+// you. It stays out of the way while an actual conversation is going.
 let lastConversationAt = 0;
 const THOUGHT_KEEP = 4;                  // a small rolling window; thoughts pass
 function addThought(text) {
   text = String(text || '').trim();
-  if (!text || !state.observing) return;                 // paused: no thoughts
-  if (Date.now() - lastConversationAt < 45_000) return;  // not mid-conversation
+  if (!text || !state.observing) return false;                 // paused: no thoughts
+  if (Date.now() - lastConversationAt < 45_000) return false;  // not mid-conversation
   if (els.empty) els.empty.remove(), (els.empty = null);
   const t = document.createElement('div');
   t.className = 'thought';
+  const mark = document.createElement('span');
+  mark.className = 'thought-mark';
+  mark.setAttribute('aria-hidden', 'true');
+  for (let i = 0; i < 3; i++) mark.appendChild(document.createElement('i'));
   const span = document.createElement('span');
   span.className = 'thought-text';
   span.textContent = text;
-  t.appendChild(span);
+  t.append(mark, span);
   els.messages.insertBefore(t, els.typing);
-  // Once it is laid out, draw the cloud to fit it — trail toward the orb,
-  // which sits below and to the right of the panel.
-  if (window.FrenCloud) window.FrenCloud.decorate(t);
   const all = els.messages.querySelectorAll('.thought');
   for (let i = 0; i < all.length - THOUGHT_KEEP; i++) all[i].remove();
   scrollDown();
+  return true;
 }
-function onNarration(t) { addThought(t && t.text); }
+function onNarration(t) {
+  const shown = addThought(t && t.text);
+  // With the chat closed there is nothing to read, so the orb marks the thought
+  // itself — a small gesture, put together on the spot.
+  if (shown && !state.panelOpen) thoughtGesture();
+}
+
+/**
+ * The orb having a thought where nobody can read it: "hm", not "hey".
+ *
+ * Procedural rather than played back — a motion drawn from a pool (a little
+ * hop, a nod, a blink, a glance aside, a squash), sized by a random amplitude,
+ * paired most of the time with a fleeting expression from the `thought` pool,
+ * a random beat between the two, and never the same motion twice running. Held
+ * back while it is talking, listening or answering; under reduced motion only
+ * the expression plays.
+ */
+let lastGesture = -1;
+function thoughtGesture() {
+  if (!state.observing || speaking || awaitingReply) return;
+  if (document.body.dataset.recording === '1') return;
+  const r = Math.random;
+  const motions = [
+    () => face.hop(0.35 + r() * 0.3),
+    () => face.pulse('nod'),
+    () => face.pulse('blink'),
+    () => face.pulse(r() < 0.5 ? 'squash' : 'stretch'),
+    () => {                                  // a glance aside, then back
+      face.lookAt((r() < 0.5 ? -1 : 1) * (0.3 + r() * 0.35), -0.12 - r() * 0.25);
+      setTimeout(() => face.lookAway(), 450 + r() * 500);
+    },
+  ];
+  let i = Math.floor(r() * motions.length);
+  if (i === lastGesture) i = (i + 1) % motions.length;
+  lastGesture = i;
+  const withFace = r() < 0.7;
+  if (withFace) react('thought');
+  if (!REDUCED.matches) setTimeout(motions[i], withFace ? 60 + r() * 220 : 0);
+}
 
 /** fren's words carry Markdown, rendered as nodes, never as HTML; yours show as typed. */
 function setBubbleText(bubble, text, rich) {

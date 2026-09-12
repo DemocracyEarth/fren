@@ -492,9 +492,10 @@
       this._wake();
     }
 
-    /** A jump — the beckon's "hey, over here": a bigger upward bob than a bounce. */
-    hop() {
-      if (!this.reduced) { this.v.bob -= 340; this.v.squash -= 5.5; }
+    /** A jump: at full amplitude the beckon's "hey", smaller the hop of a thought. */
+    hop(amp = 1) {
+      const a = Math.max(0.15, Math.min(1, amp));
+      if (!this.reduced) { this.v.bob -= 340 * a; this.v.squash -= 5.5 * a; }
       this._wake();
     }
 
