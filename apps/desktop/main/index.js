@@ -1491,6 +1491,7 @@ app.whenReady().then(() => {
         keyword: process.env.FREN_WAKE_KEYWORD || (require('node:fs').existsSync(custom) ? custom : 'hey fren'),
         sensitivity: process.env.FREN_WAKE_SENSITIVITY,
         modelsDir: path.join(app.getPath('userData'), 'wake', 'models'),
+        engineOptions: { onsetRestart: String(process.env.FREN_WAKE_ONSET_RESTART || 'on').toLowerCase() !== 'off' },
         log,
         onWake: () => { if (win && !win.isDestroyed()) win.webContents.send('fren:voice.wake'); },
       });

@@ -33,6 +33,7 @@ function createWakeListener({
   keyword,
   sensitivity,
   modelsDir,
+  engineOptions = {},        // engine settings passed through (e.g. onsetRestart)
   deps = null,               // { createEngine, PvRecorder } — loaded on first arm if absent
   onWake = () => {},
   log = console.log,
@@ -88,7 +89,7 @@ function createWakeListener({
       let d = deps;
       try { d = d || loadDeps(); } catch (err) { log(`[wake] unavailable: ${err.message}`); arming = false; return false; }
       try {
-        engine = await d.createEngine({ modelsDir, keyword, sensitivity, log });
+        engine = await d.createEngine({ modelsDir, keyword, sensitivity, log, ...engineOptions });
         recorder = new d.PvRecorder(engine.frameLength);
         recorder.start();
       } catch (err) {

@@ -42,13 +42,14 @@ const settle = (ms = 10) => new Promise((r) => setTimeout(r, ms));
 
 test('arms with the phrase and sensitivity, loads the engine, and starts the microphone', async (t) => {
   const { deps, made } = fakes();
-  const w = createWakeListener({ keyword: 'hey jarvis', sensitivity: 0.7, modelsDir: '/tmp/x', deps, log: () => {} });
+  const w = createWakeListener({ keyword: 'hey jarvis', sensitivity: 0.7, modelsDir: '/tmp/x', engineOptions: { onsetRestart: false }, deps, log: () => {} });
   t.after(() => w.disarm());
   assert.equal(await w.arm(), true);
   assert.equal(w.armed(), true);
   assert.equal(made.engines[0].cfg.keyword, 'hey jarvis');
   assert.equal(made.engines[0].cfg.sensitivity, 0.7);
   assert.equal(made.engines[0].cfg.modelsDir, '/tmp/x');
+  assert.equal(made.engines[0].cfg.onsetRestart, false, 'engine settings pass through');
   assert.equal(made.recorders[0].frameLength, 1280);
   assert.equal(made.recorders[0].isRecording, true);
   assert.match(w.label(), /built-in phrase "hey jarvis"/);
