@@ -2,78 +2,61 @@
 /**
  * The wake word — "hey fren", spoken, opens the line.
  *
- * On-device, and nothing else: Porcupine (Picovoice) listens to the microphone
- * in this process and answers one question per frame, "was that the word?".
- * No audio leaves the machine, nothing is transcribed, nothing is kept. When
- * the word is heard, `onWake` fires and the renderer opens conversation mode —
- * and THAT is when audio starts to travel, deliberately, with the orb aglow.
+ * On-device, and nothing else: an engine (wake-engine-oww.js, openWakeWord)
+ * listens to the microphone in this process and answers one question per
+ * frame, "was that the phrase?". No audio leaves the machine, nothing is
+ * transcribed, nothing is kept. When the phrase is heard, `onWake` fires and
+ * the renderer opens conversation mode — and THAT is when audio starts to
+ * travel, deliberately, with the orb aglow.
  *
  * It is armed only while fren's light is on (one story: light off, senses off,
- * including this one), it is disarmed for the length of a conversation (the
- * agent has the microphone then), and it needs a Picovoice access key, so it
- * exists at all only for someone who set one up on purpose.
+ * including this one) and it is disarmed for the length of a conversation
+ * (the agent has the microphone then). No account, no key: the engine's models
+ * are fetched once from openWakeWord's own release.
  *
- * Everything is injected — the engine, the recorder, the clock — so the
- * clockwork tests without a microphone or a key.
+ * Everything is injected — the engine factory, the recorder, the clock — so
+ * the clockwork tests without a microphone, models or a network.
  */
-const fs = require('node:fs');
-
 const DEFAULTS = {
-  keyword: 'porcupine',      // Porcupine's own built-in word: the stand-in until a "hey fren" model exists
-  sensitivity: 0.55,         // 0..1; higher hears more (and mishears more)
   debounceMs: 2000,          // one detection is one wake, not three
 };
 
-/** Load the native SDKs lazily, so a missing or broken binary never breaks boot. */
+/** Load the native pieces lazily, so a missing or broken binary never breaks boot. */
 function loadDeps() {
-  const { Porcupine, BuiltinKeyword } = require('@picovoice/porcupine-node');
-  const { PvRecorder } = require('@picovoice/pvrecorder-node');
-  return { Porcupine, BuiltinKeyword, PvRecorder };
-}
-
-/**
- * The keyword to arm: a `.ppn` file if the path exists, else a built-in name.
- * Returns what Porcupine wants (a path or a built-in value) and a label for
- * the log that never includes the path's contents.
- */
-function resolveKeyword(keyword, BuiltinKeyword, exists = fs.existsSync) {
-  const k = String(keyword || DEFAULTS.keyword).trim();
-  if (/\.ppn$/i.test(k) && exists(k)) return { keyword: k, label: `custom model ${k.split('/').pop()}` };
-  const name = k.toUpperCase().replace(/[\s-]+/g, '_');
-  if (BuiltinKeyword && Object.prototype.hasOwnProperty.call(BuiltinKeyword, name)) {
-    return { keyword: BuiltinKeyword[name], label: `built-in word "${k.toLowerCase()}"` };
-  }
-  return { keyword: BuiltinKeyword ? BuiltinKeyword.PORCUPINE : DEFAULTS.keyword, label: 'built-in word "porcupine"' };
+  const { createEngine } = require('./wake-engine-oww');
+  const { PvRecorder } = require('@picovoice/pvrecorder-node');   // Apache-2.0, no key
+  return { createEngine, PvRecorder };
 }
 
 function createWakeListener({
-  accessKey,
-  keyword = DEFAULTS.keyword,
-  sensitivity = DEFAULTS.sensitivity,
-  deps = null,               // { Porcupine, BuiltinKeyword, PvRecorder } — loaded on first arm if absent
+  keyword,
+  sensitivity,
+  modelsDir,
+  deps = null,               // { createEngine, PvRecorder } — loaded on first arm if absent
   onWake = () => {},
   log = console.log,
   now = () => Date.now(),
   options = {},
 } = {}) {
   const opts = { ...DEFAULTS, ...options };
-  let porcupine = null;
+  let engine = null;
   let recorder = null;
   let running = false;
+  let arming = false;
   let lastWakeAt = -Infinity;   // the first hearing always counts, whatever the clock says
   let label = '';
 
   function release() {
     running = false;
     const r = recorder; recorder = null;
-    const p = porcupine; porcupine = null;
+    const e = engine; engine = null;
     try { if (r) { if (r.isRecording) r.stop(); r.release(); } } catch { /* already gone */ }
-    try { if (p) p.release(); } catch { /* already gone */ }
+    try { if (e) e.release(); } catch { /* already gone */ }
   }
 
   async function loop() {
     const r = recorder;
-    const p = porcupine;
+    const e = engine;
     while (running && recorder === r) {
       let frame;
       try { frame = await r.read(); }
@@ -83,12 +66,13 @@ function createWakeListener({
       }
       if (!running || recorder !== r) return;
       let idx = -1;
-      try { idx = p.process(frame); } catch (err) { log(`[wake] engine error: ${err.message}`); release(); return; }
+      try { idx = await e.process(frame); }
+      catch (err) { log(`[wake] engine error: ${err.message}`); release(); return; }
       if (idx >= 0) {
         const t = now();
         if (t - lastWakeAt >= opts.debounceMs) {
           lastWakeAt = t;
-          log('[wake] heard the word');   // PRIVACY: the word, never the audio
+          log('[wake] heard the phrase');   // PRIVACY: that it was heard, never the audio
           try { onWake(); } catch { /* the renderer's problem */ }
         }
       }
@@ -96,37 +80,38 @@ function createWakeListener({
   }
 
   return {
-    /** Start listening. Idempotent; false (and a log line) if it cannot. */
-    arm() {
-      if (running) return true;
-      if (!accessKey) { log('[wake] no access key'); return false; }
+    /** Start listening: load the engine (fetching models once), open the mic. Idempotent. */
+    async arm() {
+      if (running || arming) return true;
+      arming = true;
       let d = deps;
-      try { d = d || loadDeps(); } catch (err) { log(`[wake] unavailable: ${err.message}`); return false; }
-      const resolved = resolveKeyword(keyword, d.BuiltinKeyword);
+      try { d = d || loadDeps(); } catch (err) { log(`[wake] unavailable: ${err.message}`); arming = false; return false; }
       try {
-        porcupine = new d.Porcupine(accessKey, [resolved.keyword], [Math.max(0, Math.min(1, Number(sensitivity) || DEFAULTS.sensitivity))]);
-        recorder = new d.PvRecorder(porcupine.frameLength);
+        engine = await d.createEngine({ modelsDir, keyword, sensitivity, log });
+        recorder = new d.PvRecorder(engine.frameLength);
         recorder.start();
       } catch (err) {
         log(`[wake] could not arm: ${err.message}`);
         release();
+        arming = false;
         return false;
       }
       running = true;
-      label = resolved.label;
+      arming = false;
+      label = engine.label;
       log(`[wake] armed — ${label}`);
       loop().catch((err) => { log(`[wake] stopped: ${err.message}`); release(); });
       return true;
     },
     /** Stop listening and let the microphone go. Idempotent. */
     disarm() {
-      if (!running && !recorder && !porcupine) return;
+      if (!running && !recorder && !engine) return;
       release();
       log('[wake] disarmed');
     },
-    armed: () => running,
+    armed: () => running || arming,
     label: () => label,
   };
 }
 
-module.exports = { createWakeListener, resolveKeyword, DEFAULTS };
+module.exports = { createWakeListener, DEFAULTS };
