@@ -1,37 +1,33 @@
 'use strict';
 /**
- * The wake word's clockwork, without a microphone or a key: a fake engine that
- * says "the word" when told to, a fake recorder that hands over frames on
- * demand. What matters is arming only when asked, waking exactly once per
- * detection, and letting the microphone go — every time, on every path.
- *
- * Every test that arms disarms in `t.after`, so a failed assertion can never
- * leave the fake recorder polling and keep the runner alive.
+ * The wake word's clockwork, without a microphone, models or a network: a fake
+ * engine that says "the phrase" when told to, a fake recorder that hands over
+ * frames on demand. What matters is arming only when asked, waking exactly
+ * once per detection, and letting the microphone go — every time, on every
+ * path. Every test that arms disarms in `t.after`, so a failed assertion can
+ * never leave the fake recorder polling and keep the runner alive.
  */
 const test = require('node:test');
 const assert = require('node:assert');
-const { createWakeListener, resolveKeyword } = require('../main/wake-word.js');
+const { createWakeListener } = require('../main/wake-word.js');
 
-function fakes() {
-  const made = { porcupines: [], recorders: [] };
+function fakes({ engineFails = false } = {}) {
+  const made = { engines: [], recorders: [] };
   const pending = [];                 // frames the recorder will hand over, in order
   const say = (idx) => pending.push(idx);
-  class Porcupine {
-    constructor(key, keywords, sensitivities) {
-      this.key = key; this.keywords = keywords; this.sensitivities = sensitivities;
-      this.frameLength = 512; this.released = false;
-      made.porcupines.push(this);
-    }
-    process(frame) { return frame.idx; }
-    release() { this.released = true; }
-  }
+  const createEngine = async (cfg) => {
+    if (engineFails) throw new Error('models missing');
+    const e = { cfg, frameLength: 1280, released: false, label: `built-in phrase "${cfg.keyword || 'hey jarvis'}"`,
+      process: async (frame) => frame.idx, release() { this.released = true; } };
+    made.engines.push(e);
+    return e;
+  };
   class PvRecorder {
     constructor(frameLength) { this.frameLength = frameLength; this.isRecording = false; this.released = false; made.recorders.push(this); }
     start() { this.isRecording = true; }
     stop() { this.isRecording = false; }
     release() { this.released = true; }
     async read() {
-      // Yield until there is a frame to give, or until released.
       for (;;) {
         if (this.released) throw new Error('released');
         if (pending.length) { const idx = pending.shift(); return { idx }; }
@@ -39,112 +35,105 @@ function fakes() {
       }
     }
   }
-  const BuiltinKeyword = { PORCUPINE: 'porcupine', COMPUTER: 'computer', JARVIS: 'jarvis' };
-  return { deps: { Porcupine, PvRecorder, BuiltinKeyword }, made, say };
+  return { deps: { createEngine, PvRecorder }, made, say };
 }
 
 const settle = (ms = 10) => new Promise((r) => setTimeout(r, ms));
 
-test('arms with the key, the word and the sensitivity, and starts the microphone', (t) => {
+test('arms with the phrase and sensitivity, loads the engine, and starts the microphone', async (t) => {
   const { deps, made } = fakes();
-  const w = createWakeListener({ accessKey: 'k', keyword: 'jarvis', sensitivity: 0.7, deps, log: () => {} });
+  const w = createWakeListener({ keyword: 'hey jarvis', sensitivity: 0.7, modelsDir: '/tmp/x', deps, log: () => {} });
   t.after(() => w.disarm());
-  assert.equal(w.arm(), true);
+  assert.equal(await w.arm(), true);
   assert.equal(w.armed(), true);
-  assert.deepEqual(made.porcupines[0].keywords, ['jarvis']);
-  assert.deepEqual(made.porcupines[0].sensitivities, [0.7]);
+  assert.equal(made.engines[0].cfg.keyword, 'hey jarvis');
+  assert.equal(made.engines[0].cfg.sensitivity, 0.7);
+  assert.equal(made.engines[0].cfg.modelsDir, '/tmp/x');
+  assert.equal(made.recorders[0].frameLength, 1280);
   assert.equal(made.recorders[0].isRecording, true);
-  assert.match(w.label(), /built-in word "jarvis"/);
+  assert.match(w.label(), /built-in phrase "hey jarvis"/);
 });
 
-test('hearing the word wakes once, and a second hearing inside the debounce does not', async (t) => {
+test('hearing the phrase wakes once, and a second hearing inside the debounce does not', async (t) => {
   const { deps, say } = fakes();
   let now = 1000;
   const wakes = [];
-  const w = createWakeListener({ accessKey: 'k', deps, log: () => {}, now: () => now, onWake: () => wakes.push(now) });
+  const w = createWakeListener({ deps, log: () => {}, now: () => now, onWake: () => wakes.push(now) });
   t.after(() => w.disarm());
-  w.arm();
+  await w.arm();
   say(0); await settle();
   assert.deepEqual(wakes, [1000], 'the first hearing counts');
-  say(0); await settle();            // same instant: debounced
+  say(0); await settle();
   assert.deepEqual(wakes, [1000]);
   now = 4000;
-  say(0); await settle();            // later: a new wake
+  say(0); await settle();
   assert.deepEqual(wakes, [1000, 4000]);
 });
 
-test('silence is silence: frames without the word never wake', async (t) => {
+test('silence is silence: frames without the phrase never wake', async (t) => {
   const { deps, say } = fakes();
   const wakes = [];
-  const w = createWakeListener({ accessKey: 'k', deps, log: () => {}, onWake: () => wakes.push(1) });
+  const w = createWakeListener({ deps, log: () => {}, onWake: () => wakes.push(1) });
   t.after(() => w.disarm());
-  w.arm();
+  await w.arm();
   say(-1); say(-1); say(-1); await settle();
   assert.deepEqual(wakes, []);
 });
 
-test('disarming lets the microphone and the engine go', (t) => {
+test('disarming lets the microphone and the engine go', async (t) => {
   const { deps, made } = fakes();
-  const w = createWakeListener({ accessKey: 'k', deps, log: () => {} });
+  const w = createWakeListener({ deps, log: () => {} });
   t.after(() => w.disarm());
-  w.arm();
+  await w.arm();
   w.disarm();
   assert.equal(w.armed(), false);
   assert.equal(made.recorders[0].isRecording, false);
   assert.equal(made.recorders[0].released, true);
-  assert.equal(made.porcupines[0].released, true);
+  assert.equal(made.engines[0].released, true);
 });
 
-test('arming twice is one microphone; disarming twice is fine', (t) => {
+test('arming twice is one microphone (even while still arming); disarming twice is fine', async (t) => {
   const { deps, made } = fakes();
-  const w = createWakeListener({ accessKey: 'k', deps, log: () => {} });
+  const w = createWakeListener({ deps, log: () => {} });
   t.after(() => w.disarm());
-  w.arm(); w.arm();
+  const a = w.arm();
+  assert.equal(w.armed(), true, 'counts as armed while the engine loads');
+  await Promise.all([a, w.arm()]);
   assert.equal(made.recorders.length, 1);
   w.disarm(); w.disarm();
   assert.equal(w.armed(), false);
 });
 
-test('no key, no listening', () => {
-  const { deps, made } = fakes();
+test('an engine that cannot load leaves the listener disarmed, in words', async () => {
+  const { deps, made } = fakes({ engineFails: true });
   const lines = [];
-  const w = createWakeListener({ accessKey: '', deps, log: (l) => lines.push(l) });
-  assert.equal(w.arm(), false);
+  const w = createWakeListener({ deps, log: (l) => lines.push(l) });
+  assert.equal(await w.arm(), false);
+  assert.equal(w.armed(), false);
   assert.equal(made.recorders.length, 0);
-  assert.ok(lines.some((l) => /no access key/.test(l)));
+  assert.ok(lines.some((l) => /could not arm: models missing/.test(l)));
 });
 
-test('a microphone that fails to start is released, and the listener stays disarmed', () => {
+test('a microphone that fails to start is released, and the listener stays disarmed', async () => {
   const { deps, made } = fakes();
   deps.PvRecorder = class extends deps.PvRecorder { start() { throw new Error('no device'); } };
   const lines = [];
-  const w = createWakeListener({ accessKey: 'k', deps, log: (l) => lines.push(l) });
-  assert.equal(w.arm(), false);
+  const w = createWakeListener({ deps, log: (l) => lines.push(l) });
+  assert.equal(await w.arm(), false);
   assert.equal(w.armed(), false);
-  assert.equal(made.porcupines[0].released, true);
+  assert.equal(made.engines[0].released, true);
   assert.ok(lines.some((l) => /could not arm: no device/.test(l)));
 });
 
 test('a microphone lost mid-listen disarms and releases', async (t) => {
   const { deps, made } = fakes();
   const lines = [];
-  const w = createWakeListener({ accessKey: 'k', deps, log: (l) => lines.push(l) });
+  const w = createWakeListener({ deps, log: (l) => lines.push(l) });
   t.after(() => w.disarm());
-  w.arm();
+  await w.arm();
   made.recorders[0].released = true;     // the next read() throws
   await settle(15);
   assert.equal(w.armed(), false);
-  assert.equal(made.porcupines[0].released, true);
+  assert.equal(made.engines[0].released, true);
   assert.ok(lines.some((l) => /microphone lost/.test(l)));
-});
-
-test('the keyword: a .ppn that exists, a built-in by name, else porcupine', () => {
-  const B = { PORCUPINE: 'porcupine', COMPUTER: 'computer', HEY_SIRI: 'hey siri' };
-  const exists = (p) => p === '/models/hey-fren.ppn';
-  assert.deepEqual(resolveKeyword('/models/hey-fren.ppn', B, exists), { keyword: '/models/hey-fren.ppn', label: 'custom model hey-fren.ppn' });
-  assert.equal(resolveKeyword('/models/missing.ppn', B, exists).keyword, 'porcupine');
-  assert.equal(resolveKeyword('computer', B, exists).keyword, 'computer');
-  assert.equal(resolveKeyword('hey siri', B, exists).keyword, 'hey siri');
-  assert.equal(resolveKeyword('', B, exists).keyword, 'porcupine');
-  assert.equal(resolveKeyword('nonsense', B, exists).keyword, 'porcupine');
 });

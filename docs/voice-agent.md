@@ -262,34 +262,47 @@ when the agent ends the conversation. While it is open the orb glows.
 
 ## 9 · The wake word
 
-Say the word and the line opens: fren gives a small hop to show it heard you,
-and the agent's greeting follows. The detector is **Porcupine** (Picovoice),
-running **on this machine**: it answers one question per frame of microphone
-audio — "was that the word?" — and nothing else. No audio leaves, nothing is
-transcribed, nothing is kept. Audio starts to travel only once the line is open,
-deliberately, with the orb aglow.
+Say the phrase and the line opens: fren gives a small hop to show it heard you,
+and the agent's greeting follows. The detector is **openWakeWord** (open source;
+the code is Apache-2.0 — licensing of the *models* is a separate matter, see
+below), running **on this machine** with no account and no key: three small
+models in a row answer one question per 80 ms of microphone audio — "was that
+the phrase?" — and nothing else. No audio leaves, nothing is transcribed,
+nothing is kept. Audio starts to travel only once the line is open, deliberately,
+with the orb aglow.
 
-It exists only for someone who set it up on purpose:
+It is on by default; `FREN_WAKE_WORD=off` switches it off outright.
 
-1. Get a Picovoice access key at `console.picovoice.ai` (a free tier covers
-   personal use) and add it to `.env`:
+1. **Nothing to set up for the stand-in.** On the first arm fren fetches the two
+   shared models and a pretrained phrase from openWakeWord's own release (pinned
+   version, checked by size) into
    ```
-   PICOVOICE_ACCESS_KEY=…
+   ~/Library/Application Support/fren/wake/models/
    ```
-   With the key present the wake word is on; `FREN_WAKE_WORD=off` switches it
-   off without removing the key.
-2. Train **"hey fren"** in the Picovoice Console (Porcupine → custom wake word,
-   platform **macOS**, the SDK's Porcupine major version — 4.x), download the
-   `.ppn`, and put it at
+   and listens for **"hey jarvis"** — the pretrained phrase closest in shape to
+   "hey fren". The log says what it armed. `FREN_WAKE_KEYWORD` accepts another
+   pretrained phrase by name (`alexa`, `hey mycroft`, `hey rhasspy`, `weather`,
+   `timer`).
+2. **"hey fren" is a model you train yourself** — no account, but not a quick
+   afternoon, as of this writing. openWakeWord's *automatic model training*
+   notebook (`notebooks/automatic_model_training.ipynb`, written for Google
+   Colab) synthesizes examples of the phrase with text-to-speech and trains a
+   small classifier on them — but it has been reported broken on stock Colab
+   since late 2025 (upstream issues #296 and #317): it wants Python 3.10/3.11,
+   pinned old PyTorch/TensorFlow wheels, and an NVIDIA GPU with ~45 GB of disk,
+   while Colab's default runtime moved to 3.12. Plan on rebuilding that
+   environment on a Linux GPU machine, or a patched Colab runtime, first; macOS
+   cannot run the training itself. When it hands you an `.onnx`, put it at
    ```
-   ~/Library/Application Support/fren/wake/hey-fren.ppn
+   ~/Library/Application Support/fren/wake/hey-fren.onnx
    ```
-   (or point `FREN_WAKE_KEYWORD` at any `.ppn`). Until that file exists, fren
-   arms Porcupine's own built-in word — **"porcupine"** — as a stand-in, and the
-   log says which it armed. `FREN_WAKE_KEYWORD` also accepts a built-in name
-   (`computer`, `jarvis`, …) if you would rather.
-3. `FREN_WAKE_SENSITIVITY` (0–1, default 0.55): higher hears more, and mishears
-   more.
+   (or point `FREN_WAKE_KEYWORD` at any `.onnx`). Restart, and the log flips to
+   `armed — custom model hey-fren.onnx`. Your model is never fetched or sent
+   anywhere; only the shared models come from the release. Until then it is
+   "hey jarvis" — and saying "hey fren" does not set that off, so nothing odd
+   happens when you use the real name.
+3. `FREN_WAKE_SENSITIVITY` (0–1, default 0.5): higher hears more, and mishears
+   more. (It maps to openWakeWord's score threshold; 0.5 is their own default.)
 
 Two rules keep it honest, and both are structural:
 
@@ -299,6 +312,25 @@ Two rules keep it honest, and both are structural:
 - **It stands down for the length of a conversation.** Once a line is open the
   agent has the microphone; the detector re-arms when the line closes.
 
-If the key is missing, or the microphone cannot be opened, or the engine fails,
-fren says so in its log at launch and carries on without it — holding the orb
-and the hotkey still work.
+If the models cannot be fetched, or the microphone cannot be opened, or the
+engine fails, fren says so in its log at launch and carries on without it —
+holding the orb and the hotkey still work.
+
+(Why not Picovoice's Porcupine, which fren used for a day: their console now
+gates every new account behind a manual review of a *commercial* use case, so a
+personal, local-first companion never gets a key. The microphone capture fren
+uses is still their Apache-licensed `pvrecorder`, which needs none.)
+
+**Licensing, plainly.** openWakeWord's *code* is Apache-2.0. Its *pretrained
+phrase models* ("hey jarvis" and the others) are CC BY-NC-SA 4.0 — free for
+personal and non-commercial use, which is what the stand-in is for. The two
+shared feature models come from the same release and carry no separate
+statement (their provenance is Apache-2.0: Google's speech-embedding weights,
+and a spectrogram graph generated from openWakeWord's own notebook). A model
+you train yourself is no cleaner: the training pipeline draws on the same
+datasets that made the pretrained ones non-commercial. None of these files
+live in fren's repository or its app bundle — they are fetched to your machine
+on first use — and none of this matters for a personal, local-first build. A
+commercial release would want clarity from upstream or feature models
+regenerated from the notebook, plus a "hey fren" trained on data of known
+provenance.

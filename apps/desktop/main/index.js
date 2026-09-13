@@ -1469,38 +1469,45 @@ app.whenReady().then(() => {
     log(`[voice] no hotkey: ${err.message}`);
   }
 
-  // The wake word: "hey fren", spoken, opens the line (wake-word.js). On-device,
-  // and only for someone who set it up on purpose: it needs a Picovoice access
-  // key, and it can be switched off outright. It follows the light — armed
-  // only while fren is watching — and it stands down for the length of a
-  // conversation, when the agent has the microphone. The model to listen for
-  // is a custom "hey fren" file if one has been trained and placed, else
-  // Porcupine's own built-in word as a stand-in (docs/voice-agent.md §9).
-  const wakeKey = String(process.env.PICOVOICE_ACCESS_KEY || '').trim();
-  const wakeOn = wakeKey && String(process.env.FREN_WAKE_WORD || 'on').toLowerCase() !== 'off';
+  // The wake word: "hey fren", spoken, opens the line (wake-word.js). On-device
+  // — openWakeWord, no account, no key — and it can be switched off outright
+  // with FREN_WAKE_WORD=off. It follows the light — armed only while fren is
+  // watching — and it stands down for the length of a conversation, when the
+  // agent has the microphone. The phrase it listens for is a model of your own
+  // ("hey fren", trained with openWakeWord's notebook) if one has been placed,
+  // else a pretrained phrase as a stand-in (docs/voice-agent.md §9).
+  // Nothing in here may take the app's boot down with it: a listener that
+  // cannot be set up is a line in the log, and holding the orb still works.
+  const wakeOn = String(process.env.FREN_WAKE_WORD || 'on').toLowerCase() !== 'off';
   let voiceLineOpen = false;
   let wakeWord = null;
+  let syncWakeWord = () => {};
+  ipcMain.handle('fren:voice.state', (_e, open) => { voiceLineOpen = !!open; syncWakeWord(); });
   if (wakeOn) {
-    const custom = path.join(app.getPath('userData'), 'wake', 'hey-fren.ppn');
-    wakeWord = createWakeListener({
-      accessKey: wakeKey,
-      keyword: process.env.FREN_WAKE_KEYWORD || (fs.existsSync(custom) ? custom : 'porcupine'),
-      sensitivity: process.env.FREN_WAKE_SENSITIVITY,
-      log,
-      onWake: () => { if (win && !win.isDestroyed()) win.webContents.send('fren:voice.wake'); },
-    });
-    const syncWakeWord = () => {
-      const want = state.get().observing && !voiceLineOpen;
-      if (want && !wakeWord.armed()) wakeWord.arm();
-      else if (!want && wakeWord.armed()) wakeWord.disarm();
-    };
-    state.subscribe(syncWakeWord);
-    syncWakeWord();
-    app.on('will-quit', () => { try { wakeWord.disarm(); } catch { /* going anyway */ } });
-    ipcMain.handle('fren:voice.state', (_e, open) => { voiceLineOpen = !!open; syncWakeWord(); });
+    try {
+      const custom = path.join(app.getPath('userData'), 'wake', 'hey-fren.onnx');
+      wakeWord = createWakeListener({
+        keyword: process.env.FREN_WAKE_KEYWORD || (require('node:fs').existsSync(custom) ? custom : 'hey jarvis'),
+        sensitivity: process.env.FREN_WAKE_SENSITIVITY,
+        modelsDir: path.join(app.getPath('userData'), 'wake', 'models'),
+        log,
+        onWake: () => { if (win && !win.isDestroyed()) win.webContents.send('fren:voice.wake'); },
+      });
+      syncWakeWord = () => {
+        const want = state.get().observing && !voiceLineOpen;
+        if (want && !wakeWord.armed()) wakeWord.arm();
+        else if (!want && wakeWord.armed()) wakeWord.disarm();
+      };
+      state.subscribe(syncWakeWord);
+      syncWakeWord();
+      app.on('will-quit', () => { try { wakeWord.disarm(); } catch { /* going anyway */ } });
+    } catch (err) {
+      log(`[wake] setup failed — wake word off: ${err.message}`);
+      wakeWord = null;
+      syncWakeWord = () => {};
+    }
   } else {
-    log(wakeKey ? '[wake] off (FREN_WAKE_WORD=off)' : '[wake] no PICOVOICE_ACCESS_KEY — wake word off');
-    ipcMain.handle('fren:voice.state', () => {});
+    log('[wake] off (FREN_WAKE_WORD=off)');
   }
 
   // What the user told fren about themselves during first-run setup. Stored

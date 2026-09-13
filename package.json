@@ -16,14 +16,14 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",
-    "@picovoice/porcupine-node": "^4.0.2",
-    "@picovoice/pvrecorder-node": "^1.2.9"
+    "@picovoice/pvrecorder-node": "^1.2.9",
+    "onnxruntime-node": "^1.29.0"
   },
   "devDependencies": {
+    "@elevenlabs/client": "^1.25.0",
     "electron": "^38.8.6",
     "electron-builder": "^26.15.3",
-    "three": "^0.185.1",
-    "@elevenlabs/client": "^1.25.0"
+    "three": "^0.185.1"
   },
   "build": {
     "appId": "earth.democracy.fren",
@@ -56,7 +56,10 @@
       "!**/*.test.ts",
       "!**/.git/**",
       "!**/*.map",
-      "!vendor/nanoclaw/src/**/*"
+      "!vendor/nanoclaw/src/**/*",
+      "!node_modules/onnxruntime-node/bin/napi-v6/linux/**/*",
+      "!node_modules/onnxruntime-node/bin/napi-v6/win32/**/*",
+      "!node_modules/onnxruntime-node/bin/napi-v6/darwin/x64/**/*"
     ],
     "extraResources": [
       {
