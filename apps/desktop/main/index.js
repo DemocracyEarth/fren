@@ -1473,9 +1473,10 @@ app.whenReady().then(() => {
   // — openWakeWord, no account, no key — and it can be switched off outright
   // with FREN_WAKE_WORD=off. It follows the light — armed only while fren is
   // watching — and it stands down for the length of a conversation, when the
-  // agent has the microphone. The phrase it listens for is a model of your own
-  // ("hey fren", trained with openWakeWord's notebook) if one has been placed,
-  // else a pretrained phrase as a stand-in (docs/voice-agent.md §9).
+  // agent has the microphone. The phrase it listens for is "hey fren" — as
+  // text, by keyword spotting, no training — unless a trained model of your
+  // own has been placed, or FREN_WAKE_KEYWORD says otherwise (a phrase, a
+  // pretrained openWakeWord name, or an .onnx path; docs/voice-agent.md §9).
   // Nothing in here may take the app's boot down with it: a listener that
   // cannot be set up is a line in the log, and holding the orb still works.
   const wakeOn = String(process.env.FREN_WAKE_WORD || 'on').toLowerCase() !== 'off';
@@ -1487,7 +1488,7 @@ app.whenReady().then(() => {
     try {
       const custom = path.join(app.getPath('userData'), 'wake', 'hey-fren.onnx');
       wakeWord = createWakeListener({
-        keyword: process.env.FREN_WAKE_KEYWORD || (require('node:fs').existsSync(custom) ? custom : 'hey jarvis'),
+        keyword: process.env.FREN_WAKE_KEYWORD || (require('node:fs').existsSync(custom) ? custom : 'hey fren'),
         sensitivity: process.env.FREN_WAKE_SENSITIVITY,
         modelsDir: path.join(app.getPath('userData'), 'wake', 'models'),
         log,
