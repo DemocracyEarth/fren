@@ -2411,6 +2411,15 @@ scheduleWander();
         else voice.start().catch(() => {});
       });
     }
+    // The wake word: a small hop to show it heard you, then the line opens.
+    // Not over a recording or while fren is mid-sentence.
+    if (window.fren.voice && window.fren.voice.onWake) {
+      window.fren.voice.onWake(() => {
+        if (voiceActive() || speaking || document.body.dataset.recording === '1') return;
+        if (face && face.hop && !REDUCED.matches) face.hop(0.5);
+        voice.start().catch(() => {});
+      });
+    }
   }).catch((err) => console.warn('[voice] unavailable:', err && err.message));
   window.fren.onCurious(onCurious);
   // First run: offer to add the browser extension, so fren can see the page
