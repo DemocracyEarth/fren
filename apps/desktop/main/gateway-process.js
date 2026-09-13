@@ -51,8 +51,16 @@ function startGateway({ log = () => {} } = {}) {
   const node = resolveNode();
   if (!node) { log('[gateway] no Node runtime found to launch the gateway'); return null; }
   const server = path.join(config.REPO_ROOT, 'apps', 'gateway', 'server.js');
+  const env = { ...process.env, FREN_PARENT_PID: String(process.pid) };
+  // Packaged, the code (and the vendored host beside it) lives read-only inside
+  // the app bundle, so the host cannot write its state next to itself as it does
+  // in a checkout. Point it at the user's data dir instead. In development the
+  // default — state beside the code — is left untouched.
+  if (app.isPackaged && !env.FREN_RUNTIME_STATE_DIR) {
+    env.FREN_RUNTIME_STATE_DIR = path.join(config.DATA_DIR, 'runtime-state');
+  }
   log(`[gateway] launching (${node})`);
-  child = spawn(node, [server], { cwd: config.REPO_ROOT, stdio: 'inherit', env: { ...process.env, FREN_PARENT_PID: String(process.pid) } });
+  child = spawn(node, [server], { cwd: config.REPO_ROOT, stdio: 'inherit', env });
   child.on('exit', (code) => { log(`[gateway] exited (${code ?? 'signal'})`); child = null; });
   return child.pid;
 }
