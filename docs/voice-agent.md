@@ -214,6 +214,11 @@ prefer the variables.)
   fastest option offered; fren's character is in the prompt and the tools, not the
   model.
 - **First message:** §1. **System prompt:** §3. **Tools:** §4 (+ `end_call`).
+- The tools and the variable defaults can be done for you: `npm run agent:sync`
+  shows what the agent is missing against this document, and
+  `npm run agent:sync -- --apply` adds it (tools reused by name, nothing already
+  in place touched, the prompt never sent). The prompt and the greeting stay
+  yours to paste.
   **Dynamic variables:** §5.
 - **Turn-taking:** default; the prompt already tells it to stop when interrupted.
 - **Silence:** end the conversation after roughly 20–30 seconds of silence (fren
