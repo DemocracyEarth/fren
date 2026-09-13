@@ -1450,6 +1450,24 @@ app.whenReady().then(() => {
     lastChatAt = Date.now();                        // the watchers hold while we talk
   });
 
+  // The line from anywhere: one key, wherever the cursor is. A toggle, not a
+  // hold — a global shortcut fires on key-down only, so "hold to talk" cannot
+  // be done system-wide — press to open, press again to close (it closes on
+  // silence regardless). The default stays off Spotlight (Cmd+Space) and
+  // Alfred (Option+Space); FREN_TALK_KEY overrides it. A key already taken by
+  // another app simply fails to register, and the log says so.
+  const talkKey = String(process.env.FREN_TALK_KEY || 'CommandOrControl+Shift+Space');
+  try {
+    const { globalShortcut } = require('electron');
+    const ok = globalShortcut.register(talkKey, () => {
+      if (win && !win.isDestroyed()) win.webContents.send('fren:voice.toggle');
+    });
+    log(ok ? `[voice] hotkey ${talkKey}` : `[voice] hotkey ${talkKey} is taken by another app; set FREN_TALK_KEY to use a different one`);
+    app.on('will-quit', () => { try { globalShortcut.unregisterAll(); } catch { /* going anyway */ } });
+  } catch (err) {
+    log(`[voice] no hotkey: ${err.message}`);
+  }
+
   // What the user told fren about themselves during first-run setup. Stored
   // locally in the same SQLite file as everything else; it is sent to the model
   // as chat context and nowhere else.
