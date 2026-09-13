@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' fren:; style-src 'self' 'unsafe-inline'; script-src 'self' fren:; connect-src 'self' fren:; img-src 'self' fren: data:">
+<!-- blob: in script-src is for the voice client's audio worklets, which it loads
+     from blob URLs; the two elevenlabs.io origins are conversation mode's line
+     (the signed WebSocket session and its HTTPS handshake). Nothing else. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' fren:; style-src 'self' 'unsafe-inline'; script-src 'self' fren: blob:; connect-src 'self' fren: wss://api.elevenlabs.io https://api.elevenlabs.io; img-src 'self' fren: data:">
 <title>fren</title>
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="styles.css">
@@ -89,6 +92,10 @@
 <script src="face/reactions.js"></script>
 <script src="face/shake.js"></script>
 <script src="mic.js"></script>
+<!-- The ElevenLabs Agents client, vendored as its self-contained IIFE build
+     (like three.js): checked in, unmodified, one global — ElevenLabsClient.
+     Conversation mode (voice-session.js) uses it; nothing else does. -->
+<script src="vendor/elevenlabs-client.iife.js"></script>
 <!-- The SVG renderer loads first and stays as the fallback. orb.js replaces it
      with the 3D one only if WebGL actually works here, so a graphics failure
      degrades to a working face instead of a blank window. Module scripts run

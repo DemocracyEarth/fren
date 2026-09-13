@@ -101,6 +101,8 @@ module.exports = {
   // A quick passing thought for the thought-bubble stream — kept snappy so a
   // slow model just means fewer thoughts, never a backed-up queue.
   narrate: (payload) => request('/v1/narrate', { method: 'POST', body: payload, timeoutMs: 20_000 }),
+  // Conversation mode: a signed URL for one session with fren's voice agent.
+  voiceSession: () => request('/v1/voice/session', { timeoutMs: 12_000 }),
   learn: (payload) => request('/v1/learn', { method: 'POST', body: payload, timeoutMs: 20_000 }),
   // Short: a greeting that arrives after the user has started working is not a
   // greeting. Better to miss it than to interrupt with a late hello.

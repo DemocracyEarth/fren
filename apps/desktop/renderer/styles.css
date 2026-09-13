@@ -30,6 +30,22 @@ html, body {
 }
 
 /* ---------------------------------------------------------------- the orb */
+/* A live line: the orb glows, quietly, for as long as the microphone is open —
+   the one honest sign that audio is leaving the machine. A drop-shadow rather
+   than a box-shadow, so the glow hugs the sphere's own silhouette instead of
+   the square button around it; it breathes slowly, and not at all under
+   reduced motion. */
+body[data-voice="1"] #orb {
+  filter: drop-shadow(0 0 10px rgba(237, 138, 47, 0.55));
+  animation: voice-breathe 2.6s ease-in-out infinite;
+}
+@keyframes voice-breathe {
+  50% { filter: drop-shadow(0 0 18px rgba(237, 138, 47, 0.75)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  body[data-voice="1"] #orb { animation: none; }
+}
+
 #orb-zone {
   /* Scrolling on fren sets --orb-scale; the halo and the character both come
      off it, so the drag ring is always the same proportion of the whole. */

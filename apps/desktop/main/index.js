@@ -1343,6 +1343,113 @@ app.whenReady().then(() => {
     }
   });
 
+  // Conversation mode — fren talking over a live line (docs/voice-agent.md).
+  // The renderer runs the session; main is where fren's memory and senses are,
+  // so the agent's questions come here. Everything the agent learns about the
+  // past and the present passes through these four handlers, and nothing else.
+  const userDataDir = () => app.getPath('userData');
+  const profileName = () => {
+    const raw = memory.getSetting('profile');
+    const prof = typeof raw === 'string' ? safeParse(raw, {}) : (raw || {});
+    return String((prof && prof.name) || '').trim().slice(0, 60);
+  };
+
+  /** The ticket and the character: a signed URL plus what fills the prompt. */
+  ipcMain.handle('fren:voice.session', async () => {
+    let signedUrl;
+    try {
+      ({ signedUrl } = await gateway.voiceSession());
+    } catch (err) {
+      return { error: (err && err.message) || 'could not open the line' };
+    }
+    const character = soul.readContext(userDataDir());
+    const digest = intelligence.voiceDigest({
+      memories: memory.getRecentMemories({ sinceMs: Date.now() - 5 * 60 * 60 * 1000, limit: 6 }),
+      observation: state.get().observing ? memory.getRecentObservations({ limit: 1 })[0] : null,
+      browser: state.get().observing ? currentBrowserContext() : null,
+    });
+    log('[voice] session opened');                   // PRIVACY: that, never what
+    return {
+      signedUrl,
+      dynamicVariables: {
+        user_name: profileName() || 'there',
+        soul: String(character.soul || '').slice(0, 4000),
+        recent_context: digest.recent_context,
+        local_time: digest.local_time,
+      },
+    };
+  });
+
+  /** look_around: what is in front of them right now, in words. */
+  ipcMain.handle('fren:voice.lookAround', async () => {
+    if (!state.get().observing) return 'The light is off: fren is not looking at anything right now.';
+    const parts = [];
+    const obs = memory.getRecentObservations({ limit: 1 })[0];
+    if (obs && obs.activeApp) {
+      const title = String(obs.windowTitle || '').trim().slice(0, 120);
+      parts.push(`In front of them: ${obs.activeApp}${title ? ` — "${title}"` : ''}.`);
+    }
+    const ctx = currentBrowserContext();
+    if (ctx && ctx.tab && ctx.tab.url && !(ctx.page && ctx.page.excluded)) {
+      parts.push(`In the browser (${ctx.active ? 'focused' : 'in the background'}): "${String(ctx.tab.title || '(untitled)').slice(0, 120)}" — ${String(ctx.tab.url).slice(0, 300)}`);
+      if (ctx.page && ctx.page.description) parts.push(`Page description: ${String(ctx.page.description).slice(0, 300)}`);
+      if (ctx.selection && ctx.selection.text) parts.push(`They have selected this text: "${String(ctx.selection.text).slice(0, 500)}"`);
+      if (ctx.page && ctx.page.content) parts.push(`Readable page excerpt: ${String(ctx.page.content).slice(0, 1500)}`);
+    }
+    return parts.length ? parts.join('\n') : 'Nothing on screen that fren can see right now.';
+  });
+
+  /** recall: what fren noticed earlier, and the notes it keeps — nothing else. */
+  ipcMain.handle('fren:voice.recall', async (_e, question) => {
+    const q = String(question || '').toLowerCase();
+    const words = q.split(/[^a-z0-9]+/).filter((w) => w.length >= 4);
+    const lines = [];
+    const memories = memory.getRecentMemories({ sinceMs: Date.now() - 8 * 60 * 60 * 1000, limit: 10 });
+    if (memories.length) {
+      lines.push('Recent activity, earliest first:');
+      for (const m of memories) {
+        const activity = String(m.activity || '').trim();
+        if (activity) lines.push(`- ${activity.slice(0, 200)}`);
+      }
+    } else {
+      lines.push('No recent activity noted (the light may have been off).');
+    }
+    let facts = [];
+    try {
+      const text = fs.readFileSync(path.join(userDataDir(), 'MEMORY.md'), 'utf8');
+      const at = text.indexOf('## Days');
+      facts = (at === -1 ? text : text.slice(0, at)).split('\n').filter((l) => l.startsWith('- '));
+    } catch { /* no notes yet */ }
+    const matching = words.length ? facts.filter((f) => words.some((w) => f.toLowerCase().includes(w))) : [];
+    if (matching.length) lines.push('', 'Notes that seem relevant:', ...matching.slice(-8));
+    else if (facts.length) lines.push('', `No notes match that (fren keeps ${facts.length} notes about them).`);
+    return lines.join('\n');
+  });
+
+  /** remember: something they said, weighed the same way a curiosity answer is. */
+  ipcMain.handle('fren:voice.remember', async (_e, note) => {
+    const said = String(note || '').trim().slice(0, 500);
+    if (!said) return { kept: false };
+    try {
+      const { worthKeeping, fact } = await gateway.learn({ question: 'Something they said in conversation', answer: said });
+      if (!worthKeeping || !fact) return { kept: false };
+      const kept = soul.rememberFact(userDataDir(), fact);
+      if (kept) log('[voice] kept one thing from the conversation');
+      return { kept };
+    } catch (err) {
+      log(`[voice] could not weigh that: ${err.message}`);
+      return { kept: false };
+    }
+  });
+
+  /** A turn of the conversation, into the same transcript as typed chat. */
+  ipcMain.handle('fren:voice.said', async (_e, role, text) => {
+    const line = String(text || '').trim().slice(0, 4000);
+    if (!line) return;
+    remember(role === 'user' ? 'you' : 'fren', line);
+    lastChatAt = Date.now();                        // the watchers hold while we talk
+  });
+
   // What the user told fren about themselves during first-run setup. Stored
   // locally in the same SQLite file as everything else; it is sent to the model
   // as chat context and nowhere else.

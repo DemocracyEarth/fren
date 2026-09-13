@@ -71,6 +71,32 @@ function createElevenLabsProvider() {
       if (audio.length === 0) throw new Error('elevenlabs returned no audio');
       return { audio, contentType: res.headers.get('content-type') || 'audio/mpeg' };
     },
+
+    /**
+     * A signed URL for one conversation with the agent — conversation mode's
+     * ticket. The agent is private, so a session needs this, and minting it
+     * needs the key; that is why it happens here and the desktop only ever
+     * holds the URL, which is good for one session. (In conversation mode the
+     * microphone audio DOES cross the network, for the length of the session —
+     * see docs/voice-agent.md. That is the one place it does.)
+     */
+    async signedUrl({ agentId, fetchImpl = fetch, timeoutMs = 10_000 } = {}) {
+      if (!agentId) throw new Error('no agent id');
+      const baseUrl = process.env.ELEVENLABS_BASE_URL || DEFAULTS.baseUrl;
+      const res = await fetchImpl(
+        `${baseUrl}/v1/convai/conversation/get-signed-url?agent_id=${encodeURIComponent(agentId)}`,
+        { headers: { 'xi-api-key': apiKey }, signal: AbortSignal.timeout(timeoutMs) }
+      );
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        throw new Error(`elevenlabs ${res.status}: ${detail.slice(0, 200)}`);
+      }
+      const body = await res.json().catch(() => ({}));
+      if (!body || typeof body.signed_url !== 'string' || !body.signed_url) {
+        throw new Error('elevenlabs returned no signed url');
+      }
+      return body.signed_url;
+    },
   };
 }
 

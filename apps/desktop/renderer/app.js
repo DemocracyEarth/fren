@@ -252,9 +252,13 @@ function onNarration(t) {
  * back while it is talking, listening or answering; under reduced motion only
  * the expression plays.
  */
+// Conversation mode (voice-session.js): set up in init(), once the face exists.
+let voice = null;
+const voiceActive = () => !!(voice && voice.active());
+
 let lastGesture = -1;
 function thoughtGesture() {
-  if (!state.observing || speaking || awaitingReply) return;
+  if (!state.observing || speaking || awaitingReply || voiceActive()) return;
   if (document.body.dataset.recording === '1') return;
   const r = Math.random;
   const motions = [
@@ -360,6 +364,14 @@ let cutReplyShort = null;
 
 /** fren says it out loud: the mouth moves while the words arrive. */
 async function speak(text, opts = {}) {
+  // While a live line is open the agent owns the voice: anything else fren has
+  // to say (a routine, an automation reporting in) lands in the chat as text
+  // and is not spoken over the conversation.
+  if (voiceActive()) {
+    const quiet = addBubble('fren', text);
+    if (opts.after) opts.after(quiet);
+    return;
+  }
   const bubble = addBubble('fren', '');
   speaking = true;
   thinking(false);
@@ -1466,6 +1478,7 @@ async function giveUpListening() {
  * swallowing the click in silence.
  */
 async function toggleRecording() {
+  if (voiceActive()) { voice.end('click'); return; }  // no local recording over a live line
   if (recordingFromOrb) {
     recordingFromOrb = false;
     await stopTalkingAndSend();
@@ -1519,6 +1532,13 @@ for (const [el, ev] of [[els.orb, 'mousedown'], [els.input, 'keydown'], [els.sen
 // bailed because a press was in progress, and the release started recording.
 const CTRL_CLICK_IS_RIGHT_CLICK = navigator.platform.toUpperCase().includes('MAC');
 
+// Hold the orb — still, past this — and it opens a live line (conversation
+// mode) instead of the click's recording. A drag cancels it, a release before
+// it is a click, and once a line is open any click on the orb closes it.
+const HOLD_TO_TALK_MS = 550;
+let holdTimer = null;
+let heldToTalk = false;
+
 els.orb.addEventListener('mousedown', (e) => {
   dropHint();                      // pressing means you know how already
   if (e.button !== 0) return;
@@ -1527,6 +1547,16 @@ els.orb.addEventListener('mousedown', (e) => {
   dragging = false;
   pressAt = { x: e.screenX, y: e.screenY };
   shakeDetector.reset();
+  heldToTalk = false;
+  clearTimeout(holdTimer);
+  if (voice && !voiceActive()) {
+    holdTimer = setTimeout(() => {
+      holdTimer = null;
+      if (!pressing || dragging) return;
+      heldToTalk = true;
+      voice.start().catch(() => {});
+    }, HOLD_TO_TALK_MS);
+  }
 });
 
 /**
@@ -1564,6 +1594,8 @@ window.addEventListener('mousemove', (e) => {
   // Moving means carrying it. Main takes the cursor offset from here, so the
   // orb keeps its position under the pointer instead of jumping.
   dragging = true;
+  clearTimeout(holdTimer);         // carrying it is not holding it to talk
+  holdTimer = null;
   dropHint();                      // a carried orb leaves its tooltip behind
   window.fren.dragStart();
 });
@@ -1574,6 +1606,8 @@ window.addEventListener('mouseup', async (e) => {
   if (e.button !== 0) return;
   if (!pressing) return;
   pressing = false;
+  clearTimeout(holdTimer);
+  holdTimer = null;
   if (dragging) {
     // Carried, not clicked. Putting it down must never start or stop a
     // recording — this is the only thing standing between "moved fren" and
@@ -1583,6 +1617,8 @@ window.addEventListener('mouseup', async (e) => {
     await window.fren.dragEnd();
     return;
   }
+  if (heldToTalk) { heldToTalk = false; return; }   // the hold already opened the line
+  if (voiceActive()) { voice.end('click'); return; } // a click on a live line closes it
   toggleRecording();
 });
 
@@ -2279,7 +2315,7 @@ async function onSuggestion({ message }) {
   // Show it on the tab regardless of whether it is spoken: noticing is
   // visible, interrupting is opt-in.
   markUnread();
-  if (!message || speaking || awaitingReply) { pendingSuggestion = message; pendingAt = Date.now(); return; }
+  if (!message || speaking || awaitingReply || voiceActive()) { pendingSuggestion = message; pendingAt = Date.now(); return; }
   pendingSuggestion = message;
   pendingAt = Date.now();
   mood.note('idea');
@@ -2300,7 +2336,7 @@ async function onSuggestion({ message }) {
 
 /** Deliver whatever fren has been sitting on, if anything. */
 async function deliverPendingSuggestion() {
-  if (!pendingSuggestion || speaking || awaitingReply) return false;
+  if (!pendingSuggestion || speaking || awaitingReply || voiceActive()) return false;
   const message = pendingSuggestion;
   pendingSuggestion = null;
   stopBeckoning();
@@ -2357,6 +2393,17 @@ scheduleWander();
 
   window.fren.onSuggestion(onSuggestion);
   window.fren.onNarration(onNarration);
+  // Conversation mode: hold the orb to talk with fren over a live line. Loaded
+  // lazily so a missing voice client costs nothing but this one feature.
+  import('./voice-session.js').then(({ createVoiceSession }) => {
+    voice = createVoiceSession({
+      getFace: () => face,
+      addBubble,
+      setFace,
+      log: (m) => console.log(m),
+      onChange: (on) => { if (!on) setFace(emotionFor(state)); },
+    });
+  }).catch((err) => console.warn('[voice] unavailable:', err && err.message));
   window.fren.onCurious(onCurious);
   // First run: offer to add the browser extension, so fren can see the page
   // you are on. One card, dismissable; a paired browser is confirmed with a hello.

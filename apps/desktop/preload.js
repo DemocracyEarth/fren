@@ -66,6 +66,15 @@ contextBridge.exposeInMainWorld('fren', {
   onSuggestion: (cb) => ipcRenderer.on('fren:suggestion', (_e, s) => cb(s)),
   // A passing thought for the thought-bubble stream: {text, kind, at}.
   onNarration: (cb) => ipcRenderer.on('fren:narration', (_e, t) => cb(t)),
+  // Conversation mode: the session ticket, and the agent's questions, answered
+  // from fren's memory and senses in main. See docs/voice-agent.md.
+  voice: {
+    session: () => ipcRenderer.invoke('fren:voice.session'),
+    lookAround: (focus) => ipcRenderer.invoke('fren:voice.lookAround', focus),
+    recall: (question) => ipcRenderer.invoke('fren:voice.recall', question),
+    remember: (note) => ipcRenderer.invoke('fren:voice.remember', note),
+    said: (role, text) => ipcRenderer.invoke('fren:voice.said', role, text),
+  },
   // How a held suggestion ended: 'heard' or 'faded'. Feeds the pace governor.
   suggestionOutcome: (kind) => ipcRenderer.invoke('fren:suggestionOutcome', kind),
   onCurious: (cb) => ipcRenderer.on('fren:curious', (_e, q) => cb(q)),
