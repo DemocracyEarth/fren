@@ -267,47 +267,49 @@ when the agent ends the conversation. While it is open the orb glows.
 
 ## 9 · The wake word
 
-Say the phrase and the line opens: fren gives a small hop to show it heard you,
-and the agent's greeting follows. The detector is **openWakeWord** (open source;
-the code is Apache-2.0 — licensing of the *models* is a separate matter, see
-below), running **on this machine** with no account and no key: three small
-models in a row answer one question per 80 ms of microphone audio — "was that
-the phrase?" — and nothing else. No audio leaves, nothing is transcribed,
-nothing is kept. Audio starts to travel only once the line is open, deliberately,
-with the orb aglow.
+Say **"hey fren"** and the line opens: fren gives a small hop to show it heard
+you, and the agent's greeting follows. Nothing to set up, no account, no key:
+the detector runs **on this machine** and answers one question per few
+milliseconds of microphone audio — "was that the phrase?" — and nothing else.
+No audio leaves, nothing is transcribed, nothing is kept. Audio starts to travel
+only once the line is open, deliberately, with the orb aglow.
 
 It is on by default; `FREN_WAKE_WORD=off` switches it off outright.
 
-1. **Nothing to set up for the stand-in.** On the first arm fren fetches the two
-   shared models and a pretrained phrase from openWakeWord's own release (pinned
-   version, checked by size) into
+Two engines can do the hearing, and fren picks one by the phrase:
+
+1. **"hey fren", by keyword spotting — the default.** A small streaming speech
+   model (sherpa-onnx's 3.3M-parameter zipformer; Apache-2.0 end to end — code,
+   binaries and model) watches its own output for the phrase's sub-word pieces.
+   Any plain-English phrase works, with no training: `FREN_WAKE_KEYWORD="okay
+   fren"`. On the first arm fren fetches the model (17.6 MB, pinned by size and
+   checksum) from sherpa-onnx's release into
    ```
    ~/Library/Application Support/fren/wake/models/
    ```
-   and listens for **"hey jarvis"** — the pretrained phrase closest in shape to
-   "hey fren". The log says what it armed. `FREN_WAKE_KEYWORD` accepts another
-   pretrained phrase by name (`alexa`, `hey mycroft`, `hey rhasspy`, `weather`,
-   `timer`).
-2. **"hey fren" is a model you train yourself** — no account, but not a quick
-   afternoon, as of this writing. openWakeWord's *automatic model training*
-   notebook (`notebooks/automatic_model_training.ipynb`, written for Google
-   Colab) synthesizes examples of the phrase with text-to-speech and trains a
-   small classifier on them — but it has been reported broken on stock Colab
-   since late 2025 (upstream issues #296 and #317): it wants Python 3.10/3.11,
-   pinned old PyTorch/TensorFlow wheels, and an NVIDIA GPU with ~45 GB of disk,
-   while Colab's default runtime moved to 3.12. Plan on rebuilding that
-   environment on a Linux GPU machine, or a patched Colab runtime, first; macOS
-   cannot run the training itself. When it hands you an `.onnx`, put it at
+   It costs about 1 % of one core. **One thing to know:** a text keyword on a
+   model this size cannot tell "hey fren" from **"hey friend"** — both wake it;
+   think of it as an alias. "Hey fran", "hey jarvis", or a friend mentioned
+   mid-sentence do not.
+2. **A trained model, by openWakeWord.** `FREN_WAKE_KEYWORD` set to one of its
+   pretrained phrases (`hey jarvis`, `alexa`, `hey mycroft`, `hey rhasspy`,
+   `weather`, `timer`) fetches those models from openWakeWord's release
+   instead; and a model of your own at
    ```
    ~/Library/Application Support/fren/wake/hey-fren.onnx
    ```
-   (or point `FREN_WAKE_KEYWORD` at any `.onnx`). Restart, and the log flips to
-   `armed — custom model hey-fren.onnx`. Your model is never fetched or sent
-   anywhere; only the shared models come from the release. Until then it is
-   "hey jarvis" — and saying "hey fren" does not set that off, so nothing odd
-   happens when you use the real name.
+   (or any `.onnx` path in `FREN_WAKE_KEYWORD`) takes precedence over
+   everything. Training one is not a quick afternoon, as of this writing:
+   openWakeWord's *automatic model training* notebook has been reported broken
+   on stock Colab since late 2025 (upstream issues #296 and #317: Python
+   3.10/3.11, pinned old wheels, an NVIDIA GPU with ~45 GB of disk), and macOS
+   cannot run it. It is the route to a detector that does know "fren" from
+   "friend". Your model is never fetched or sent anywhere.
 3. `FREN_WAKE_SENSITIVITY` (0–1, default 0.5): higher hears more, and mishears
-   more. (It maps to openWakeWord's score threshold; 0.5 is their own default.)
+   more. (It maps to each engine's own threshold; 0.5 is both projects' default.)
+
+The log says what it armed: `armed — phrase "hey fren" (keyword spotting)`,
+`armed — built-in phrase "hey jarvis"`, or `armed — custom model hey-fren.onnx`.
 
 Two rules keep it honest, and both are structural:
 
@@ -326,9 +328,11 @@ gates every new account behind a manual review of a *commercial* use case, so a
 personal, local-first companion never gets a key. The microphone capture fren
 uses is still their Apache-licensed `pvrecorder`, which needs none.)
 
-**Licensing, plainly.** openWakeWord's *code* is Apache-2.0. Its *pretrained
-phrase models* ("hey jarvis" and the others) are CC BY-NC-SA 4.0 — free for
-personal and non-commercial use, which is what the stand-in is for. The two
+**Licensing, plainly.** The default needs no caveat: sherpa-onnx — code,
+prebuilt binaries and the keyword-spotting model — is Apache-2.0 throughout.
+openWakeWord's *code* is Apache-2.0. Its *pretrained phrase models* ("hey
+jarvis" and the others) are CC BY-NC-SA 4.0 — free for personal and
+non-commercial use, which is what they are here for. The two
 shared feature models come from the same release and carry no separate
 statement (their provenance is Apache-2.0: Google's speech-embedding weights,
 and a spectrogram graph generated from openWakeWord's own notebook). A model

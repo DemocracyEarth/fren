@@ -18,7 +18,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",
     "@picovoice/pvrecorder-node": "^1.2.9",
-    "onnxruntime-node": "^1.29.0"
+    "onnxruntime-node": "^1.29.0",
+    "sherpa-onnx-node": "^1.13.8"
   },
   "devDependencies": {
     "@elevenlabs/client": "^1.25.0",
@@ -60,7 +61,12 @@
       "!vendor/nanoclaw/src/**/*",
       "!node_modules/onnxruntime-node/bin/napi-v6/linux/**/*",
       "!node_modules/onnxruntime-node/bin/napi-v6/win32/**/*",
-      "!node_modules/onnxruntime-node/bin/napi-v6/darwin/x64/**/*"
+      "!node_modules/onnxruntime-node/bin/napi-v6/darwin/x64/**/*",
+      "!node_modules/sherpa-onnx-darwin-x64/**/*",
+      "!node_modules/sherpa-onnx-linux-x64/**/*",
+      "!node_modules/sherpa-onnx-linux-arm64/**/*",
+      "!node_modules/sherpa-onnx-win-x64/**/*",
+      "!node_modules/sherpa-onnx-win-ia32/**/*"
     ],
     "extraResources": [
       {

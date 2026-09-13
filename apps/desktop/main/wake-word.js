@@ -2,7 +2,8 @@
 /**
  * The wake word — "hey fren", spoken, opens the line.
  *
- * On-device, and nothing else: an engine (wake-engine-oww.js, openWakeWord)
+ * On-device, and nothing else: an engine (wake-engines.js picks one — keyword
+ * spotting for a phrase given as text, openWakeWord for a trained model)
  * listens to the microphone in this process and answers one question per
  * frame, "was that the phrase?". No audio leaves the machine, nothing is
  * transcribed, nothing is kept. When the phrase is heard, `onWake` fires and
@@ -11,8 +12,8 @@
  *
  * It is armed only while fren's light is on (one story: light off, senses off,
  * including this one) and it is disarmed for the length of a conversation
- * (the agent has the microphone then). No account, no key: the engine's models
- * are fetched once from openWakeWord's own release.
+ * (the agent has the microphone then). No account, no key: the engines' models
+ * are fetched once from their projects' own releases.
  *
  * Everything is injected — the engine factory, the recorder, the clock — so
  * the clockwork tests without a microphone, models or a network.
@@ -23,7 +24,7 @@ const DEFAULTS = {
 
 /** Load the native pieces lazily, so a missing or broken binary never breaks boot. */
 function loadDeps() {
-  const { createEngine } = require('./wake-engine-oww');
+  const { createEngine } = require('./wake-engines');
   const { PvRecorder } = require('@picovoice/pvrecorder-node');   // Apache-2.0, no key
   return { createEngine, PvRecorder };
 }
