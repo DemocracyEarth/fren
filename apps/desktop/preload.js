@@ -74,6 +74,8 @@ contextBridge.exposeInMainWorld('fren', {
     recall: (question) => ipcRenderer.invoke('fren:voice.recall', question),
     remember: (note) => ipcRenderer.invoke('fren:voice.remember', note),
     said: (role, text) => ipcRenderer.invoke('fren:voice.said', role, text),
+    // The global hotkey (main registers it): open the line, or close it.
+    onToggle: (cb) => ipcRenderer.on('fren:voice.toggle', () => cb()),
   },
   // How a held suggestion ended: 'heard' or 'faded'. Feeds the pace governor.
   suggestionOutcome: (kind) => ipcRenderer.invoke('fren:suggestionOutcome', kind),

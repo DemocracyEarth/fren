@@ -238,3 +238,24 @@ prefer the variables.)
 - The honesty rules move from fren's gateway into this prompt and these tools.
   The tools are the guarantee: the agent can only know about the past and the
   present what `recall` and `look_around` hand it.
+
+---
+
+## 8 · Opening the line
+
+Two ways, both deliberate — a line never opens on its own:
+
+- **Hold the orb** still for about half a second. A drag cancels it; a shorter
+  press is the ordinary click. Once a line is open, any click on the orb closes it.
+- **The hotkey**, from anywhere: `Cmd+Shift+Space` by default (`Ctrl+Shift+Space`
+  elsewhere). Press to open, press again to close. It is a toggle, not a hold —
+  a system-wide shortcut only reports the key going down. Set `FREN_TALK_KEY`
+  in `.env` to any Electron accelerator to change it; if the key is already
+  taken by another app, fren's log says so at launch and the orb still works.
+
+Either way it closes itself after 25 seconds of silence, at a 20-minute cap, or
+when the agent ends the conversation. While it is open the orb glows.
+
+A wake word ("hey fren") as a third way — spontaneous, and still local until the
+phrase is heard — is the planned next step, and needs a wake-word engine chosen
+first (an on-device model such as Porcupine or openWakeWord).

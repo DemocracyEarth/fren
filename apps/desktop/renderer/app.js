@@ -2403,6 +2403,14 @@ scheduleWander();
       log: (m) => console.log(m),
       onChange: (on) => { if (!on) setFace(emotionFor(state)); },
     });
+    // The global hotkey: the same line, from anywhere. Press to open, press
+    // again to close; it still closes on silence like any session.
+    if (window.fren.voice && window.fren.voice.onToggle) {
+      window.fren.voice.onToggle(() => {
+        if (voiceActive()) voice.end('hotkey');
+        else voice.start().catch(() => {});
+      });
+    }
   }).catch((err) => console.warn('[voice] unavailable:', err && err.message));
   window.fren.onCurious(onCurious);
   // First run: offer to add the browser extension, so fren can see the page
