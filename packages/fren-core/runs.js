@@ -167,6 +167,11 @@ function createRunService({ store, events, getRuntime, now = Date.now, log = () 
         return true;
       }
       case 'agent.working': {
+        // `run` is block-scoped to the cases above; without this lookup the
+        // name did not exist here, every chat run threw twice (on and off),
+        // and the event never reached the desktop — the "working" face for
+        // agent runs was lost to a caught ReferenceError.
+        const run = runId ? store.getRun(runId) : null;
         events.emit('agent.working', { runId: runId || null, sessionId: event.sessionId || null, on: !!event.on, kind: run ? run.kind : null });
         return true;
       }
