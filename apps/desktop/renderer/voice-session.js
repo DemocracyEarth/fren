@@ -55,6 +55,7 @@ export function createVoiceSession({ getFace, addBubble, setFace, log = () => {}
       if (f.setListening) f.setListening(null);
     }
     document.body.dataset.voice = '0';
+    if (window.fren.voice.state) window.fren.voice.state(false).catch(() => {});
     onChange(false);
   }
 
@@ -134,6 +135,7 @@ export function createVoiceSession({ getFace, addBubble, setFace, log = () => {}
       return false;
     }
     startedAt = lastActivityAt = Date.now();
+    if (window.fren.voice.state) window.fren.voice.state(true).catch(() => {});   // the wake word stands down
     raf = requestAnimationFrame(loop);
     tick = setInterval(() => {
       const now = Date.now();

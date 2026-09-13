@@ -76,6 +76,10 @@ contextBridge.exposeInMainWorld('fren', {
     said: (role, text) => ipcRenderer.invoke('fren:voice.said', role, text),
     // The global hotkey (main registers it): open the line, or close it.
     onToggle: (cb) => ipcRenderer.on('fren:voice.toggle', () => cb()),
+    // The wake word was heard (main's on-device detector): open the line.
+    onWake: (cb) => ipcRenderer.on('fren:voice.wake', () => cb()),
+    // Whether a line is open — main stands the wake word down meanwhile.
+    state: (open) => ipcRenderer.invoke('fren:voice.state', !!open),
   },
   // How a held suggestion ended: 'heard' or 'faded'. Feeds the pace governor.
   suggestionOutcome: (kind) => ipcRenderer.invoke('fren:suggestionOutcome', kind),

@@ -256,6 +256,49 @@ Two ways, both deliberate — a line never opens on its own:
 Either way it closes itself after 25 seconds of silence, at a 20-minute cap, or
 when the agent ends the conversation. While it is open the orb glows.
 
-A wake word ("hey fren") as a third way — spontaneous, and still local until the
-phrase is heard — is the planned next step, and needs a wake-word engine chosen
-first (an on-device model such as Porcupine or openWakeWord).
+- **The wake word**, spoken — the spontaneous way. See §9.
+
+---
+
+## 9 · The wake word
+
+Say the word and the line opens: fren gives a small hop to show it heard you,
+and the agent's greeting follows. The detector is **Porcupine** (Picovoice),
+running **on this machine**: it answers one question per frame of microphone
+audio — "was that the word?" — and nothing else. No audio leaves, nothing is
+transcribed, nothing is kept. Audio starts to travel only once the line is open,
+deliberately, with the orb aglow.
+
+It exists only for someone who set it up on purpose:
+
+1. Get a Picovoice access key at `console.picovoice.ai` (a free tier covers
+   personal use) and add it to `.env`:
+   ```
+   PICOVOICE_ACCESS_KEY=…
+   ```
+   With the key present the wake word is on; `FREN_WAKE_WORD=off` switches it
+   off without removing the key.
+2. Train **"hey fren"** in the Picovoice Console (Porcupine → custom wake word,
+   platform **macOS**, the SDK's Porcupine major version — 4.x), download the
+   `.ppn`, and put it at
+   ```
+   ~/Library/Application Support/fren/wake/hey-fren.ppn
+   ```
+   (or point `FREN_WAKE_KEYWORD` at any `.ppn`). Until that file exists, fren
+   arms Porcupine's own built-in word — **"porcupine"** — as a stand-in, and the
+   log says which it armed. `FREN_WAKE_KEYWORD` also accepts a built-in name
+   (`computer`, `jarvis`, …) if you would rather.
+3. `FREN_WAKE_SENSITIVITY` (0–1, default 0.55): higher hears more, and mishears
+   more.
+
+Two rules keep it honest, and both are structural:
+
+- **It follows the light.** Armed only while fren is watching; light off, senses
+  off — this one included. So the microphone indicator you see while it is
+  armed is the same light you already control.
+- **It stands down for the length of a conversation.** Once a line is open the
+  agent has the microphone; the detector re-arms when the line closes.
+
+If the key is missing, or the microphone cannot be opened, or the engine fails,
+fren says so in its log at launch and carries on without it — holding the orb
+and the hotkey still work.

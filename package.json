@@ -12,7 +12,9 @@
     "runtime:check": "node scripts/nanoclaw-overlay-check.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.117.1"
+    "@anthropic-ai/sdk": "^0.117.1",
+    "@picovoice/porcupine-node": "^4.0.2",
+    "@picovoice/pvrecorder-node": "^1.2.9"
   },
   "devDependencies": {
     "@elevenlabs/client": "^1.25.0",
