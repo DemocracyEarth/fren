@@ -346,6 +346,38 @@ function buildNarrationRequest({ activity = '', browser = null, soul = '',
   return { system, messages: [{ role: 'user', content }] };
 }
 
+/**
+ * What fren hands its voice agent at the start of a conversation — the
+ * `recent_context` and `local_time` variables in docs/voice-agent.md.
+ *
+ * A digest, not a dossier: the last few activity summaries in plain words, what
+ * is in front of them now, the page in the browser if there is one. No
+ * durations, no clock times — the agent is told never to recite them, and the
+ * simplest way to keep that promise is not to hand them over. An excluded page
+ * contributes nothing, not even its title. `local_time` is a part of day, not
+ * a clock reading, for the same reason.
+ */
+function voiceDigest({ memories = [], observation = null, browser = null, now = Date.now() } = {}) {
+  const d = new Date(now);
+  const weekday = d.toLocaleDateString('en-US', { weekday: 'long' });
+  const local_time = `${weekday}, ${partOfDay(d)}`;
+
+  const lines = [];
+  for (const m of memories.slice(-3)) {
+    const activity = m && String(m.activity || '').trim();
+    if (activity) lines.push(`- earlier: ${activity.slice(0, 160)}`);
+  }
+  if (observation && observation.activeApp) {
+    const title = String(observation.windowTitle || '').trim().slice(0, 80);
+    lines.push(`- in front of them now: ${observation.activeApp}${title ? ` — ${title}` : ''}`);
+  }
+  if (browser && browser.tab && browser.tab.domain && !(browser.page && browser.page.excluded)) {
+    const title = String(browser.tab.title || '').trim().slice(0, 80);
+    lines.push(`- open in the browser: ${browser.tab.domain}${title ? ` — "${title}"` : ''}`);
+  }
+  return { local_time, recent_context: lines.length ? lines.join('\n') : 'Nothing noted yet.' };
+}
+
 function buildChatRequest({ question, memories = [], observations = [], profile = null,
                             soul = '', userDoc = '', browser = null, now = Date.now() } = {}) {
   const who = formatProfile(profile);
@@ -1384,6 +1416,7 @@ module.exports = {
   buildChatRequest,
   buildSuggestRequest,
   buildNarrationRequest,
+  voiceDigest,
   classifyPage,
   formatBrowser,
   browserSense,

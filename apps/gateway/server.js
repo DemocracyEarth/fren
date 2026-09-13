@@ -446,7 +446,34 @@ async function handleSpeak(voice, body, res) {
   }
 }
 
+/**
+ * Conversation mode's ticket: a signed URL for one session with fren's voice
+ * agent. Needs the voice provider (the key) and the agent's id; without either
+ * the answer says which, in words the desktop can show.
+ */
+async function handleVoiceSession(voice, res) {
+  if (!voice || typeof voice.signedUrl !== 'function') {
+    return send(res, 503, { error: 'no voice provider configured' });
+  }
+  const agentId = process.env.ELEVENLABS_AGENT_ID;
+  if (!agentId) {
+    return send(res, 503, { error: 'ELEVENLABS_AGENT_ID is not set — create the agent (docs/voice-agent.md) and add its id to .env' });
+  }
+  try {
+    const signedUrl = await voice.signedUrl({ agentId });
+    send(res, 200, { signedUrl });
+  } catch (err) {
+    send(res, 502, { error: (err && err.message) || 'voice error' });
+  }
+}
+
 async function handle(provider, voice, vision, core, req, res, pathname) {
+  if (req.method === 'GET' && pathname === '/v1/voice/session') {
+    if (req.headers.authorization !== `Bearer ${config.GATEWAY_TOKEN}`) {
+      return send(res, 401, { error: 'unauthorized' });
+    }
+    return handleVoiceSession(voice, res);
+  }
   if (req.method === 'GET' && pathname === '/health') {
     return send(res, 200, {
       ok: true,

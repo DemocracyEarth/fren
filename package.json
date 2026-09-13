@@ -15,6 +15,7 @@
     "@anthropic-ai/sdk": "^0.117.1"
   },
   "devDependencies": {
+    "@elevenlabs/client": "^1.25.0",
     "electron": "^38.8.6",
     "three": "^0.185.1"
   }
