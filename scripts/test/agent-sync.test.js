@@ -56,3 +56,55 @@ test('the tool shape the API expects: a client tool the conversation waits on, w
   assert.equal(typeof c.parameters.properties.question.description, 'string');
   assert.deepEqual(toolConfig(CLIENT_TOOLS[0]).parameters.required, [], 'focus is optional');
 });
+
+const { promptFromDoc } = require('../agent-sync.js');
+
+const MINI_DOC = `# fren's voice
+## 1 · Greeting (first message)
+text
+**Dashboard default:**
+
+\`\`\`
+Hey. I'm listening.
+\`\`\`
+
+**Variants**
+\`\`\`
+Hey there.
+\`\`\`
+## 2 · Main goal
+\`\`\`
+goal
+\`\`\`
+## 3 · Master prompt (system prompt)
+Paste it whole.
+
+\`\`\`
+# Personality
+You are fren.
+\`\`\`
+## 4 · Tools
+`;
+
+test('the greeting and the master prompt come out of the document, first fenced block under each heading', () => {
+  const doc = promptFromDoc(MINI_DOC);
+  assert.equal(doc.greeting, "Hey. I'm listening.");
+  assert.equal(doc.prompt, '# Personality\nYou are fren.');
+  assert.throws(() => promptFromDoc('# nothing here'), /no heading/);
+});
+
+test('with the doc, the plan says whether the dashboard prompt and greeting differ; without it, they are not its business', () => {
+  const tools = [tool('t1', 'look_around'), tool('t2', 'recall'), tool('t3', 'remember')];
+  const inPlace = agentWith({ toolIds: ['t1', 't2', 't3'], placeholders: PLACEHOLDERS });
+  inPlace.conversation_config.agent.first_message = "Hey. I'm listening.";
+  const doc = { greeting: "Hey. I'm listening.", prompt: '# Personality\nYou are fren.' };
+  const p = plan({ agent: inPlace, tools, doc });
+  assert.equal(p.promptDiffers, true, "the fixture's prompt is not the doc's");
+  assert.equal(p.greetingDiffers, false);
+  assert.equal(p.nothing, false);
+  inPlace.conversation_config.agent.prompt.prompt = doc.prompt + '\n';
+  assert.equal(plan({ agent: inPlace, tools, doc }).nothing, true, 'trailing whitespace is not a difference');
+  const without = plan({ agent: inPlace, tools });
+  assert.equal(without.promptDiffers, false);
+  assert.equal(without.nothing, true);
+});

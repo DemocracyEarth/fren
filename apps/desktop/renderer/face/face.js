@@ -127,9 +127,9 @@
     waking:       E({ lit: 0.6, tone: -0.12, lidTop: 0.42, lidTilt: 0.2, mouthOpen: 0.1,
                       mouthW: 0.5, mouthCurve: 0.6, glow: 0.3 }),
     watching:     E({ mouthOpen: 0.2, mouthW: 0.66, mouthCurve: 0.9, glow: 0.62 }),
-    listening:    E({ mouthOpen: 0.14, mouthW: 0.6, mouthCurve: 0.9, tilt: -5, glow: 0.62 }),
+    listening:    E({ mouthOpen: 0.14, mouthW: 0.6, mouthCurve: 0.9, tilt: -5, glow: 0.5 }),   // glow at rest: the breathing says "line open"
     processing:   E({ lidTop: 0.3, mouthOpen: 0.04, mouthW: 0.4, mouthCurve: 0, glow: 0.46 }),
-    talking:      E({ mouthOpen: 0.6, mouthW: 0.88, mouthCurve: 0.9, glow: 0.64 }),
+    talking:      E({ mouthOpen: 0.6, mouthW: 0.88, mouthCurve: 0.9, glow: 0.5 }),
   };
 
   // Aliases so app code can keep speaking in its own terms.
