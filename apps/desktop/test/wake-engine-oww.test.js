@@ -14,7 +14,9 @@ const path = require('node:path');
 const oww = require('../main/wake-engine-oww.js');
 
 /** A fake ONNX runtime whose keyword model answers from a queue of scores. */
-function fakeOrt({ framesPerChunk = 5, scores = [], context = 16, declareContext = false } = {}) {
+function fakeOrt({ framesPerChunk = 5, scores = [], context = 16, declareContext = false, livekit = false } = {}) {
+  const inName = livekit ? 'embeddings' : 'x.1';
+  const outName = livekit ? 'score' : '53';
   const runs = { mel: 0, emb: 0, kw: 0 };
   const seen = { melInputs: [], embInputs: [] };
   class Tensor { constructor(type, data, dims) { this.type = type; this.data = data; this.dims = dims; } }
@@ -32,9 +34,9 @@ function fakeOrt({ framesPerChunk = 5, scores = [], context = 16, declareContext
         release() {},
       };
       return {
-        inputNames: ['x.1'], outputNames: ['53'],
-        ...(declareContext ? { inputMetadata: [{ name: 'x.1', isTensor: true, type: 'float32', shape: [1, context, 96] }] } : {}),
-        async run(feeds) { runs.kw += 1; assert.deepEqual(feeds['x.1'].dims, [1, context, 96]); const s = scores.length ? scores.shift() : 0; return { 53: new Tensor('float32', new Float32Array([s]), [1, 1]) }; },
+        inputNames: [inName], outputNames: [outName],
+        ...(declareContext ? { inputMetadata: [{ name: inName, isTensor: true, type: 'float32', shape: [1, context, 96] }] } : {}),
+        async run(feeds) { runs.kw += 1; assert.deepEqual(feeds[inName].dims, [1, context, 96]); const s = scores.length ? scores.shift() : 0; return { [outName]: new Tensor('float32', new Float32Array([s]), [1, 1]) }; },
         release() {},
       };
     },
@@ -132,11 +134,50 @@ test('the number of embeddings the phrase model wants is read from the model (22
   e16.release();
 });
 
-test('sensitivity maps to a threshold, clamped', () => {
+test('sensitivity maps to a threshold around a base, clamped', () => {
   assert.equal(oww.thresholdFor(0.5), 0.5);
   assert.equal(oww.thresholdFor(0.9), 0.15);   // very sensitive, but never below 0.15
   assert.equal(oww.thresholdFor(0), 0.95);
   assert.equal(oww.thresholdFor('nope'), 0.5);
+  assert.equal(oww.thresholdFor(0.5, 0.68), 0.68, 'a sidecar threshold is the base');
+  assert.equal(oww.thresholdFor(0.75, 0.68), 0.34);
+  assert.equal(oww.thresholdFor(0.25, 0.68), 0.95, 'clamped');
+  assert.equal(oww.thresholdFor(0.5, 'junk'), 0.5);
+});
+
+test('a livekit-wakeword head is recognised by its tensor names and fed audio in -1..1; the sidecar carries its threshold', async () => {
+  const dir = modelsDirWithFiles();
+  const custom = path.join(dir, 'hey-fren.onnx');
+  fs.writeFileSync(custom, 'lk');
+  fs.writeFileSync(path.join(dir, 'hey-fren.json'), JSON.stringify({ threshold: 0.68, source: 'livekit-wakeword' }));
+  const { ort, seen } = fakeOrt({ framesPerChunk: 8, livekit: true });
+  const engine = await oww.createEngine({ ort, modelsDir: dir, keyword: custom, sensitivity: 0.5, fetchImpl: async () => { throw new Error('no network'); } });
+  assert.equal(engine.family, 'livekit-wakeword');
+  assert.equal(engine.audio, 'unit');
+  assert.equal(engine.threshold, 0.68);
+  assert.equal(engine.sidecar, path.join(dir, 'hey-fren.json'));
+  assert.match(engine.label, /custom model hey-fren\.onnx \(livekit-wakeword head\)/);
+  await engine.process(new Int16Array(1280).fill(7));
+  assert.ok(Math.abs(seen.melInputs[0].data[480] - 7 / 32768) < 1e-9, 'scaled to -1..1 for this family');
+  engine.release();
+  // openWakeWord's own heads keep raw int16 values, as before.
+  const { ort: ort2, seen: seen2 } = fakeOrt({ framesPerChunk: 8 });
+  const plain = await oww.createEngine({ ort: ort2, modelsDir: dir, keyword: 'hey jarvis', fetchImpl: async () => { throw new Error('no network'); } });
+  assert.equal(plain.family, 'openWakeWord');
+  assert.equal(plain.audio, 'int16');
+  assert.equal(plain.threshold, 0.5);
+  assert.equal(plain.sidecar, null);
+  await plain.process(new Int16Array(1280).fill(7));
+  assert.equal(seen2.melInputs[0].data[480], 7);
+  plain.release();
+});
+
+test('the sidecar: absent, unreadable, or nonsense is simply no sidecar; "audio" may override the family guess', () => {
+  assert.deepEqual(oww.readSidecar('/m/x.onnx', () => '', () => false), {});
+  assert.deepEqual(oww.readSidecar('/m/x.onnx', () => 'not json', () => true), {});
+  assert.deepEqual(oww.readSidecar('/m/x.onnx', () => '{"threshold": "no", "audio": "float"}', () => true), { path: '/m/x.json', threshold: undefined, audio: undefined });
+  assert.deepEqual(oww.readSidecar('/m/x.onnx', () => '{"threshold": 0.42, "audio": "int16"}', () => true), { path: '/m/x.json', threshold: 0.42, audio: 'int16' });
+  assert.deepEqual(oww.readSidecar('/m/x.bin', () => '{}', () => true), {}, 'only beside an .onnx');
 });
 
 test('the phrase: a .onnx of your own if it exists, a pretrained phrase by name, else "hey jarvis"', () => {

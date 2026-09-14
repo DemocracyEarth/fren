@@ -304,12 +304,14 @@ Two engines can do the hearing, and fren picks one by the phrase:
    ~/Library/Application Support/fren/wake/hey-fren.onnx
    ```
    (or any `.onnx` path in `FREN_WAKE_KEYWORD`) takes precedence over
-   everything. Training one is not a quick afternoon, as of this writing:
-   openWakeWord's *automatic model training* notebook has been reported broken
-   on stock Colab since late 2025 (upstream issues #296 and #317: Python
-   3.10/3.11, pinned old wheels, an NVIDIA GPU with ~45 GB of disk), and macOS
-   cannot run it. It is the route to a detector that does know "fren" from
-   "friend". Your model is never fetched or sent anywhere.
+   everything. Two trainers produce such a head: openWakeWord's own notebook
+   (reported broken on stock Colab since late 2025, upstream issues #296 and
+   #317 — it wants a Linux NVIDIA box) and **livekit-wakeword** (Apache-2.0),
+   which trains on this Mac's GPU in minutes to a couple of hours and exports
+   the same format. Put the threshold its evaluation chose beside the model —
+   `hey-fren.json`, `{"threshold": 0.68}` — and fren uses it; the engine
+   tells the two families apart by their tensor names and feeds each the audio
+   scale it was trained on. Your model is never fetched or sent anywhere.
 3. `FREN_WAKE_SENSITIVITY` (0–1, default 0.5): higher hears more, and mishears
    more. (It maps to each engine's own threshold; 0.5 is both projects' default.)
 
