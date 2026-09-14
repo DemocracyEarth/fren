@@ -16,9 +16,12 @@
  * Nothing else happens to the audio: no transcription, nothing kept, nothing
  * sent. The two shared models and the pretrained phrases come from
  * openWakeWord's own release, fetched once into fren's data folder and checked
- * by size; a phrase of your own ("hey fren") is a model you trained with their
- * notebook, placed where fren looks for it. Everything is injectable — the ONNX
- * runtime, the fetch — so the buffering tests without models or a network.
+ * by size; a phrase of your own ("hey fren") is a head you trained — with
+ * openWakeWord's notebook, or with livekit-wakeword, whose exports use the same
+ * two front models — placed where fren looks for it, with an optional
+ * hey-fren.json beside it carrying the threshold its trainer chose and the
+ * audio scale it was trained on. Everything is injectable — the ONNX runtime,
+ * the fetch — so the buffering tests without models or a network.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -46,12 +49,51 @@ const MEL_STRIDE = 8;    // new frames between embeddings
 const CONTEXT = 16;      // embeddings the keyword model sees (~2 s)
 const EMB_DIM = 96;
 const DEFAULT_SENSITIVITY = 0.5;
+const DEFAULT_THRESHOLD = 0.5;      // both projects' runtime default
+const INT16_FULL_SCALE = 32768;
 
-/** sensitivity 0..1 → the score a detection must reach. 0.5 is openWakeWord's own default. */
-function thresholdFor(sensitivity) {
+/**
+ * sensitivity 0..1 → the score a detection must reach, around a base: 0.5 is
+ * the base itself (openWakeWord's own default of 0.5 unless the model's
+ * sidecar says what its trainer chose), higher hears more, lower less.
+ */
+function thresholdFor(sensitivity, base = DEFAULT_THRESHOLD) {
   const s = Number(sensitivity);
   const clean = Number.isFinite(s) ? Math.max(0, Math.min(1, s)) : DEFAULT_SENSITIVITY;
-  return Math.max(0.15, Math.min(0.95, 1 - clean));
+  const b = Number.isFinite(Number(base)) && Number(base) > 0 ? Number(base) : DEFAULT_THRESHOLD;
+  return Math.round(Math.max(0.15, Math.min(0.95, 2 * b * (1 - clean))) * 1000) / 1000;
+}
+
+/**
+ * Two families of head share the front models but not the audio convention:
+ * openWakeWord's were trained on int16 values fed straight in; livekit-
+ * wakeword's on audio in -1..1. The mel model is log-scaled, so the difference
+ * is a flat offset on every feature — enough to move a head's scores. A
+ * livekit export names its tensors "embeddings" → "score"; openWakeWord's
+ * never do.
+ */
+function describeHead(session) {
+  const livekit = Array.isArray(session.inputNames) && session.inputNames[0] === 'embeddings'
+    && Array.isArray(session.outputNames) && session.outputNames[0] === 'score';
+  return livekit ? { family: 'livekit-wakeword', audio: 'unit' } : { family: 'openWakeWord', audio: 'int16' };
+}
+
+/**
+ * hey-fren.json beside hey-fren.onnx: { threshold, audio } — the threshold the
+ * trainer's evaluation chose, and "unit" or "int16" if the family guess is
+ * wrong. Absent or unreadable is simply "no sidecar".
+ */
+function readSidecar(modelPath, read = (p) => fs.readFileSync(p, 'utf8'), exists = fs.existsSync) {
+  const p = String(modelPath).replace(/\.onnx$/i, '.json');
+  if (p === modelPath || !exists(p)) return {};
+  try {
+    const j = JSON.parse(read(p));
+    return {
+      path: p,
+      threshold: Number.isFinite(Number(j.threshold)) && Number(j.threshold) > 0 ? Number(j.threshold) : undefined,
+      audio: j.audio === 'unit' || j.audio === 'int16' ? j.audio : undefined,
+    };
+  } catch { return {}; }
 }
 
 /**
@@ -117,7 +159,11 @@ async function createEngine({ ort, modelsDir, keyword, sensitivity, fetchImpl = 
   const mel = await runtime.InferenceSession.create(files.melspectrogram, session);
   const emb = await runtime.InferenceSession.create(files.embedding, session);
   const kw = await runtime.InferenceSession.create(files.keyword, session);
-  const threshold = thresholdFor(sensitivity);
+  const head = describeHead(kw);
+  const sidecar = readSidecar(files.keyword);
+  const threshold = thresholdFor(sensitivity, sidecar.threshold);
+  const audio = sidecar.audio || head.audio;
+  const scale = audio === 'unit' ? 1 / INT16_FULL_SCALE : 1;
   // How many embeddings the phrase model looks at: read from the model when the
   // runtime says (the reference does the same — 16 for the default 2 s clip,
   // but not for every model), else the default.
@@ -148,7 +194,7 @@ async function createEngine({ ort, modelsDir, keyword, sensitivity, fetchImpl = 
     //    are: the reference does not normalise, and neither does this.
     const x = new Float32Array(tail.length + frame.length);
     x.set(tail, 0);
-    for (let i = 0; i < frame.length; i++) x[tail.length + i] = frame[i];
+    for (let i = 0; i < frame.length; i++) x[tail.length + i] = frame[i] * scale;
     tail = x.slice(x.length - LOOKBACK);
     const m = await mel.run({ [mel.inputNames[0]]: new runtime.Tensor('float32', x, [1, x.length]) });
     const out = m[mel.outputNames[0]];
@@ -196,7 +242,17 @@ async function createEngine({ ort, modelsDir, keyword, sensitivity, fetchImpl = 
     embBuf.length = 0;
   }
 
-  return { frameLength: FRAME, process, release, label: files.label, threshold, context };
+  return {
+    frameLength: FRAME,
+    process,
+    release,
+    label: head.family === 'livekit-wakeword' ? `${files.label} (livekit-wakeword head)` : files.label,
+    threshold,
+    context,
+    family: head.family,
+    audio,
+    sidecar: sidecar.path || null,
+  };
 }
 
-module.exports = { createEngine, ensureModels, resolveKeyword, thresholdFor, BUILTIN, FRAME, MEL_WINDOW, MEL_STRIDE, CONTEXT };
+module.exports = { createEngine, ensureModels, resolveKeyword, thresholdFor, describeHead, readSidecar, BUILTIN, FRAME, MEL_WINDOW, MEL_STRIDE, CONTEXT };
