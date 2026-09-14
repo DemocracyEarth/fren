@@ -660,7 +660,7 @@ function pickProvider() {
     if (p) return p;
   }
   console.warn(
-    '[gateway] no model credentials found (set DEEPSEEK_API_KEY or ANTHROPIC_API_KEY in .env); using mock provider'
+    `[gateway] no model credentials found — set DEEPSEEK_API_KEY or ANTHROPIC_API_KEY in .env (this checkout) or in ${config.DATA_DIR}/.env (what a packaged app reads); using mock provider`
   );
   return createMockProvider();
 }
