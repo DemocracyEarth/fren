@@ -49,7 +49,10 @@ the renderer console: `window.FrenFace.renderer` reports `'3d'` or `'svg'`.
 ## Environment variables
 
 All optional in dev. From `.env.example` (loaded by `packages/shared/env.js`;
-real environment variables win over `.env`):
+real environment variables win over `.env`). A **packaged** app carries no
+`.env`: it reads the data folder's — `~/Library/Application Support/fren/.env`
+on macOS (`FREN_DATA_DIR` overriding) — so put your keys there for the bundle.
+The checkout's `.env` is read first; the data folder's fills what it lacks:
 
 | Variable | Default | Purpose |
 |---|---|---|

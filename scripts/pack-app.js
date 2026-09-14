@@ -106,3 +106,4 @@ console.log('  Launch it the way a user does — `open dist-app/mac-arm64/fren.a
 console.log("  a shell launch borrows the terminal's microphone permission and proves nothing about the bundle's own.");
 console.log('  Unsigned: a downloaded copy needs System Settings › Privacy & Security › Open Anyway (or xattr -dr com.apple.quarantine),');
 console.log('  or sign/notarize with Apple credentials.');
+console.log('  Keys: the bundle carries no .env — put yours at ~/Library/Application Support/fren/.env (or FREN_DATA_DIR/.env).');
