@@ -307,8 +307,9 @@ Two engines can do the hearing, and fren picks one by the phrase:
    everything. Two trainers produce such a head: openWakeWord's own notebook
    (reported broken on stock Colab since late 2025, upstream issues #296 and
    #317 — it wants a Linux NVIDIA box) and **livekit-wakeword** (Apache-2.0),
-   which trains on this Mac's GPU in minutes to a couple of hours and exports
-   the same format. Put the threshold its evaluation chose beside the model —
+   which trains on a Mac's GPU and exports the same format — a few GB of RAM
+   and an hour or more, and whether the result tells "fren" from "friend" is
+   unproven. Put the threshold its evaluation chose beside the model —
    `hey-fren.json`, `{"threshold": 0.68}` — and fren uses it; the engine
    tells the two families apart by their tensor names and feeds each the audio
    scale it was trained on. Your model is never fetched or sent anywhere.
