@@ -362,11 +362,24 @@ function voiceDigest({ memories = [], observation = null, browser = null, now = 
   const weekday = d.toLocaleDateString('en-US', { weekday: 'long' });
   const local_time = `${weekday}, ${partOfDay(d)}`;
 
+  // Recency in words a friend would use — never a number, never a clock.
+  const recency = (m) => {
+    const t = Number(m && (m.tsEnd || m.tsStart));
+    if (!Number.isFinite(t) || t <= 0) return 'earlier';
+    const ago = now - t;
+    if (ago < 10 * 60e3) return 'just now';
+    if (ago < 45 * 60e3) return 'a little while ago';
+    if (ago < 150 * 60e3) return 'earlier';
+    return 'a while ago';
+  };
+
   const lines = [];
-  for (const m of memories.slice(-3)) {
-    const activity = m && String(m.activity || '').trim();
-    if (activity) lines.push(`- earlier: ${activity.slice(0, 160)}`);
-  }
+  const recent = memories.filter((m) => m && String(m.activity || '').trim()).slice(-8);
+  recent.forEach((m, i) => {
+    const activity = String(m.activity).trim().slice(0, 160);
+    const last = i === recent.length - 1;
+    lines.push(last ? `- most recently (${recency(m)}): ${activity}` : `- ${recency(m)}: ${activity}`);
+  });
   if (observation && observation.activeApp) {
     const title = String(observation.windowTitle || '').trim().slice(0, 80);
     lines.push(`- in front of them now: ${observation.activeApp}${title ? ` — ${title}` : ''}`);

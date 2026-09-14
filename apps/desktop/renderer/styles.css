@@ -35,12 +35,14 @@ html, body {
    than a box-shadow, so the glow hugs the sphere's own silhouette instead of
    the square button around it; it breathes slowly, and not at all under
    reduced motion. */
+/* A line is open: the orb breathes — opaque, translucent, opaque — at a
+   speaking pace. No glow and no colour change: the same orb, present and
+   listening, its light steady. */
 body[data-voice="1"] #orb {
-  filter: drop-shadow(0 0 10px rgba(237, 138, 47, 0.55));
-  animation: voice-breathe 2.6s ease-in-out infinite;
+  animation: voice-breathe 3.4s ease-in-out infinite;
 }
 @keyframes voice-breathe {
-  50% { filter: drop-shadow(0 0 18px rgba(237, 138, 47, 0.75)); }
+  50% { opacity: .45; }
 }
 @media (prefers-reduced-motion: reduce) {
   body[data-voice="1"] #orb { animation: none; }

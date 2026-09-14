@@ -1365,7 +1365,7 @@ app.whenReady().then(() => {
     }
     const character = soul.readContext(userDataDir());
     const digest = intelligence.voiceDigest({
-      memories: memory.getRecentMemories({ sinceMs: Date.now() - 5 * 60 * 60 * 1000, limit: 6 }),
+      memories: memory.getRecentMemories({ sinceMs: Date.now() - 5 * 60 * 60 * 1000, limit: 8 }),
       observation: state.get().observing ? memory.getRecentObservations({ limit: 1 })[0] : null,
       browser: state.get().observing ? currentBrowserContext() : null,
     });
