@@ -6,6 +6,7 @@ const arrival = require('./arrival');
 const { pathToFileURL } = require('node:url');
 const { config, loadEnv } = require('../../../packages/shared');
 const { openMemory } = require('../../../packages/memory');
+const intelligence = require('../../../packages/intelligence');   // page sense, narration, the voice digest
 const state = require('./state');
 const gateway = require('./gatewayClient');
 const { ensureGateway, stopGateway } = require('./gateway-process');
@@ -1152,7 +1153,6 @@ app.whenReady().then(() => {
   // the browser if the user asked something right now. The dashboard shows it
   // so the behaviour is inspectable rather than folklore.
   ipcMain.handle('fren:getBrowserPrompt', () => {
-    const intelligence = require('../../../packages/intelligence');
     const b = currentBrowserContext();
     const block = intelligence.formatBrowser(b);
     if (!block) return { present: false, system: '', message: '' };
