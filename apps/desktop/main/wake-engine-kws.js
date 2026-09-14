@@ -162,7 +162,8 @@ function createOnsetGate({ quietMs = ONSET.quietMs, minGapMs = ONSET.minGapMs, f
 
 function tarExtract(archive, dir) {
   return new Promise((resolve, reject) => {
-    execFile('tar', ['-xjf', archive, '-C', dir], (err) => (err ? reject(err) : resolve()));
+    // A Finder-launched app inherits launchd's PATH; name the system tar outright (bsdtar, bzip2 built in).
+    execFile(process.platform === 'darwin' ? '/usr/bin/tar' : 'tar', ['-xjf', archive, '-C', dir], (err) => (err ? reject(err) : resolve()));
   });
 }
 

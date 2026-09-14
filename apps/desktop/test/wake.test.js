@@ -14,7 +14,8 @@ const { createWakeListener } = require('../main/wake-word.js');
 function fakes({ engineFails = false } = {}) {
   const made = { engines: [], recorders: [] };
   const pending = [];                 // frames the recorder will hand over, in order
-  const say = (idx) => pending.push(idx);
+  const say = (idx) => pending.push({ idx });
+  const feed = (frame) => pending.push(frame);
   const createEngine = async (cfg) => {
     if (engineFails) throw new Error('models missing');
     const e = { cfg, frameLength: 1280, released: false, label: `built-in phrase "${cfg.keyword || 'hey jarvis'}"`,
@@ -30,12 +31,12 @@ function fakes({ engineFails = false } = {}) {
     async read() {
       for (;;) {
         if (this.released) throw new Error('released');
-        if (pending.length) { const idx = pending.shift(); return { idx }; }
+        if (pending.length) return pending.shift();
         await new Promise((r) => setTimeout(r, 1));
       }
     }
   }
-  return { deps: { createEngine, PvRecorder }, made, say };
+  return { deps: { createEngine, PvRecorder }, made, say, feed };
 }
 
 const settle = (ms = 10) => new Promise((r) => setTimeout(r, ms));
@@ -124,6 +125,52 @@ test('a microphone that fails to start is released, and the listener stays disar
   assert.equal(w.armed(), false);
   assert.equal(made.engines[0].released, true);
   assert.ok(lines.some((l) => /could not arm: no device/.test(l)));
+});
+
+test('the microphone is asked for before anything else; a refusal is no engine, no recorder, and one line', async () => {
+  const { deps, made } = fakes();
+  const lines = [];
+  let asked = 0;
+  const w = createWakeListener({ deps, log: (l) => lines.push(l), micAccess: async () => { asked += 1; return 'denied'; } });
+  assert.equal(await w.arm(), false);
+  assert.equal(w.armed(), false);
+  assert.equal(made.engines.length, 0, 'no model is fetched for a microphone we may not use');
+  assert.equal(made.recorders.length, 0, 'the recorder is never constructed');
+  assert.equal(lines.filter((l) => /microphone denied/.test(l)).length, 1);
+  assert.equal(await w.arm(), false);
+  assert.equal(asked, 2, 'asked again on the next attempt (the answer may have changed)');
+  assert.equal(lines.filter((l) => /microphone denied/.test(l)).length, 1, 'but said once');
+});
+
+test('granted arms; "unknown" (no such API on this platform) arms too; an asker that throws is a refusal in words', async (t) => {
+  const { deps } = fakes();
+  const ok = createWakeListener({ deps, log: () => {}, micAccess: async () => 'unknown' });
+  t.after(() => ok.disarm());
+  assert.equal(await ok.arm(), true);
+  const lines = [];
+  const broken = createWakeListener({ deps: fakes().deps, log: (l) => lines.push(l), micAccess: async () => { throw new Error('no tccd'); } });
+  assert.equal(await broken.arm(), false);
+  assert.ok(lines.some((l) => /microphone unavailable \(no tccd\)/.test(l)));
+});
+
+test('ten seconds of digital silence from the microphone is said once; hearing again is said once', async (t) => {
+  const { deps, feed } = fakes();
+  const lines = [];
+  let now = 0;
+  const w = createWakeListener({ deps, log: (l) => lines.push(l), now: () => now });
+  t.after(() => w.disarm());
+  await w.arm();
+  const zeros = () => new Int16Array(512);
+  feed(zeros()); await settle();
+  now = 5000; feed(zeros()); await settle();
+  assert.equal(lines.filter((l) => /hearing nothing/.test(l)).length, 0, 'five seconds is not yet a verdict');
+  now = 11000; feed(zeros()); await settle();
+  now = 12000; feed(zeros()); await settle();
+  assert.equal(lines.filter((l) => /hearing nothing from the microphone/.test(l)).length, 1);
+  const room = new Int16Array(512); room[7] = 3;
+  feed(room); await settle();
+  feed(room); await settle();
+  assert.equal(lines.filter((l) => /hearing the microphone again/.test(l)).length, 1);
 });
 
 test('a microphone lost mid-listen disarms and releases', async (t) => {
