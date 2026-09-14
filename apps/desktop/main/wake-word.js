@@ -15,12 +15,28 @@
  * (the agent has the microphone then). No account, no key: the engines' models
  * are fetched once from their projects' own releases.
  *
+ * The microphone is asked for BEFORE the recorder exists. On macOS, opening
+ * the microphone from native code while the permission prompt is still
+ * unanswered blocks the whole main thread inside CoreAudio — the app freezes
+ * behind the prompt. So arming first asks through `micAccess` (Electron's own
+ * asynchronous permission API, injected), and a refusal is one line in the log
+ * and no recorder. And once armed, ten seconds of digital silence is said once:
+ * a denied or muted input yields zeros, not an error.
+ *
  * Everything is injected — the engine factory, the recorder, the clock — so
  * the clockwork tests without a microphone, models or a network.
  */
 const DEFAULTS = {
   debounceMs: 2000,          // one detection is one wake, not three
+  deafAfterMs: 10000,        // this long of exact zeros from the microphone is worth a line
 };
+
+/** Exact digital silence: what a denied or muted input hands over. Never a real room. */
+function isSilent(frame) {
+  if (!frame || typeof frame.length !== 'number') return false;
+  for (let i = 0; i < frame.length; i++) if (frame[i] !== 0) return false;
+  return frame.length > 0;
+}
 
 /** Load the native pieces lazily, so a missing or broken binary never breaks boot. */
 function loadDeps() {
@@ -34,6 +50,7 @@ function createWakeListener({
   sensitivity,
   modelsDir,
   engineOptions = {},        // engine settings passed through (e.g. onsetRestart)
+  micAccess = async () => 'granted',   // → 'granted' | 'denied' | 'restricted' | 'not-determined' | 'unknown'
   deps = null,               // { createEngine, PvRecorder } — loaded on first arm if absent
   onWake = () => {},
   log = console.log,
@@ -46,6 +63,9 @@ function createWakeListener({
   let running = false;
   let arming = false;
   let lastWakeAt = -Infinity;   // the first hearing always counts, whatever the clock says
+  let lastAccess = null;        // the last microphone answer, so a refusal is said once
+  let silentSince = null;
+  let deaf = false;
   let label = '';
 
   function release() {
@@ -67,6 +87,16 @@ function createWakeListener({
         return;
       }
       if (!running || recorder !== r) return;
+      if (isSilent(frame)) {
+        if (silentSince === null) silentSince = now();
+        else if (!deaf && now() - silentSince >= opts.deafAfterMs) {
+          deaf = true;
+          log('[wake] hearing nothing from the microphone — check the input device, or System Settings › Privacy & Security › Microphone');
+        }
+      } else {
+        silentSince = null;
+        if (deaf) { deaf = false; log('[wake] hearing the microphone again'); }
+      }
       let idx = -1;
       try { idx = await e.process(frame); }
       catch (err) { log(`[wake] engine error: ${err.message}`); release(); return; }
@@ -86,6 +116,15 @@ function createWakeListener({
     async arm() {
       if (running || arming) return true;
       arming = true;
+      let access = 'granted';
+      try { access = await micAccess(); } catch (err) { access = `unavailable (${err.message})`; }
+      if (access !== 'granted' && access !== 'unknown') {
+        if (access !== lastAccess) log(`[wake] microphone ${access} — wake word off until it is allowed (System Settings › Privacy & Security › Microphone)`);
+        lastAccess = access;
+        arming = false;
+        return false;
+      }
+      lastAccess = access;
       let d = deps;
       try { d = d || loadDeps(); } catch (err) { log(`[wake] unavailable: ${err.message}`); arming = false; return false; }
       try {
@@ -116,4 +155,4 @@ function createWakeListener({
   };
 }
 
-module.exports = { createWakeListener, DEFAULTS };
+module.exports = { createWakeListener, isSilent, DEFAULTS };

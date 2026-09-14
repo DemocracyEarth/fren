@@ -1492,6 +1492,15 @@ app.whenReady().then(() => {
         sensitivity: process.env.FREN_WAKE_SENSITIVITY,
         modelsDir: path.join(app.getPath('userData'), 'wake', 'models'),
         engineOptions: { onsetRestart: String(process.env.FREN_WAKE_ONSET_RESTART || 'on').toLowerCase() !== 'off' },
+        // Ask macOS for the microphone here, asynchronously, so the recorder is
+        // never constructed while the permission prompt is still unanswered.
+        micAccess: async () => {
+          const { systemPreferences } = require('electron');
+          if (!systemPreferences || typeof systemPreferences.getMediaAccessStatus !== 'function') return 'unknown';
+          const status = systemPreferences.getMediaAccessStatus('microphone');
+          if (status !== 'not-determined') return status;
+          return (await systemPreferences.askForMediaAccess('microphone')) ? 'granted' : 'denied';
+        },
         log,
         onWake: () => { if (win && !win.isDestroyed()) win.webContents.send('fren:voice.wake'); },
       });

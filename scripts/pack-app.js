@@ -79,5 +79,30 @@ step('electron-builder (unsigned .app → dist-app/)');
 run(path.join(ROOT, 'node_modules', '.bin', 'electron-builder'), ['--mac', 'dir']);
 
 const app = path.join(ROOT, 'dist-app', 'mac-arm64', 'fren.app');
+// The bundle, checked: the microphone text fren declares, and the native
+// pieces the wake word loads — a pack that lacks any of them is not a pack.
+if (fs.existsSync(app)) {
+  step('bundle check');
+  const must = [
+    'Contents/Resources/app/node_modules/sherpa-onnx-darwin-arm64/sherpa-onnx.node',
+    'Contents/Resources/app/node_modules/sherpa-onnx-darwin-arm64/libsherpa-onnx-c-api.dylib',
+    'Contents/Resources/app/node_modules/sherpa-onnx-darwin-arm64/libonnxruntime.dylib',
+    'Contents/Resources/app/node_modules/onnxruntime-node/bin/napi-v6/darwin/arm64/onnxruntime_binding.node',
+    'Contents/Resources/app/node_modules/onnxruntime-node/bin/napi-v6/darwin/arm64/libonnxruntime.1.dylib',
+    'Contents/Resources/app/node_modules/@picovoice/pvrecorder-node/lib/mac/arm64/pv_recorder.node',
+  ];
+  const missing = must.filter((rel) => !fs.existsSync(path.join(app, rel)));
+  const plist = fs.readFileSync(path.join(app, 'Contents', 'Info.plist'), 'utf8');
+  if (!plist.includes('fren listens for')) missing.push("Contents/Info.plist: NSMicrophoneUsageDescription (fren's own text)");
+  if (missing.length) {
+    console.error('\n\x1b[31m✗ the bundle is missing:\x1b[0m\n  ' + missing.join('\n  '));
+    process.exit(1);
+  }
+  console.log("  microphone text and the wake word's native pieces are in place");
+}
+
 console.log(`\n\x1b[32m✓ built ${fs.existsSync(app) ? app : 'dist-app/'}\x1b[0m`);
-console.log('  Unsigned: right-click → Open the first time, or sign/notarize with Apple credentials.');
+console.log('  Launch it the way a user does — `open dist-app/mac-arm64/fren.app` — never Contents/MacOS/fren from a shell:');
+console.log("  a shell launch borrows the terminal's microphone permission and proves nothing about the bundle's own.");
+console.log('  Unsigned: a downloaded copy needs System Settings › Privacy & Security › Open Anyway (or xattr -dr com.apple.quarantine),');
+console.log('  or sign/notarize with Apple credentials.');
