@@ -282,15 +282,20 @@ Two engines can do the hearing, and fren picks one by the phrase:
    model (sherpa-onnx's 3.3M-parameter zipformer; Apache-2.0 end to end — code,
    binaries and model) watches its own output for the phrase's sub-word pieces.
    Any plain-English phrase works, with no training: `FREN_WAKE_KEYWORD="okay
-   fren"`. On the first arm fren fetches the model (17.6 MB, pinned by size and
-   checksum) from sherpa-onnx's release into
+   fren"`. On the first arm fren fetches the model (a 17.6 MB archive, pinned by
+   size and checksum; the ~5 MB it loads is kept) from sherpa-onnx's release into
    ```
    ~/Library/Application Support/fren/wake/models/
    ```
    It costs about 1 % of one core. **One thing to know:** a text keyword on a
-   model this size cannot tell "hey fren" from **"hey friend"** — both wake it;
-   think of it as an alias. "Hey fran", "hey jarvis", or a friend mentioned
-   mid-sentence do not.
+   model this size cannot tell "hey fren" from **"hey friend"** — both wake it,
+   and depending on the voice so may "hey fran" or "hey fred"; think of them as
+   aliases. "Hey jarvis", "hey ben", a friend mentioned mid-sentence, and
+   ordinary talk do not: no false alarms in minutes of synthesized speech.
+   Because the spotter resets itself after 1.5 s of silence, fren restarts it
+   on every speech onset with a short look-back, so a phrase spoken right after
+   a pause is not lost (about 9 in 10 attempts heard on synthesized voices,
+   versus 3 in 4 without; `FREN_WAKE_ONSET_RESTART=off` disables it).
 2. **A trained model, by openWakeWord.** `FREN_WAKE_KEYWORD` set to one of its
    pretrained phrases (`hey jarvis`, `alexa`, `hey mycroft`, `hey rhasspy`,
    `weather`, `timer`) fetches those models from openWakeWord's release

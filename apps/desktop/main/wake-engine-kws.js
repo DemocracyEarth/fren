@@ -17,15 +17,26 @@
  * catch. So the text is tokenised and checked first, and an unpronounceable
  * phrase is an error in words.
  *
+ * Speech onset restarts the spotter. sherpa resets its own stream after 1.5 s
+ * of trailing silence, and a phrase that begins in the ~0.6 s before that reset
+ * is wiped with it — about one wake attempt in four after a pause, in
+ * continuous listening. So the engine watches loudness itself, and when
+ * speech starts after a stretch of quiet it hands the spotter a fresh stream
+ * primed with the last 0.8 s of audio: the phrase is then decoded whole, on a
+ * stream that has warmed up on the silence before it. Measured on synthesized
+ * voices this lifts recall from ~3 in 4 to ~9 in 10; FREN_WAKE_ONSET_RESTART=off
+ * turns it off.
+ *
  * Trade-off, plainly: a text keyword on a model this size cannot tell "hey
- * fren" from "hey friend" — both wake it. The setting that separates them
- * delays every detection by a second or two and is not robust, so it is not
- * used; "hey friend" is an alias, and the docs say so.
+ * fren" from "hey friend" — both wake it, and depending on the voice so may
+ * "hey fran" or "hey fred". The setting that rejects "hey friend" delays every
+ * detection by a second or two and still passes the others, so it is not used;
+ * these are aliases, and the docs say so.
  *
  * The model comes from sherpa-onnx's release, pinned by size and checksum,
- * fetched once into fren's data folder. Everything is injectable — the sherpa
- * module, the fetch, the archive extraction — so the logic tests without a
- * model, a network or a microphone.
+ * fetched once into fren's data folder and pruned to the four files that are
+ * loaded. Everything is injectable — the sherpa module, the fetch, the archive
+ * extraction — so the logic tests without a model, a network or a microphone.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -45,20 +56,32 @@ const MODEL = {
   },
 };
 
+const SAMPLE_RATE = 16000;
 const FRAME = 512;                 // samples per step: 32 ms at 16 kHz
 const DEFAULT_PHRASE = 'hey fren';
 const DEFAULT_SENSITIVITY = 0.5;
 const KEYWORDS_SCORE = 1.0;        // sherpa's boost for the keyword path; its default
 
+/** The onset restart: what counts as quiet, and when a restart is due. */
+const ONSET = {
+  lookbackMs: 800,     // audio handed to the fresh stream before the onset frame
+  quietMs: 800,        // this much quiet before a loud frame makes it an onset
+  minGapMs: 1000,      // never restart more often than this
+  floorMin: 0.003,     // RMS below which a frame is quiet no matter what (≈ -50 dBFS)
+  floorGain: 4,        // ...or below this multiple of the quietest recent frame
+  floorWindowMs: 5000, // how far back "recent" reaches
+};
+
 /**
  * sensitivity 0..1 → the spotter's trigger threshold. 0.5 gives 0.25, sherpa's
- * own default; anything at 0.5 or above misses real hearings, so the floor of
- * sensitivity maps to 0.45 and no lower.
+ * own default. Measured: 0.35 still hears every voice, 0.45 hears one in four —
+ * so the floor of sensitivity maps to 0.35 and no higher.
  */
 function thresholdFor(sensitivity) {
   const s = Number(sensitivity);
   const clean = Number.isFinite(s) ? Math.max(0, Math.min(1, s)) : DEFAULT_SENSITIVITY;
-  return Math.round(Math.max(0.05, Math.min(0.45, 0.45 - 0.4 * clean)) * 1000) / 1000;
+  const t = clean <= 0.5 ? 0.35 - 0.2 * clean : 0.25 - 0.4 * (clean - 0.5);
+  return Math.round(t * 1000) / 1000;
 }
 
 /** The model's vocabulary: the first column of tokens.txt. */
@@ -105,6 +128,38 @@ function keywordLine(phrase, vocab) {
   return `${tokenize(phrase, vocab).join(' ')} @${label}\n`;
 }
 
+/**
+ * Speech onset after quiet, from per-frame loudness alone. Pure: call it once
+ * per frame with the frame's RMS (of -1..1 samples) and its start time in ms
+ * of audio; `true` means "restart the spotter before this frame". A frame is
+ * loud above an adaptive floor — the quietest recent frame times a gain, never
+ * below an absolute minimum — and an onset is a loud frame after enough quiet,
+ * rate-limited so a stutter cannot restart twice.
+ */
+function createOnsetGate({ quietMs = ONSET.quietMs, minGapMs = ONSET.minGapMs, floorMin = ONSET.floorMin, floorGain = ONSET.floorGain, floorWindowMs = ONSET.floorWindowMs } = {}) {
+  const recent = [];             // [tMs, rms] of the frames inside the floor window
+  let lastLoudAt = -Infinity;    // the quiet before the very first frame counts as quiet
+  let lastRestartAt = -Infinity; // the first onset always restarts, even right after arming
+  return function gate(rms, tMs) {
+    recent.push([tMs, rms]);
+    while (recent.length && recent[0][0] < tMs - floorWindowMs) recent.shift();
+    let quietest = Infinity;
+    for (const [, r] of recent) if (r < quietest) quietest = r;
+    const floor = Math.max(floorMin, floorGain * quietest);
+    const loud = rms > floor;
+    let restart = false;
+    if (loud) {
+      const quietBefore = tMs - lastLoudAt;
+      if (quietBefore >= quietMs && tMs - lastRestartAt >= minGapMs) {
+        restart = true;
+        lastRestartAt = tMs;
+      }
+      lastLoudAt = tMs;
+    }
+    return restart;
+  };
+}
+
 function tarExtract(archive, dir) {
   return new Promise((resolve, reject) => {
     execFile('tar', ['-xjf', archive, '-C', dir], (err) => (err ? reject(err) : resolve()));
@@ -118,9 +173,17 @@ function filesPresent(modelDir, spec) {
   });
 }
 
+/** Keep only what is loaded: the archive carries fp32 twins and test clips fren never reads. */
+function prune(modelDir, spec) {
+  const keep = new Set(Object.values(spec.files).map((f) => f.file));
+  for (const entry of fs.readdirSync(modelDir)) {
+    if (!keep.has(entry)) fs.rmSync(path.join(modelDir, entry), { recursive: true, force: true });
+  }
+}
+
 /**
  * The model, present: fetched from the release when missing, checked by size
- * and checksum before it is unpacked, and by file sizes after.
+ * and checksum before it is unpacked, by file sizes after, then pruned.
  */
 async function ensureModel({ dir, fetchImpl = fetch, extract = tarExtract, log = () => {}, spec = MODEL }) {
   const modelDir = path.join(dir, spec.name);
@@ -138,6 +201,7 @@ async function ensureModel({ dir, fetchImpl = fetch, extract = tarExtract, log =
   try { await extract(archive, dir); }
   finally { fs.rmSync(archive, { force: true }); }
   if (!filesPresent(modelDir, spec)) throw new Error(`${spec.name}: files missing or the wrong size after unpacking`);
+  prune(modelDir, spec);
   return modelDir;
 }
 
@@ -145,7 +209,7 @@ async function ensureModel({ dir, fetchImpl = fetch, extract = tarExtract, log =
  * An engine the wake listener can drive: `frameLength` samples per `process`
  * call, 0 when the phrase was just heard and -1 otherwise, and `release`.
  */
-async function createEngine({ sherpa, modelsDir, keyword, sensitivity, fetchImpl = fetch, extract = tarExtract, log = () => {}, spec = MODEL } = {}) {
+async function createEngine({ sherpa, modelsDir, keyword, sensitivity, onsetRestart = true, fetchImpl = fetch, extract = tarExtract, log = () => {}, spec = MODEL } = {}) {
   const lib = sherpa || require('sherpa-onnx-node');
   const modelDir = await ensureModel({ dir: modelsDir, fetchImpl, extract, log, spec });
   const vocab = parseVocab(fs.readFileSync(path.join(modelDir, spec.files.tokens.file), 'utf8'));
@@ -154,7 +218,7 @@ async function createEngine({ sherpa, modelsDir, keyword, sensitivity, fetchImpl
   const threshold = thresholdFor(sensitivity);
 
   const kws = new lib.KeywordSpotter({
-    featConfig: { sampleRate: 16000, featureDim: 80 },
+    featConfig: { sampleRate: SAMPLE_RATE, featureDim: 80 },
     modelConfig: {
       transducer: {
         encoder: path.join(modelDir, spec.files.encoder.file),
@@ -176,11 +240,29 @@ async function createEngine({ sherpa, modelsDir, keyword, sensitivity, fetchImpl
   let stream = kws.createStream();
   let released = false;
 
-  async function process(frame) {
-    if (released) return -1;
-    const samples = new Float32Array(frame.length);
-    for (let i = 0; i < frame.length; i++) samples[i] = frame[i] / 32768;
-    stream.acceptWaveform({ samples, sampleRate: 16000 });
+  // The last 0.8 s of audio, for priming a fresh stream at a speech onset.
+  const ring = new Float32Array(Math.round(SAMPLE_RATE * ONSET.lookbackMs / 1000));
+  let ringPos = 0;
+  let ringFilled = 0;
+  const gate = onsetRestart ? createOnsetGate() : null;
+  let framesSeen = 0;
+  let restarts = 0;
+
+  function remember(samples) {
+    for (let i = 0; i < samples.length; i++) {
+      ring[ringPos] = samples[i];
+      ringPos = (ringPos + 1) % ring.length;
+    }
+    ringFilled = Math.min(ringFilled + samples.length, ring.length);
+  }
+  function lookback() {
+    const out = new Float32Array(ringFilled);
+    if (ringFilled < ring.length) { out.set(ring.subarray(0, ringFilled)); return out; }
+    out.set(ring.subarray(ringPos));
+    out.set(ring.subarray(0, ringPos), ring.length - ringPos);
+    return out;
+  }
+  function drain() {
     let heard = false;
     while (kws.isReady(stream)) {
       kws.decode(stream);
@@ -190,15 +272,51 @@ async function createEngine({ sherpa, modelsDir, keyword, sensitivity, fetchImpl
         kws.reset(stream);          // PRIVACY: that it was heard, never what else was said
       }
     }
+    return heard;
+  }
+
+  async function process(frame) {
+    if (released) return -1;
+    const samples = new Float32Array(frame.length);
+    let energy = 0;
+    for (let i = 0; i < frame.length; i++) {
+      const v = frame[i] / 32768;
+      samples[i] = v;
+      energy += v * v;
+    }
+    const tMs = (framesSeen * frame.length * 1000) / SAMPLE_RATE;
+    framesSeen += 1;
+    let heard = false;
+    if (gate && gate(Math.sqrt(energy / frame.length), tMs)) {
+      stream = kws.createStream();      // the old one is dropped; the binding frees it with the object
+      restarts += 1;
+      const back = lookback();
+      if (back.length) {
+        stream.acceptWaveform({ samples: back, sampleRate: SAMPLE_RATE });
+        if (drain()) heard = true;
+      }
+    }
+    remember(samples);
+    stream.acceptWaveform({ samples, sampleRate: SAMPLE_RATE });
+    if (drain()) heard = true;
     return heard ? 0 : -1;
   }
 
   function release() {
     released = true;
-    stream = null;                  // the binding frees its handles with the objects
+    stream = null;
   }
 
-  return { frameLength: FRAME, process, release, label: `phrase "${phrase}" (keyword spotting)`, threshold, tokens: line.trim() };
+  return {
+    frameLength: FRAME,
+    process,
+    release,
+    label: `phrase "${phrase}" (keyword spotting)`,
+    threshold,
+    tokens: line.trim(),
+    onsetRestart: !!gate,
+    stats: () => ({ restarts, framesSeen }),
+  };
 }
 
-module.exports = { createEngine, ensureModel, tokenize, keywordLine, parseVocab, thresholdFor, MODEL, FRAME, DEFAULT_PHRASE };
+module.exports = { createEngine, ensureModel, tokenize, keywordLine, parseVocab, thresholdFor, createOnsetGate, MODEL, FRAME, ONSET, DEFAULT_PHRASE };
