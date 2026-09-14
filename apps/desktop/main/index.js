@@ -4,6 +4,7 @@ const path = require('path');
 const { app, BrowserWindow, ipcMain, screen, protocol, net, shell, dialog, Menu, Notification } = require('electron');
 const arrival = require('./arrival');
 const { pathToFileURL } = require('node:url');
+const fs = require('node:fs');
 const { config, loadEnv } = require('../../../packages/shared');
 const { openMemory } = require('../../../packages/memory');
 const intelligence = require('../../../packages/intelligence');   // page sense, narration, the voice digest
@@ -1488,7 +1489,7 @@ app.whenReady().then(() => {
     try {
       const custom = path.join(app.getPath('userData'), 'wake', 'hey-fren.onnx');
       wakeWord = createWakeListener({
-        keyword: process.env.FREN_WAKE_KEYWORD || (require('node:fs').existsSync(custom) ? custom : 'hey fren'),
+        keyword: process.env.FREN_WAKE_KEYWORD || (fs.existsSync(custom) ? custom : 'hey fren'),
         sensitivity: process.env.FREN_WAKE_SENSITIVITY,
         modelsDir: path.join(app.getPath('userData'), 'wake', 'models'),
         engineOptions: { onsetRestart: String(process.env.FREN_WAKE_ONSET_RESTART || 'on').toLowerCase() !== 'off' },

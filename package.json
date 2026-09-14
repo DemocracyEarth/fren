@@ -8,12 +8,13 @@
     "start": "node start.js",
     "gateway": "node apps/gateway/server.js",
     "desktop": "electron apps/desktop",
-    "test": "node --test \"packages/shared/test/*.test.js\" \"packages/runtime/test/*.test.js\" \"packages/runtime-mock/test/*.test.js\" \"packages/runtime-nanoclaw/test/*.test.js\" \"packages/fren-core/test/*.test.js\" \"packages/observer/test/*.test.js\" \"packages/permissions/test/*.test.js\" \"packages/memory/test/*.test.js\" \"packages/intelligence/test/*.test.js\" \"apps/gateway/test/*.test.js\" \"apps/desktop/test/*.test.js\" \"apps/browser-extension/test/*.test.js\" \"scripts/test/*.test.js\"",
+    "test": "npm run lint --silent && node --test \"packages/shared/test/*.test.js\" \"packages/runtime/test/*.test.js\" \"packages/runtime-mock/test/*.test.js\" \"packages/runtime-nanoclaw/test/*.test.js\" \"packages/fren-core/test/*.test.js\" \"packages/observer/test/*.test.js\" \"packages/permissions/test/*.test.js\" \"packages/memory/test/*.test.js\" \"packages/intelligence/test/*.test.js\" \"apps/gateway/test/*.test.js\" \"apps/desktop/test/*.test.js\" \"apps/browser-extension/test/*.test.js\" \"scripts/test/*.test.js\"",
     "runtime:build": "node scripts/runtime-build.js",
     "runtime:check": "node scripts/nanoclaw-overlay-check.js",
     "fetch-node": "node scripts/fetch-node.js",
     "pack": "node scripts/pack-app.js",
-    "agent:sync": "node scripts/agent-sync.js"
+    "agent:sync": "node scripts/agent-sync.js",
+    "lint": "eslint . --quiet"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",
@@ -25,6 +26,8 @@
     "@elevenlabs/client": "^1.25.0",
     "electron": "^38.8.6",
     "electron-builder": "^26.15.3",
+    "eslint": "^9.39.5",
+    "globals": "^17.12.0",
     "three": "^0.185.1"
   },
   "build": {
