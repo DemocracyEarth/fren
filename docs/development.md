@@ -46,6 +46,13 @@ non-HTTP origin.
 If you see the SVG face instead of the 3D one, a module failed to load. Check
 the renderer console: `window.FrenFace.renderer` reports `'3d'` or `'svg'`.
 
+## Lint
+
+`npm run lint` — ESLint with correctness rules only (`no-undef`, duplicate
+keys, unreachable code, redeclarations…), no style. It exists because a
+`ReferenceError` in a rarely-run handler once reached a live conversation;
+`npm test` runs it first, so code that does not lint does not get tested.
+
 ## Environment variables
 
 All optional in dev. From `.env.example` (loaded by `packages/shared/env.js`;
