@@ -37,13 +37,16 @@ follows the light — armed only while fren is watching, so pausing fren stops
 this too — and it stands down for the length of a conversation. It also stands
 down **while the Mac sleeps or is locked**: the microphone is let go before the
 machine sleeps and the moment the screen locks, and it is opened again only
-once you have unlocked it. A locked Mac does not listen — nobody can open a
-conversation from your lock screen by saying a phrase. `FREN_WAKE_WORD=off`
-in `.env` turns it off outright. Because the detector holds the microphone open
-for as long as it listens, **the macOS microphone indicator stays lit the whole
-time the light is on**. That dot does not mean anything is being recorded or
-sent; it means the wake word is armed. Turn the light off, or the wake word
-off, and the dot goes out. (How it works, and how to change the phrase:
+when the Mac is awake and unlocked (and the light is on). The wake word does
+not listen on a locked Mac — nobody can open a conversation from your lock
+screen by saying a phrase. (A conversation already open when you lock is not
+cut off by this; it ends as it always does — when you end it, after 25 seconds
+of silence, or at the 20-minute cap.) `FREN_WAKE_WORD=off` in `.env` turns it
+off outright. Because the detector holds the microphone open for as long as it
+listens, **the macOS microphone indicator stays lit the whole time the light is
+on**. That dot does not mean anything is being recorded or sent; it means the
+wake word is armed. Turn the light off, or the wake word off, and the dot goes
+out. (How it works, and how to change the phrase:
 [voice-agent.md §9](voice-agent.md).)
 
 **A conversation.** Saying the phrase, holding the orb down, or pressing the

@@ -30,13 +30,16 @@
  * passed: 5 s, doubling to 5 min. Thirty seconds of healthy listening resets
  * it. disarm() does not (a flapping device cannot be hammered through
  * arm/disarm); arm({ fresh: true }) does — for the one caller that knows the
- * world changed: the Mac just woke or was unlocked. A microphone macOS REFUSED
- * is not a failure to back off from; that path already says it once.
+ * world changed: the Mac was just unlocked, so somebody is there. A microphone
+ * macOS REFUSED is not a failure to back off from; that path already says it once.
  *
  * And an arm in flight can be cancelled: disarm() while the microphone is still
  * being asked for, or the engine is still loading, means that arm lets go of
  * whatever it made and ends disarmed — it never completes after the light went
- * off or the Mac locked.
+ * off or the Mac locked. Neither does a wake: a frame still inside the engine
+ * when the listener is disarmed wakes nobody. And engine loads never overlap —
+ * the arm after a cancelled one waits for that load to finish, because on first
+ * run a load is a model download unpacked into one shared folder.
  *
  * Everything is injected — the engine factory, the recorder, the clock — so
  * the clockwork tests without a microphone, models or a network.
@@ -87,6 +90,7 @@ function createWakeListener({
   let deaf = false;
   let label = '';
   let generation = 0;           // disarm() moves it; an arm() that sees it moved was cancelled
+  let loading = null;           // the engine load in flight, if any: one at a time
   let failures = 0;             // in a row, without a healthy run between them
   let retryAt = null;           // until then arm() is refused, quietly
   let armedAt = null;
@@ -147,6 +151,7 @@ function createWakeListener({
         if (running && recorder === r) { log(`[wake] engine error: ${err.message}`); failed(); release(); }
         return;
       }
+      if (!running || recorder !== r) return;   // disarmed while the frame was inside the engine: no wake
       if (idx >= 0) {
         const t = now();
         if (t - lastWakeAt >= opts.debounceMs) {
@@ -162,7 +167,7 @@ function createWakeListener({
     /**
      * Start listening: load the engine (fetching models once), open the mic.
      * Idempotent. Refused quietly while backing off from a failure, unless
-     * `fresh` — the Mac just woke or was unlocked — says to start over.
+     * `fresh` — the Mac was just unlocked — says to start over.
      */
     async arm({ fresh = false } = {}) {
       if (fresh) { failures = 0; retryAt = null; }
@@ -190,7 +195,11 @@ function createWakeListener({
       let e = null;
       let r = null;
       try {
-        e = await d.createEngine({ modelsDir, keyword, sensitivity, log, ...engineOptions });
+        // A cancelled arm may still be inside its load; this one waits its turn.
+        while (loading && !cancelled()) { try { await loading; } catch { /* its own arm answers for it */ } }
+        if (cancelled()) return false;
+        loading = d.createEngine({ modelsDir, keyword, sensitivity, log, ...engineOptions });
+        try { e = await loading; } finally { loading = null; }
         if (cancelled()) { letGo(null, e); return false; }
         r = new d.PvRecorder(e.frameLength);
         r.start();

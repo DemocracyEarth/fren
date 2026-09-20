@@ -341,8 +341,14 @@ Three rules keep it honest, and all three are structural:
   go before the machine sleeps and the moment the screen locks, and the dot goes
   out with it. Waking is not enough to bring it back — a Mac that wakes is
   usually still locked — it re-arms a couple of seconds after you unlock, once
-  the audio devices have returned. A locked Mac does not listen: the phrase
-  cannot open a line from the lock screen.
+  the audio devices have returned. fren does not rely on having seen the lock
+  happen: it asks macOS whether the screen is locked — at launch, before it
+  re-arms, and every half-minute — so starting behind a lock screen never arms
+  it, and a lock it somehow never heard about is caught within that
+  half-minute. The wake word does not listen on a locked Mac: the phrase cannot
+  open a line from the lock screen. (A line already open when you lock is not
+  cut off by this; it ends as it always does — when you end it, after 25
+  seconds of silence, or at the 20-minute cap.)
 
 A microphone that keeps failing — a device that vanished, an input another app
 holds — is not hammered either: after a failure fren waits before trying again,

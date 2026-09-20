@@ -62,6 +62,19 @@ function wantWake({ observing = false, lineOpen = false, asleep = false, locked 
 }
 
 /**
+ * Is the screen locked? The lock and unlock events are only what fren happened
+ * to witness: it may have been started behind a lock screen, and an event
+ * posted around sleep can arrive late or never. So macOS is asked as well
+ * (powerMonitor.getSystemIdleState) and its answer wins; where it cannot say —
+ * 'unknown', or no answer at all — what the events said stands.
+ */
+function screenLocked(idleState, was = false) {
+  if (idleState === 'locked') return true;
+  if (idleState === 'active' || idleState === 'idle') return false;
+  return !!was;
+}
+
+/**
  * The whole status, as the renderer and the hover card get it.
  *   armed       really listening right now: not loading, not hearing zeros
  *   paused      the light is off, which is the only reason it is not listening
@@ -118,4 +131,4 @@ function voiceIntroCopy(info = {}) {
     other + aside;
 }
 
-module.exports = { wakePhrase, hotkeyLabel, wantWake, wakeInfo, hintVoiceRow, voiceIntroCopy, quotable, PHRASE_FITS };
+module.exports = { wakePhrase, hotkeyLabel, wantWake, screenLocked, wakeInfo, hintVoiceRow, voiceIntroCopy, quotable, PHRASE_FITS };

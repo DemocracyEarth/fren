@@ -1471,43 +1471,55 @@ app.whenReady().then(() => {
       });
       // It listens only while somebody is there (wake-info.js, wantWake): the
       // light is on, no conversation has the microphone, and the Mac is neither
-      // asleep nor locked. `fresh` is for the one moment the world is known to
-      // have changed — just woken, just unlocked — and forgets a failing
-      // microphone's backoff (wake-word.js).
+      // asleep nor locked. `fresh` is owed by an unlock — the one moment somebody
+      // is known to be there — and spent by the next arm, whenever that is: it
+      // forgets a failing microphone's backoff (wake-word.js). Merely waking
+      // earns none: a Mac also wakes by itself, with nobody there.
       const { powerMonitor } = require('electron');
       let asleep = false;
       let locked = false;
+      let fresh = false;
       let settleTimer = null;
-      syncWakeWord = ({ fresh = false } = {}) => {
+      // The lock events are only what fren witnessed — it may have started behind
+      // a lock screen, and one posted around sleep can come late or never — so
+      // macOS is asked too: now, after every settle, and on the heartbeat.
+      const askLocked = () => {
+        try { locked = wakeTruth.screenLocked(powerMonitor.getSystemIdleState(1), locked); } catch { /* the events stand */ }
+      };
+      askLocked();
+      syncWakeWord = () => {
         const want = wakeTruth.wantWake({ observing: state.get().observing, lineOpen: voiceLineOpen, asleep, locked, settling: !!settleTimer });
-        if (want && !wakeWord.armed()) wakeWord.arm({ fresh });
+        if (want && !wakeWord.armed()) { wakeWord.arm({ fresh }); fresh = false; }
         else if (!want && wakeWord.armed()) wakeWord.disarm();
       };
       // Going: the microphone is let go HERE, in the handler, before the
       // machine sleeps — not on some later tick it may never get.
       const standDown = (why) => {
         if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
+        fresh = false;
         if (wakeWord.armed()) log(`[wake] standing down — the Mac ${why}`);
         wakeWord.disarm();
       };
-      // Coming back: audio devices return late, so wait a moment, then arm with
-      // a fresh start. Woken but still locked stays unheard until the unlock.
+      // Coming back: audio devices return late, so wait a moment, then look
+      // again. Woken but still locked stays unheard until the unlock, and a
+      // listener that is already armed has nothing to settle for.
       const comeBack = () => {
         if (settleTimer) clearTimeout(settleTimer);
         settleTimer = null;
-        if (asleep || locked) return;
-        settleTimer = setTimeout(() => { settleTimer = null; syncWakeWord({ fresh: true }); }, WAKE_SETTLE_MS);
+        if (asleep || locked || wakeWord.armed()) return;
+        settleTimer = setTimeout(() => { settleTimer = null; askLocked(); syncWakeWord(); }, WAKE_SETTLE_MS);
       };
       powerMonitor.on('suspend', () => { asleep = true; standDown('is going to sleep'); });
       powerMonitor.on('lock-screen', () => { locked = true; standDown('is locked'); });
       powerMonitor.on('resume', () => { asleep = false; comeBack(); });
-      powerMonitor.on('unlock-screen', () => { locked = false; comeBack(); });
+      powerMonitor.on('unlock-screen', () => { locked = false; fresh = true; comeBack(); });
       state.subscribe(() => syncWakeWord());
       syncWakeWord();
       // One slow heartbeat, so a microphone that failed is tried again when its
-      // backoff has passed, without waiting for some unrelated change of state.
+      // backoff has passed, without waiting for some unrelated change of state —
+      // and so a lock or unlock whose event never came is noticed all the same.
       // When nothing needs doing it does nothing.
-      const wakeHeartbeat = setInterval(() => syncWakeWord(), WAKE_HEARTBEAT_MS);
+      const wakeHeartbeat = setInterval(() => { askLocked(); syncWakeWord(); }, WAKE_HEARTBEAT_MS);
       app.on('will-quit', () => {
         clearInterval(wakeHeartbeat);
         if (settleTimer) clearTimeout(settleTimer);

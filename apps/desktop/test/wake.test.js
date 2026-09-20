@@ -335,25 +335,74 @@ test('disarming while the engine is still loading cancels the arm: the engine it
   assert.ok(n >= 1, 'onChange fired');
 });
 
-test('a cancelled arm never gets in the way of the next one', async (t) => {
+// On first run an engine load is a model download unpacked into one shared
+// folder; two at once would write over each other. So the arm after a
+// cancelled one waits for that load to finish — and then stands.
+test('one engine load at a time: the arm after a cancelled one waits its turn, then stands', { timeout: 5000 }, async (t) => {
   const { deps, made } = fakes();
   const first = gate();
   let calls = 0;
   const inner = deps.createEngine;
   deps.createEngine = async (cfg) => { calls += 1; if (calls === 1) await first.p; return inner(cfg); };
   const w = createWakeListener({ deps, log: () => {} });
-  t.after(() => w.disarm());
+  t.after(() => { first.open(); w.disarm(); });
   const a = w.arm();
   await settle();
   w.disarm();                         // light off…
   const b = w.arm();                  // …and on again, before the first load came back
-  assert.equal(await b, true);
+  await settle();
+  assert.equal(calls, 1, 'the second load does not start under the first');
+  assert.equal(w.armed(), true, 'and it counts as armed while it waits');
   first.open();
   assert.equal(await a, false);
-  await settle();
+  assert.equal(await b, true);
+  assert.equal(calls, 2);
   assert.equal(w.status().listening, true, 'the second arm stands');
   assert.equal(made.recorders.length, 1, 'one microphone');
   assert.equal(made.engines.filter((e) => !e.released).length, 1, 'one engine; the cancelled one was let go');
+});
+
+test('an arm cancelled while it waits its turn loads nothing', { timeout: 5000 }, async (t) => {
+  const { deps, made } = fakes();
+  const first = gate();
+  let calls = 0;
+  const inner = deps.createEngine;
+  deps.createEngine = async (cfg) => { calls += 1; if (calls === 1) await first.p; return inner(cfg); };
+  const w = createWakeListener({ deps, log: () => {} });
+  t.after(() => { first.open(); w.disarm(); });
+  const a = w.arm();
+  await settle();
+  w.disarm();
+  const b = w.arm();
+  await settle();
+  w.disarm();                         // …and off again, still behind the first load
+  first.open();
+  assert.equal(await a, false);
+  assert.equal(await b, false);
+  await settle();
+  assert.equal(calls, 1, 'no second load for an arm nobody wants any more');
+  assert.equal(made.engines[0].released, true);
+  assert.equal(made.recorders.length, 0);
+  assert.equal(w.armed(), false);
+  assert.equal(w.status().retryAt, null, 'being cancelled is not a failure');
+});
+
+test('a frame still inside the engine when the listener is disarmed wakes nobody', async (t) => {
+  const { deps, made, say } = fakes();
+  const weighing = gate();
+  const wakes = [];
+  const lines = [];
+  const w = createWakeListener({ deps, log: (l) => lines.push(l), onWake: () => wakes.push(1) });
+  t.after(() => { weighing.open(); w.disarm(); });
+  await w.arm();
+  let inside = false;
+  made.engines[0].process = async () => { inside = true; await weighing.p; return 0; };
+  say(0); await settle();
+  assert.equal(inside, true, 'the frame is being weighed');
+  w.disarm();                         // the Mac locked, or the light went off, right then
+  weighing.open(); await settle();    // …and the engine says "that was the phrase"
+  assert.deepEqual(wakes, [], 'a disarmed listener opens no line');
+  assert.ok(!lines.some((l) => /heard the phrase/.test(l)));
 });
 
 // --- backing off from a microphone that keeps failing ----------------------
@@ -449,7 +498,7 @@ test('thirty seconds of healthy listening resets the backoff; a shorter run does
   assert.equal(w.status().retryAt - clock.t, 5000, 'back to the beginning');
 });
 
-test('arm({ fresh: true }) clears the backoff — the Mac just woke or was unlocked', async (t) => {
+test('arm({ fresh: true }) clears the backoff — the Mac was just unlocked', async (t) => {
   const { w, made, broken, clock } = flaky();
   t.after(() => w.disarm());
   assert.equal(await w.arm(), false);
