@@ -383,3 +383,17 @@ test('a one-off schedule is a task with a moment and no recurrence', async () =>
   assert.equal(s.nextRunAt, at);
   assert.equal(s.cron, undefined);
 });
+
+test('the persona tells the agent that fren\'s own business is not its to do', () => {
+  // The agent has a scheduler of its own and no reach into fren. Asked to
+  // "pause the stretch reminder" it would otherwise schedule something, or
+  // just say "done". The owner's own words still come last, and still win
+  // on everything that is theirs to decide.
+  const { composePersona } = require('../index');
+  const text = composePersona('Be dry.');
+  assert.match(text, /cannot change fren's own settings, routines, automations or reminders/);
+  assert.match(text, /must not schedule tasks of your own/);
+  assert.match(text, /what are you running/);
+  assert.ok(text.indexOf('cannot change') < text.indexOf('Be dry.'), 'the owner\'s words stay last');
+  assert.match(composePersona(''), /cannot change fren's own settings/);
+});

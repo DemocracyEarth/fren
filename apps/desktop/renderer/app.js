@@ -129,6 +129,7 @@ let firstRender = true;
 function render(next) {
   const was = state;
   state = next;
+  if (state.gatewayOk && !was.gatewayOk) { recoverPermissionCards(); refreshOwnNames(); }
   paintPanel();
   els.gatewayDot.classList.toggle('down', !state.gatewayOk);
   els.gatewayDot.title = !state.gatewayOk ? 'gateway unreachable'
@@ -631,8 +632,8 @@ async function finishSetup() {
   face.pulse('stretch');
   await speak(
     `Thanks, ${answers.name}. I've written that down as SOUL.md — it's how I'll ` +
-    `try to be. You can open it and change it any time, and I'll read it fresh ` +
-    `on the next thing you say.\n\n` +
+    `try to be. Ask me to open my notes folder and you can change it any time; ` +
+    `I'll read it fresh on the next thing you say.\n\n` +
     `Click me to talk — once to start, once to stop. You don't need this panel ` +
     `open, and right-clicking me brings it back. ` +
     (wakeOnLaunch
@@ -714,8 +715,9 @@ async function tryRoutine(text) {
   const r = res.routine;
   await speak(
     `Done — I'll ask myself "${r.prompt}" ${describeWhen(r)}, and read the answer back.\n\n` +
-    `You can see it under Routines in the full window, and turn it off there.`
+    `Ask me what I'm running whenever you want to pause it or drop it.`
   );
+  refreshOwnNames();
   return true;
 }
 
@@ -748,7 +750,8 @@ async function tryAutomation(text) {
     return 'kept';
   }
   const reach = domains.length ? ` It can reach ${domains.join(', ')}, and nothing else.` : '';
-  await speak(`Done. ${intent.describe[0].toUpperCase() + intent.describe.slice(1)}: ${intent.instruction}${reach} It is under Automations if you want to change it.`);
+  await speak(`Done. ${intent.describe[0].toUpperCase() + intent.describe.slice(1)}: ${intent.instruction}${reach} Ask me what I'm running if you want to pause it or drop it.`);
+  refreshOwnNames();
   return 'kept';
 }
 
@@ -803,18 +806,9 @@ function proposeAutomation(intent) {
   });
 }
 
-const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-/** "every weekday at 09:00", in words. */
-function describeWhen(r) {
-  const time = `${String(r.hour).padStart(2, '0')}:${String(r.minute).padStart(2, '0')}`;
-  if (!r.days || !r.days.length) return `every day at ${time}`;
-  const set = [...r.days].sort().join(',');
-  if (set === '1,2,3,4,5') return `every weekday at ${time}`;
-  if (set === '0,6') return `at weekends at ${time}`;
-  if (r.days.length === 1) return `every ${DAY_NAMES[r.days[0]]} at ${time}`;
-  return `on ${r.days.map((d) => DAY_NAMES[d].slice(0, 3)).join(', ')} at ${time}`;
-}
+// "every weekday at 09:00", in words. Shared with main, which says the same
+// thing on the management card.
+const describeWhen = (r) => window.FrenOwnBusiness.describeWhen(r);
 
 /**
  * Runs in flight, by id: each knows what to do with a message and with the
@@ -930,13 +924,141 @@ async function showPermissionCard(request) {
   if (!state.panelOpen) await setPanel(true);
 }
 
+/**
+ * A request raised while this window was not listening — before it loaded, or
+ * while the gateway was away — never arrived as an event, and an unanswered
+ * request is a no in ten minutes. So ask for the open ones whenever the line
+ * comes up. showPermissionCard ignores any it is already showing.
+ *
+ * Still answered by a chip and only by a chip: a dictated "okay" is what
+ * whisper hears in near-silence, and that must never approve anything.
+ */
+async function recoverPermissionCards() {
+  let open = null;
+  try { open = await window.fren.permissionRequests('open'); } catch { return; }
+  if (!Array.isArray(open)) return;            // the passthrough answers {error} when Core is away
+  for (const request of open) await showPermissionCard(request);
+}
+
+/** What fren is running, by name, so "pause the stretch one" is recognised. */
+let ownNames = [];
+function refreshOwnNames() {
+  Promise.resolve().then(() => window.fren.ownBusiness('names', {}))
+    .then((res) => { if (res && Array.isArray(res.names)) ownNames = res.names; })
+    .catch(() => {});
+}
+
+/**
+ * fren's reply to its own business: said like any other reply, then the card
+ * under it if there is one. A card needs a click, so the panel opens for it
+ * the way it does for a permission request — dictated with the panel shut,
+ * "forget this conversation" would otherwise ask its question to nobody.
+ */
+async function showOwnReply(res, deed) {
+  if (!res) return;
+  // "Stop interrupting me" has to be true NOW: volunteersOutLoud() reads this copy.
+  if (Array.isArray(res.refresh) && res.refresh.includes('profile')) {
+    try { profile = await window.fren.getProfile(); } catch { /* keep the old copy */ }
+  }
+  if (!res.say) return;
+  const carded = !!((res.rows && res.rows.length) || (res.chips && res.chips.length));
+  await speak(res.say, { after: (bubble) => { if (carded) drawCard(bubble, res, deed); } });
+  if (carded && !state.panelOpen) await setPanel(true);
+}
+
+function drawCard(bubble, res, deed) {
+  const card = document.createElement('div');
+  card.className = 'own-card';
+  const where = { bubble, deed };
+  for (const row of res.rows || []) {
+    const line = document.createElement('div');
+    line.className = 'own-row';
+    const text = document.createElement('div');
+    text.textContent = row.text;               // names and notes are data, never markup
+    line.append(text);
+    if (row.chips && row.chips.length) line.append(chipRow(row.chips, { ...where, line }));
+    card.append(line);
+  }
+  if (res.chips && res.chips.length) card.append(chipRow(res.chips, where));
+  bubble.append(card);
+  scrollDown();
+}
+
+// The only entries a card's chip may call. The card is built in main, but a
+// list here means a chip can never become a way to reach anything else.
+const CHIP_CALLS = new Set([
+  'setRoutineEnabled', 'deleteRoutine',
+  'patchAgentAutomation', 'deleteAgentAutomation', 'runAgentAutomation',
+  'dismissSuggestion', 'openDataFolder', 'clearMessages', 'ownBusiness',
+]);
+
+function chipRow(chips, where) {
+  const row = document.createElement('div');
+  row.className = 'chips';
+  const born = Date.now();
+  for (const c of chips) {
+    const b = document.createElement('button');
+    b.className = 'chip';
+    b.textContent = c.label;
+    b.addEventListener('click', () => {
+      // A double-click on "Delete" must not land on "Yes, delete it", which
+      // has just appeared under the pointer.
+      if (Date.now() - born < 400) return;
+      if (c.back) return void row.replaceWith(c.back);
+      if (c.confirm) {
+        return void row.replaceWith(chipRow([{ ...c, label: c.confirm, confirm: null }, { label: 'Keep it', back: row }], where));
+      }
+      pressChip(c, row, where);
+    });
+    row.append(b);
+  }
+  return row;
+}
+
+async function pressChip(c, row, where) {
+  const buttons = [...row.children];
+  buttons.forEach((b) => { b.disabled = true; });
+  let res = null;
+  if (c.call) {
+    if (!CHIP_CALLS.has(c.call) || typeof window.fren[c.call] !== 'function') return;
+    try { res = await window.fren[c.call](...(c.args || [])); }
+    catch (err) { res = { error: (err && err.message) || String(err) }; }
+  }
+  if (res && res.error) {
+    buttons.forEach((b) => { b.disabled = false; });
+    addBubble('fren', `I couldn't do that: ${res.error}`);
+    return;
+  }
+  if (c.then === 'redraw' && where.deed) {
+    // Ask again rather than patch the row: the card then shows what IS, not
+    // what this window believes it just did.
+    const again = await window.fren.ownBusiness(where.deed.verb, where.deed.args);
+    setBubbleText(where.bubble, again.say, true);
+    drawCard(where.bubble, again, where.deed);
+    refreshOwnNames();
+  } else if (c.then === 'drop') {
+    (where.line || row).remove();
+  } else if (c.then === 'keep') {
+    buttons.forEach((b) => { b.disabled = false; });
+  } else if (c.then === 'wipe') {
+    // The transcript is gone, so what is on screen goes too — except a
+    // question an agent is still waiting on, which is not conversation.
+    const waiting = new Set([...permissionCards.values()].map((r) => r.parentElement));
+    els.messages.querySelectorAll('.bubble, .thought').forEach((n) => { if (!waiting.has(n)) n.remove(); });
+  } else {
+    row.remove();
+  }
+  if (c.done) sayWhenFree(() => speak(c.done));
+  else if (res && res.say) sayWhenFree(() => showOwnReply(res, null));
+}
+
 /** Everything Core reports. Only what concerns this window is acted on. */
 function onCoreEvent(e) {
   if (!e || typeof e !== 'object') return;
   if (e.type === 'permission.requested') return void showPermissionCard(e.request);
   if (/^permission\.(approved|denied|expired)$/.test(e.type) && e.request) {
-    // Answered elsewhere (the full window), or ran out of time: take the chips
-    // away and say what happened.
+    // Answered from somewhere else, or ran out of time: take the chips away
+    // and say what happened.
     const row = permissionCards.get(e.request.id);
     if (row) {
       permissionCards.delete(e.request.id);
@@ -957,7 +1079,7 @@ function onCoreEvent(e) {
   // The secure execution environment gave up on an automation. Say so once;
   // the reason is on its card.
   if (e.type === 'automation.paused') {
-    sayWhenFree(() => speak(`I stopped "${e.name || 'an automation'}": ${e.detail || 'it kept failing'}. Resume it from the automations list when it is fixed.`));
+    sayWhenFree(() => speak(`I stopped "${e.name || 'an automation'}": ${e.detail || 'it kept failing'}. Ask me what I'm running when you want it back.`));
     return;
   }
   // Something fren said on its own: an automation reporting in, or the agent
@@ -1022,12 +1144,17 @@ async function sendMessage(text) {
   addBubble('user', question);
   // During setup the answers are for fren, not for the model.
   if (setup) return handleSetupAnswer(question);
+  // fren's own business ("stop watching", "what are you running") is read from
+  // these words, here, before any model sees them — and only from these words.
+  // See own-business.js for why that is the whole point.
+  const deed = window.FrenOwnBusiness.parse(question, { names: ownNames });
   // If fren asked something, this is the answer — see if it taught anything.
-  learnFrom(question);
+  // An instruction is not an answer.
+  if (!deed) learnFrom(question);
   // "every weekday at nine, tell me what I did" is not a question to answer
   // once — it is a routine to set up. With the secure execution environment
   // ready it can be more than a question: an automation that DOES something.
-  if (looksScheduled(question)) {
+  if (!deed && looksScheduled(question)) {
     const verdict = state.runtime === 'ready' ? await tryAutomation(question) : 'no';
     if (verdict === 'kept' || verdict === 'dropped') return;
     if (verdict === 'no' && await tryRoutine(question)) return;
@@ -1046,7 +1173,12 @@ async function sendMessage(text) {
   const thinkingTimer = setTimeout(() => { setFace('thinking'); thinking(true); }, 420);
 
   try {
-    if (state.runtime === 'ready') {
+    if (deed) {
+      const res = await window.fren.ownBusiness(deed.verb, deed.args, question);
+      clearTimeout(thinkingTimer);
+      showTyping(false);
+      await showOwnReply(res, deed);
+    } else if (state.runtime === 'ready') {
       // Through the secure execution environment: fren can act, not only
       // answer. Its words arrive as events, one message at a time.
       await askThroughRuntime(question, thinkingTimer);

@@ -201,6 +201,51 @@ function rememberFact(dir, fact, now = Date.now()) {
   return true;
 }
 
+/** The bullets under `## Facts`, as they are on disk, oldest first. */
+function readFacts(dir) {
+  let text;
+  try { text = fs.readFileSync(paths(dir).memory, 'utf8'); } catch { return []; }
+  const at = text.indexOf('## Days');
+  return (at === -1 ? text : text.slice(0, at)).split('\n').filter((l) => l.startsWith('- ') && l.length > 2);
+}
+
+/**
+ * Take one fact back out of MEMORY.md.
+ *
+ * The other half of rememberFact: a companion that can be told things and
+ * never untold them is keeping a file ON someone rather than FOR them. `which`
+ * is the bullet itself (what the "Forget this" chip carries) or words from it.
+ *
+ * It removes exactly one line or nothing. Zero matches and several matches are
+ * both refusals, reported as a count, because "forget that" aimed at two notes
+ * is a question to ask back, not a choice to make quietly. Only that line goes:
+ * the file is otherwise rewritten byte for byte, hand edits included.
+ */
+function forgetFact(dir, which) {
+  const want = String(which || '').trim();
+  if (!want) return { removed: false, matches: 0 };
+  const p = paths(dir);
+  let text;
+  try { text = fs.readFileSync(p.memory, 'utf8'); } catch { return { removed: false, matches: 0 }; }
+
+  const lines = text.split('\n');
+  const days = lines.findIndex((l) => l.startsWith('## Days'));
+  const end = days === -1 ? lines.length : days;
+  const isFact = (l, i) => i < end && l.startsWith('- ') && l.length > 2;
+
+  let hits = lines.map((l, i) => (isFact(l, i) && l.trim() === want ? i : -1)).filter((i) => i !== -1);
+  if (!hits.length) {
+    const key = (s) => s.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+    const k = key(want);
+    if (k) hits = lines.map((l, i) => (isFact(l, i) && key(l).includes(k) ? i : -1)).filter((i) => i !== -1);
+  }
+  if (hits.length !== 1) return { removed: false, matches: hits.length };
+
+  const [fact] = lines.splice(hits[0], 1);
+  fs.writeFileSync(p.memory, lines.join('\n'), 'utf8');
+  return { removed: true, matches: 1, fact };
+}
+
 /**
  * Everything fren holds about someone, for showing it to them.
  *
@@ -250,5 +295,6 @@ function hasSoul(dir) {
 
 module.exports = {
   paths, writeSoul, readContext, appendDailyLog, hasSoul, readAll, readLog, rememberFact,
+  readFacts, forgetFact,
   renderSoul, renderUser, renderMemoryIndex, FILES,
 };

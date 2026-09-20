@@ -249,7 +249,17 @@ function createBrowserSensor({ onEvent, now = Date.now } = {}) {
     }
     if (typeof rp === 'boolean') readPage = rp;
     if (typeof rs === 'boolean') readSelection = rs;
-    if (ex !== undefined) exclusions = [...DEFAULT_EXCLUSIONS, ...sanitizeExclusions(ex)];
+    if (ex !== undefined) {
+      exclusions = [...DEFAULT_EXCLUSIONS, ...sanitizeExclusions(ex)];
+      // "Don't read this site" is said while LOOKING at the site. Without this
+      // the page already held would stay readable until the next navigation,
+      // and fren would have just promised otherwise.
+      if (state.tab && isExcluded(state.tab.domain, exclusions)) {
+        state.tab = { ...state.tab, url: '', title: '', favicon: '' };
+        state.page = { excluded: true, hash: '' };
+        state.selection = null;
+      }
+    }
   }
 
   /** What the extension is allowed to do — served to it over /config. */

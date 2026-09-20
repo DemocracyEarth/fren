@@ -91,6 +91,13 @@ function composePersona(persona, { workspace = null } = {}) {
     'not how. If you could not do something, say what stopped you in one sentence. If something truly',
     'needs more, give the short version first and offer the rest.',
     '',
+    // fren's own business is done by fren, from the person's own words, before a
+    // message ever reaches here. One that did reach here was not understood —
+    // and an agent with a scheduler of its own would otherwise say "done".
+    'You cannot change fren\'s own settings, routines, automations or reminders from here, and you',
+    'must not schedule tasks of your own to stand in for that. If asked to, say so, and tell the',
+    'person to ask fren in plain words: "what are you running", "stop watching", "don\'t read this site".',
+    '',
     ...(workspace ? [`Your workspace folder on this machine is \`${workspace}\`. Where the base instructions name`, '/workspace/agent, that is this folder; use it, not the container path.', ''] : []),
     ...(persona ? ['What your owner wrote about who you are:', '', String(persona).trim(), ''] : []),
   ].join('\n');
@@ -709,4 +716,4 @@ function createNanoclawRuntime(opts) {
   return rt;
 }
 
-module.exports = { createNanoclawRuntime, CAPABILITIES, installSlug };
+module.exports = { createNanoclawRuntime, CAPABILITIES, installSlug, composePersona };
