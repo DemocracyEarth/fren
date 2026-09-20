@@ -40,9 +40,11 @@ export const TONE = {
   blue:    { color: 0x758ec7, rough: 0.42, sheen: 0.26 },   // periwinkle, not slate
   red:     { color: 0xe04a24, rough: 0.30, sheen: 0.45 },   // cross
   grey:    { color: 0x6d6d73, rough: 0.54, sheen: 0.08 },   // asleep, no colour left
-  // Listening-as-a-mood. The RECORDING pulse is semantic red (palette.js);
-  // this gold survives for the mood family's brightest step.
-  hearing: { color: 0xffce33, rough: 0.14, sheen: 0.95 },
+  // The conversation line: the base turned toward green — a third of the
+  // way while fren waits on you, two thirds as your voice comes in. Worn by
+  // the orb's setAttending, never by a mood. (Local RECORDING is semantic red.)
+  attending: { color: 0xb4d043, rough: 0.24, sheen: 0.62 },
+  hearing:   { color: 0x60c144, rough: 0.14, sheen: 0.95 },
 };
 
 const E = (tone, lidTop, eyeScale, mouthW, mouthOpen, mouthCurve, extra) =>

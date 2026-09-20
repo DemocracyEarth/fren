@@ -3,13 +3,13 @@
  * What colour fren is.
  *
  * The tone palette in expressions.js is not a list of colours, it is a set of
- * RELATIONSHIPS. `warm` is the base hue lifted 6% in lightness and `excited`
- * +9%, both at the base hue exactly; `hearing` alone shifts, +7.5 degrees and
- * +18%, because it is the only one that should read as gold. Saturation is
- * identical across all of them. Those numbers are what make the moods read as
- * the same character in different states rather than as different characters,
- * so re-colouring means moving the base and reapplying the offsets — not
- * picking four new colours.
+ * RELATIONSHIPS. `warm` is the base lifted in lightness and `excited` lifted
+ * more, both at the base hue exactly. Only the conversation line leaves the
+ * hue, and it leaves it toward GREEN: `attending` a third of the way (the line
+ * is open, fren is waiting on you), `hearing` two thirds (your voice is coming
+ * in). Those numbers are what make the moods read as the same character in
+ * different states rather than as different characters, so re-colouring means
+ * moving the base and reapplying the offsets — not picking new colours.
  *
  * ONLY THE IDENTITY FAMILY MOVES. `blue` is sadness, `red` is cross, `grey` is
  * asleep. They are meanings, not decoration: a cheerful green "sad" face is
@@ -32,19 +32,15 @@
   // To three places, so choosing the default colour reproduces the original
   // palette byte for byte rather than approximately.
   const FAMILY = {
-    // The moods do not move in HUE. Only `hearing` does.
+    // The moods do not move in HUE. Only the conversation line does.
     //
-    // They used to: excited was +7.434 degrees and hearing +7.529, which is the
-    // same colour to within a tenth of a degree. That was survivable while the
-    // listening tone was a state you glanced at, and stopped being survivable
-    // when the orb started PULSING toward it — an excited fren and a listening
-    // fren were the same yellow, and the only difference was how bright.
-    //
-    // There is nowhere for a mood to go in hue anyway. The band is narrow:
-    // cross sits at 12 degrees, the base orange at 32.5, listening at 40. Drift
-    // warmer and you land on listening; drift cooler and you land on cross. So
-    // the moods differ by BRIGHTNESS and GLOSS, which they already did — warm
-    // and excited were never carrying their weight in hue.
+    // They used to: excited was +7.434 degrees and the old listening gold
+    // +7.529, which is the same colour to within a tenth of a degree — an
+    // excited fren and a listening fren were the same yellow, and the only
+    // difference was how bright. So the moods differ by BRIGHTNESS and GLOSS,
+    // and listening went somewhere a mood never goes: a real turn of the hue,
+    // toward green, far enough that "fren has turned green" means exactly one
+    // thing — it is listening to you — at every colour it can wear.
     // Brightness comes WITH saturation now, not instead of it. The original
     // offsets were measured against a base at 100% saturation, where lightness
     // was the only place a mood could go. The softened base sits at 86% and
@@ -56,9 +52,18 @@
     base:    { dH: 0, dS: 0, dL: 0 },
     warm:    { dH: 0, dS: 8, dL: 4 },
     excited: { dH: 0, dS: 14, dL: 6 },
-    // The one tone that goes gold, and now the only one. Everything else stays
-    // on the base hue, so "fren has turned yellow" means exactly one thing.
-    hearing: { dH: 7.529, dS: 14, dL: 10 },
+    // The conversation line. From the shipped orange: attending is a warm
+    // yellow-green, hearing a leaf green — softer in saturation than the moods,
+    // because a fully saturated green next to the orange interface shouts, and
+    // this is meant to be noticed, not announced.
+    // Their saturation is a FRACTION of the base's, with a floor — not an
+    // offset. An offset that softens the orange to sixty percent takes a
+    // muted worn colour to nothing, and a green with no saturation has no hue
+    // left to turn. (The body shader also pushes every colour's saturation up
+    // for its gradient — eased off while the line is open, or these would
+    // render neon; see orb.js — so they read softer than their numbers.)
+    attending: { dH: 34, sMul: 0.6, sMin: 30, dL: 4 },
+    hearing:   { dH: 68, sMul: 0.5, sMin: 30, dL: 1 },
   };
   const SHEEN = { dH: 2.160, dL: 20.784 };
 
@@ -91,10 +96,11 @@
 
   /** Surface qualities belong to the MOOD, not to the hue, so they are fixed. */
   const SURFACE = {
-    base:    { rough: 0.34, sheen: 0.40 },
-    warm:    { rough: 0.28, sheen: 0.55 },
-    excited: { rough: 0.20, sheen: 0.75 },
-    hearing: { rough: 0.14, sheen: 0.95 },
+    base:      { rough: 0.34, sheen: 0.40 },
+    warm:      { rough: 0.28, sheen: 0.55 },
+    excited:   { rough: 0.20, sheen: 0.75 },
+    attending: { rough: 0.24, sheen: 0.62 },
+    hearing:   { rough: 0.14, sheen: 0.95 },
   };
 
   const MIN_SAT = 45;   // below this, awake stops reading as different from asleep
@@ -147,9 +153,9 @@
     const c = toHsl(usable(hex));
     const out = {};
     for (const [name, off] of Object.entries(FAMILY)) {
+      const s = off.sMul !== undefined ? clamp(c.s * off.sMul, off.sMin || 0, 100) : clamp(c.s + (off.dS || 0), 0, 100);
       out[name] = {
-        color: toHex({ h: c.h + off.dH, s: clamp(c.s + (off.dS || 0), 0, 100),
-                       l: clamp(c.l + off.dL, 0, 96) }),
+        color: toHex({ h: c.h + off.dH, s, l: clamp(c.l + off.dL, 0, 96) }),
         rough: SURFACE[name].rough,
         sheen: SURFACE[name].sheen,
       };
