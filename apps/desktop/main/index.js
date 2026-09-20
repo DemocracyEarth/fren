@@ -9,7 +9,7 @@ const { openMemory } = require('../../../packages/memory');
 const intelligence = require('../../../packages/intelligence');   // the voice digest
 const state = require('./state');
 const gateway = require('./gatewayClient');
-const { ensureGateway, stopGateway } = require('./gateway-process');
+const { reviveGateway, stopGateway } = require('./gateway-process');
 const { createObserver } = require('./observer');
 const { createBrowserSensor, EVENTS: BROWSER_EVENTS } = require('./browser-sensor');
 const { createBrowserTransport } = require('./browser-transport');
@@ -634,7 +634,12 @@ app.whenReady().then(() => {
   // The gateway (FREN Core) must be up. The dev runner starts it, so we find it
   // live and leave it; a packaged app has no runner, so we start it ourselves.
   // Fire-and-forget: the health checks and the event stream below wait for it.
-  ensureGateway({ health: gateway.health, log }).catch((err) => log(`[gateway] ensure: ${err.message}`));
+  // If the one we find is a previous life's, about to exit with its parent, the
+  // first failed health check below starts ours (reviveGateway) — and a look
+  // five seconds in catches that case without waiting for the 30 s beat.
+  reviveGateway({ health: gateway.health, log }).then((how) => {
+    if (how === 'existing') setTimeout(() => checkHealth(), 5000);
+  });
 
   memory = openMemory(path.join(app.getPath('userData'), 'fren.db'));
 
@@ -961,6 +966,9 @@ app.whenReady().then(() => {
     } catch {
       if (state.get().gatewayOk) state.set({ gatewayOk: false });
       noteRuntime(null);
+      // Nobody is answering: start ours if nobody's is running (one attempt
+      // at a time; the next beat asks again if this one did not take).
+      reviveGateway({ health: gateway.health, log }).then((how) => { if (how === 'started') checkHealth(); });
     }
   };
   function tellRuntimeModel() {

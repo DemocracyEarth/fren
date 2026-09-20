@@ -75,20 +75,41 @@ function stopGateway() {
  * something else runs it (the dev runner) and we leave it be; otherwise start
  * one and wait for it to come up.
  */
-async function ensureGateway({ health, log = () => {}, timeoutMs = 20_000 } = {}) {
+async function ensureGateway({ health, log = () => {}, timeoutMs = 20_000, start = startGateway, pollMs = 400 } = {}) {
   try {
     await health();
     log('[gateway] already running');
     return 'existing';
   } catch { /* not up yet — ours to start */ }
-  startGateway({ log });
+  start({ log });
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 400));
+    await new Promise((r) => setTimeout(r, pollMs));
     try { await health(); log('[gateway] up'); return 'started'; } catch { /* keep waiting */ }
   }
   log('[gateway] did not come up in time');
   return 'timeout';
 }
 
-module.exports = { resolveNode, startGateway, stopGateway, ensureGateway };
+/**
+ * The gateway stopped answering: make sure one is running again — ours, if
+ * nobody else's is. One attempt at a time.
+ *
+ * "Already running" at launch is a statement about that instant, not a
+ * promise. Quit fren and open it again quickly and the gateway that answers
+ * is the PREVIOUS life's, a second from exiting with the parent it watches —
+ * after which nothing was running and nothing ever started one: fren sat
+ * there, light on, unable to think, until the next relaunch. So whenever a
+ * health check fails, the question is asked again.
+ */
+let reviving = null;
+function reviveGateway(opts = {}) {
+  if (!reviving) {
+    reviving = ensureGateway(opts)
+      .catch((err) => { (opts.log || (() => {}))(`[gateway] ensure: ${err.message}`); return 'error'; })
+      .finally(() => { reviving = null; });
+  }
+  return reviving;
+}
+
+module.exports = { resolveNode, startGateway, stopGateway, ensureGateway, reviveGateway };
