@@ -27,11 +27,34 @@ monitoring, no clipboard access.
 
 ## The microphone
 
-fren does **not** listen continuously, and there is no wake word. The
-microphone opens when you click the orb and closes when you click it again —
-the macOS recording indicator is the second source of truth for this.
+The microphone opens in three ways, and they make three different promises.
 
-This changed, and the change is worth being plain about. It used to be
+**The wake word — "hey fren".** While fren's light is on, a small detector
+listens to the microphone **on this machine** for one phrase. It answers a
+single question per sliver of audio — "was that the phrase?" — and nothing
+else: no audio leaves the machine, nothing is transcribed, nothing is kept. It
+follows the light — armed only while fren is watching, so pausing fren stops
+this too — and it stands down for the length of a conversation. `FREN_WAKE_WORD=off`
+in `.env` turns it off outright. Because the detector holds the microphone open
+for as long as it listens, **the macOS microphone indicator stays lit the whole
+time the light is on**. That dot does not mean anything is being recorded or
+sent; it means the wake word is armed. Turn the light off, or the wake word
+off, and the dot goes out. (How it works, and how to change the phrase:
+[voice-agent.md §9](voice-agent.md).)
+
+**A conversation.** Saying the phrase, holding the orb down, or pressing the
+hotkey opens a live line to fren's voice agent. This is the one time audio
+leaves the machine: **for the length of that conversation it streams to
+ElevenLabs**, and the orb glows for exactly as long as it does. A line is only
+ever opened by one of those three deliberate acts, and it closes itself after
+25 seconds of silence or at a 20-minute cap. Without an ElevenLabs agent
+configured there is no line to open, and fren does not offer one.
+
+**Dictating a message.** The microphone opens when you click the orb and closes
+when you click it again. This audio never leaves the machine — see the table
+below.
+
+Click-to-dictate changed, and the change is worth being plain about. It used to be
 press-and-hold, where the bound on a recording was your own hand. A recording
 you start with a click and stop with another has no such bound, so two things
 replace it: **a ring pulses around the orb the entire time the microphone is
@@ -42,7 +65,7 @@ two minutes**, so a forgotten microphone is a mistake rather than an afternoon.
 The mic button inside the chat panel is still press-and-hold. A button you hold
 is unambiguous, and it costs nothing to keep.
 
-What happens to that audio matters more than how it is captured:
+What happens to dictated audio matters more than how it is captured:
 
 | Step | Where it happens |
 |---|---|
@@ -186,6 +209,7 @@ automations".
 | Transcribed text of what you said (never the audio) | When you use push-to-talk |
 | The contents of `SOUL.md` and `USER.md` | With every chat message, once you have completed first-run setup |
 | The text of fren's reply, to ElevenLabs | Only when a voice key is configured |
+| **Live audio of a conversation**, to ElevenLabs | Only while a line you opened is open — by saying the wake word, holding the orb, or the hotkey — and the orb glows throughout |
 | What you typed, and `SOUL.md`, to the assistant in the secure execution environment; from there, to the model provider | When a chat request runs through the environment (the dot in the chat header says when it is ready) |
 | An automation's task, and whatever pages the assistant fetches to do it | When an agent automation runs |
 
@@ -207,8 +231,10 @@ Pausing stops new capture; it does not redact what you already let fren see.
   by itself is ever transmitted.
 - **The SQLite database.** It never leaves the userData folder.
 - **Keystrokes.** Not captured at all (see above), so there is nothing to send.
-- **Microphone audio.** Transcribed locally and deleted; only the resulting
-  text is ever transmitted.
+- **Microphone audio, outside a conversation.** What the wake word hears is
+  judged on this machine and dropped; what you dictate is transcribed locally
+  and deleted, and only the resulting text is ever transmitted. The exception
+  is a live conversation you opened — see "The microphone" above.
 
 The API key is used only by the gateway process. The desktop app reads the
 shared `.env` for its own settings but deletes `DEEPSEEK_API_KEY`,
@@ -458,7 +484,7 @@ decline any. Windows needs none of them for window titles; Linux needs
 |---|---|---|
 | Screen Recording | Screenshots | No screenshots; app names + window titles only |
 | Accessibility | Window titles (via System Events) | App names only |
-| Microphone | Push-to-talk voice input | Mic button disabled; typing still works |
+| Microphone | The wake word, conversations, and dictating a message | No wake word, no conversations, mic button disabled; typing still works |
 
 How they are requested: the first time you wake fren up, the window-title
 lookup triggers the Accessibility/Automation prompt, and fren makes one
