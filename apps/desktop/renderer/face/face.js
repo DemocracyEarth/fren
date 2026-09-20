@@ -613,7 +613,7 @@
       // ---- material: five layers, one hue ----
       // The line's turn toward green: eased here, per frame, on top of the
       // mood's hue, so an expression change underneath never undoes it.
-      const attendGoal = this.attend === null ? 0 : 34 + 34 * Math.min(1, this.attend * 1.4);
+      const attendGoal = this.attend === null ? 0 : 58 + 28 * Math.min(1, this.attend * 1.4);   // palette.js: +58 waiting, +86 hearing
       this.attendHue += (attendGoal - this.attendHue) * 0.08;
       if (this.attend === null && Math.abs(this.attendHue) < 0.05) this.attendHue = 0;
       const h = ((p.hue + this.attendHue + BASE.h) % 360 + 360) % 360;

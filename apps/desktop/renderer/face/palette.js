@@ -62,8 +62,15 @@
     // left to turn. (The body shader also pushes every colour's saturation up
     // for its gradient — eased off while the line is open, or these would
     // render neon; see orb.js — so they read softer than their numbers.)
-    attending: { dH: 34, sMul: 0.6, sMin: 30, dL: 4 },
-    hearing:   { dH: 68, sMul: 0.5, sMin: 30, dL: 1 },
+    //
+    // Calm, not lime. The first pair turned only a third of the way and
+    // LIFTED the lightness, which from orange lands on yellow-green at full
+    // brightness — a lemon-lime while waiting, an apple green while hearing.
+    // These turn further (past the yellows, into green proper) and go DOWN in
+    // lightness, so the waiting state is a leaf green and hearing a deeper
+    // one; `lMin` keeps a dark worn colour from sinking under the face.
+    attending: { dH: 58, sMul: 0.44, sMin: 30, dL: -7, lMin: 34 },
+    hearing:   { dH: 86, sMul: 0.44, sMin: 30, dL: -13, lMin: 34 },
   };
   const SHEEN = { dH: 2.160, dL: 20.784 };
 
@@ -155,7 +162,7 @@
     for (const [name, off] of Object.entries(FAMILY)) {
       const s = off.sMul !== undefined ? clamp(c.s * off.sMul, off.sMin || 0, 100) : clamp(c.s + (off.dS || 0), 0, 100);
       out[name] = {
-        color: toHex({ h: c.h + off.dH, s, l: clamp(c.l + off.dL, 0, 96) }),
+        color: toHex({ h: c.h + off.dH, s, l: clamp(c.l + off.dL, off.lMin || 0, 96) }),
         rough: SURFACE[name].rough,
         sheen: SURFACE[name].sheen,
       };

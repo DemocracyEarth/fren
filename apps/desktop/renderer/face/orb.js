@@ -800,7 +800,7 @@ class Orb {
       // the sheen follows the green rather than laying its gold over it. Both
       // return exactly to the worn look when the line closes.
       const look = this.look || LOOK;
-      const push = 1 - 0.75 * this.attendMix;
+      const push = 1 - 0.9 * this.attendMix;   // nearly off: even a quarter of it brightened the green toward lime
       this.uGoldOff.value.y = (look.goldS / 100) * push;
       this.uCoralOff.value.y = (look.coralS / 100) * push;
       if (this.sheenBase && this.sheenAttend) this.material.sheenColor.copy(this.sheenBase).lerp(this.sheenAttend, this.attendMix);
