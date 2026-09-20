@@ -329,7 +329,7 @@ Two engines can do the hearing, and fren picks one by the phrase:
 The log says what it armed: `armed — phrase "hey fren" (keyword spotting)`,
 `armed — built-in phrase "hey jarvis"`, or `armed — custom model hey-fren.onnx`.
 
-Two rules keep it honest, and both are structural:
+Three rules keep it honest, and all three are structural:
 
 - **It follows the light.** Armed only while fren is watching; light off, senses
   off — this one included. The macOS microphone indicator stays lit for as long
@@ -337,6 +337,17 @@ Two rules keep it honest, and both are structural:
   goes anywhere — so that dot follows the same light you already control.
 - **It stands down for the length of a conversation.** Once a line is open the
   agent has the microphone; the detector re-arms when the line closes.
+- **It stands down while the Mac sleeps or is locked.** The microphone is let
+  go before the machine sleeps and the moment the screen locks, and the dot goes
+  out with it. Waking is not enough to bring it back — a Mac that wakes is
+  usually still locked — it re-arms a couple of seconds after you unlock, once
+  the audio devices have returned. A locked Mac does not listen: the phrase
+  cannot open a line from the lock screen.
+
+A microphone that keeps failing — a device that vanished, an input another app
+holds — is not hammered either: after a failure fren waits before trying again,
+5 s at first and doubling to 5 minutes, says so once per failure rather than
+once per attempt, and starts over after a healthy half-minute or an unlock.
 
 If the models cannot be fetched, or the microphone cannot be opened, or the
 engine fails, fren says so in its log at launch and carries on without it —

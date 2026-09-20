@@ -8,7 +8,7 @@
  */
 const test = require('node:test');
 const assert = require('node:assert');
-const { wakePhrase, hotkeyLabel, wakeInfo, hintVoiceRow, voiceIntroCopy, PHRASE_FITS } = require('../main/wake-info.js');
+const { wakePhrase, hotkeyLabel, wantWake, wakeInfo, hintVoiceRow, voiceIntroCopy, PHRASE_FITS } = require('../main/wake-info.js');
 
 const OWN = '/data/wake/hey-fren.onnx';
 const none = () => false;
@@ -119,4 +119,62 @@ test('the explanation drops what is not true here: no hotkey, no alias, no guess
   assert.match(custom, /Holding me down opens the same line\.$/);
   assert.doesNotMatch(custom, /⌘|hey friend/i);
   assert.match(voiceIntroCopy({ phrase: null }), /just say my wake word and/);
+});
+
+// --- when the wake word may listen at all ----------------------------------
+
+test('wantWake: only with the light on, no line open, and a Mac that is neither asleep, locked nor just back', () => {
+  const flags = ['observing', 'lineOpen', 'asleep', 'locked', 'settling'];
+  for (let bits = 0; bits < 2 ** flags.length; bits++) {
+    const facts = Object.fromEntries(flags.map((f, i) => [f, !!(bits & (1 << i))]));
+    const expected = facts.observing && !facts.lineOpen && !facts.asleep && !facts.locked && !facts.settling;
+    assert.strictEqual(wantWake(facts), expected, JSON.stringify(facts));
+  }
+});
+
+test('wantWake: a Mac that woke but is still locked stays unheard; nothing known means no', () => {
+  assert.strictEqual(wantWake({ observing: true }), true);
+  assert.strictEqual(wantWake({ observing: true, asleep: false, locked: true }), false, 'resume does not imply unlocked');
+  assert.strictEqual(wantWake({ observing: true, asleep: true, locked: false }), false);
+  assert.strictEqual(wantWake({ observing: true, lineOpen: true }), false);
+  assert.strictEqual(wantWake({}), false);
+  assert.strictEqual(wantWake(), false);
+});
+
+// --- the wiring, checked against the source --------------------------------
+// main/index.js cannot be loaded without Electron, and what matters here is
+// ORDER: the microphone is let go in the power handler itself, before the
+// machine sleeps — not on a timer, not after an await.
+
+test('index.js: sleep and lock stand the wake word down in the handler; wake and unlock bring it back after a settle, fresh', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'main', 'index.js'), 'utf8');
+  const from = src.indexOf('const wakeOn =');
+  const wake = src.slice(from, src.indexOf('[wake] setup failed', from));
+  assert.ok(from !== -1 && wake.length > 0, 'the wake block is where it was');
+  assert.match(wake, /require\('electron'\)\.powerMonitor|\{ powerMonitor \} = require\('electron'\)/, 'its own powerMonitor, not the greeting\'s');
+  assert.match(wake, /powerMonitor\.on\('suspend', \(\) => \{ asleep = true; standDown\(/);
+  assert.match(wake, /powerMonitor\.on\('lock-screen', \(\) => \{ locked = true; standDown\(/);
+  assert.match(wake, /powerMonitor\.on\('resume', \(\) => \{ asleep = false; comeBack\(\); \}\)/);
+  assert.match(wake, /powerMonitor\.on\('unlock-screen', \(\) => \{ locked = false; comeBack\(\); \}\)/);
+
+  // Standing down is synchronous: it disarms in its own body, with no timer and no await before it.
+  const down = wake.slice(wake.indexOf('const standDown ='), wake.indexOf('const comeBack ='));
+  assert.match(down, /wakeWord\.disarm\(\)/);
+  assert.ok(!/await|setTimeout|setImmediate|nextTick|\.then\(/.test(down), 'nothing deferred before the microphone is let go');
+  assert.match(down, /clearTimeout\(settleTimer\)/, 'sleeping again cancels a pending re-arm');
+
+  // Coming back waits, stays down while still asleep or locked, and arms fresh.
+  const back = wake.slice(wake.indexOf('const comeBack ='), wake.indexOf("powerMonitor.on('suspend'"));
+  assert.match(back, /if \(asleep \|\| locked\) return;/);
+  assert.match(back, /setTimeout\(\(\) => \{ settleTimer = null; syncWakeWord\(\{ fresh: true \}\); \}, WAKE_SETTLE_MS\)/);
+  assert.match(wake, /const WAKE_SETTLE_MS = 2000;/);
+
+  // The decision is the pure one, with every fact handed over.
+  assert.match(wake, /wakeTruth\.wantWake\(\{ observing: state\.get\(\)\.observing, lineOpen: voiceLineOpen, asleep, locked, settling: !!settleTimer \}\)/);
+  assert.ok(!/fresh: true/.test(wake.replace(back, '')), 'a fresh start is for waking and unlocking only');
+
+  // One slow heartbeat, cleared on the way out.
+  assert.match(wake, /const wakeHeartbeat = setInterval\(\(\) => syncWakeWord\(\), WAKE_HEARTBEAT_MS\)/);
+  assert.match(wake, /const WAKE_HEARTBEAT_MS = 30000;/);
+  assert.match(wake, /app\.on\('will-quit', \(\) => \{\s*clearInterval\(wakeHeartbeat\);/);
 });

@@ -34,7 +34,11 @@ listens to the microphone **on this machine** for one phrase. It answers a
 single question per sliver of audio — "was that the phrase?" — and nothing
 else: no audio leaves the machine, nothing is transcribed, nothing is kept. It
 follows the light — armed only while fren is watching, so pausing fren stops
-this too — and it stands down for the length of a conversation. `FREN_WAKE_WORD=off`
+this too — and it stands down for the length of a conversation. It also stands
+down **while the Mac sleeps or is locked**: the microphone is let go before the
+machine sleeps and the moment the screen locks, and it is opened again only
+once you have unlocked it. A locked Mac does not listen — nobody can open a
+conversation from your lock screen by saying a phrase. `FREN_WAKE_WORD=off`
 in `.env` turns it off outright. Because the detector holds the microphone open
 for as long as it listens, **the macOS microphone indicator stays lit the whole
 time the light is on**. That dot does not mean anything is being recorded or
