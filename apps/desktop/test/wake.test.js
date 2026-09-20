@@ -185,3 +185,96 @@ test('a microphone lost mid-listen disarms and releases', async (t) => {
   assert.equal(made.engines[0].released, true);
   assert.ok(lines.some((l) => /microphone lost/.test(l)));
 });
+
+// --- status() and onChange: what the interface is allowed to claim ---------
+
+test('status says arming while the engine loads and listening only once it hears; armed() is true for both', async (t) => {
+  const { deps } = fakes();
+  const changes = [];
+  const w = createWakeListener({ deps, log: () => {}, onChange: () => changes.push(w.status().listening) });
+  t.after(() => w.disarm());
+  assert.deepEqual(w.status(), { listening: false, arming: false, access: null, deaf: false, label: '' });
+  const arming = w.arm();
+  assert.equal(w.armed(), true);
+  assert.equal(w.status().arming, true);
+  assert.equal(w.status().listening, false, 'loading is not listening');
+  await arming;
+  assert.deepEqual(w.status(), { listening: true, arming: false, access: 'granted', deaf: false, label: 'built-in phrase "hey jarvis"' });
+  assert.deepEqual(changes, [true], 'armed is one change');
+  w.disarm();
+  assert.equal(w.status().listening, false);
+  assert.deepEqual(changes, [true, false], 'disarmed is one change');
+  w.disarm();
+  assert.deepEqual(changes, [true, false], 'disarming twice is not a change');
+});
+
+test('a refused microphone is a change, and status carries the answer', async () => {
+  const { deps } = fakes();
+  let n = 0;
+  const w = createWakeListener({ deps, log: () => {}, micAccess: async () => 'denied', onChange: () => { n += 1; } });
+  await w.arm();
+  assert.equal(n, 1);
+  assert.equal(w.status().access, 'denied');
+  assert.equal(w.status().listening, false);
+});
+
+test('an engine that cannot load, and a microphone that cannot start, are each a change', async () => {
+  let n = 0;
+  const broken = createWakeListener({ deps: fakes({ engineFails: true }).deps, log: () => {}, onChange: () => { n += 1; } });
+  await broken.arm();
+  assert.equal(n, 1);
+  const { deps } = fakes();
+  deps.PvRecorder = class extends deps.PvRecorder { start() { throw new Error('no device'); } };
+  let m = 0;
+  const mute = createWakeListener({ deps, log: () => {}, onChange: () => { m += 1; } });
+  await mute.arm();
+  assert.equal(m, 1);
+  assert.equal(mute.status().listening, false);
+});
+
+test('going deaf and hearing again are each one change', async (t) => {
+  const { deps, feed } = fakes();
+  let now = 0;
+  const seen = [];
+  const w = createWakeListener({ deps, log: () => {}, now: () => now, onChange: () => seen.push(w.status().deaf) });
+  t.after(() => w.disarm());
+  await w.arm();
+  const zeros = () => new Int16Array(512);
+  feed(zeros()); await settle();
+  now = 11000; feed(zeros()); await settle();
+  now = 12000; feed(zeros()); await settle();
+  const room = new Int16Array(512); room[3] = 9;
+  feed(room); await settle();
+  feed(room); await settle();
+  assert.deepEqual(seen, [false, true, false], 'armed, deaf, hearing again');
+});
+
+test('a microphone lost, and an engine error, are each a change to not listening', async (t) => {
+  const lost = fakes();
+  const a = [];
+  const w = createWakeListener({ deps: lost.deps, log: () => {}, onChange: () => a.push(w.status().listening) });
+  t.after(() => w.disarm());
+  await w.arm();
+  lost.made.recorders[0].released = true;
+  await settle(15);
+  assert.deepEqual(a, [true, false]);
+
+  const bad = fakes();
+  const b = [];
+  const v = createWakeListener({ deps: bad.deps, log: () => {}, onChange: () => b.push(v.status().listening) });
+  t.after(() => v.disarm());
+  await v.arm();
+  bad.made.engines[0].process = async () => { throw new Error('bad frame'); };
+  bad.say(-1); await settle();
+  assert.deepEqual(b, [true, false]);
+});
+
+test('an onChange that throws never stops the listening', async (t) => {
+  const { deps, say } = fakes();
+  const wakes = [];
+  const w = createWakeListener({ deps, log: () => {}, onWake: () => wakes.push(1), onChange: () => { throw new Error('ui fell over'); } });
+  t.after(() => w.disarm());
+  assert.equal(await w.arm(), true);
+  say(0); await settle();
+  assert.deepEqual(wakes, [1]);
+});

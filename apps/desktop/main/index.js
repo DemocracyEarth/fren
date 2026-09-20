@@ -20,6 +20,7 @@ const { createCuriosityWatcher } = require('./curiosity');
 const { createProactiveWatcher } = require('./proactive');
 const { createNarrator } = require('./narrator');
 const { createWakeListener } = require('./wake-word');
+const wakeTruth = require('./wake-info');
 const { wakeOnLaunchFrom } = require('./wake');
 const {
   clampInto, offsetInWindow, windowFor, chooseSide,
@@ -378,6 +379,12 @@ function setPanelOpen(open) {
 const HINT_WIN = { width: 380, height: 84 };
 let hintWin = null;
 
+// What may truthfully be said about the wake word right now (wake-info.js).
+// Main owns every fact behind it AND the hover card, so the card asks here
+// instead of having the renderer carry the answer back. Until the wake word is
+// set up it claims nothing.
+let wakeInfo = () => wakeTruth.wakeInfo();
+
 function hideHint() {
   if (hintWin && !hintWin.isDestroyed()) hintWin.destroy();
   hintWin = null;
@@ -402,6 +409,10 @@ function showHint(info) {
   const q = new URLSearchParams();
   if (info.voice) q.set('v', '1');
   if (info.note) q.set('n', String(info.note).slice(0, 200));
+  // The voice row: "say hey fren" only while that would really open a line.
+  const row = wakeTruth.hintVoiceRow(wakeInfo());
+  if (row) q.set('w', row.kind);
+  if (row && row.phrase) q.set('p', row.phrase);
   if (below) q.set('b', '1');
   q.set('tx', String(Math.round(cx - x)));    // where the tail finds the orb
 
@@ -927,9 +938,16 @@ app.whenReady().then(() => {
   // Every window, not just the orb: the models pane shows what is running too.
   state.subscribe((s) => broadcast('fren:stateChanged', s));
 
+  // Whether the gateway has a voice agent to open a line to (/health), and the
+  // push that tells the renderer what it may say about the wake word. The real
+  // push is assigned where the wake word is set up, further down.
+  let voiceAgent = false;
+  let pushWakeStatus = () => {};
   const checkHealth = async () => {
     try {
       const health = await gateway.health();
+      // Before gatewayOk flips, so the one push that follows carries both.
+      voiceAgent = !!(health && health.voiceAgent);
       if (!state.get().gatewayOk) state.set({ gatewayOk: true });
       // Whether the screen-looking button can be offered at all depends on a
       // model that can actually see; DeepSeek's chat models cannot.
@@ -940,6 +958,9 @@ app.whenReady().then(() => {
       // memory, which a gateway restart empties. Say it again whenever the
       // gateway has not heard it: at launch, and after any restart.
       if (providerSettings.runtimeModelStale(health, providerSettings.read(memory))) tellRuntimeModel();
+      // A cold gateway answers its first health check late; whether "say hey
+      // fren" may be promised changes right here, not on any wake event.
+      pushWakeStatus();
     } catch {
       if (state.get().gatewayOk) state.set({ gatewayOk: false });
       noteRuntime(null);
@@ -1344,11 +1365,13 @@ app.whenReady().then(() => {
   // Alfred (Option+Space); FREN_TALK_KEY overrides it. A key already taken by
   // another app simply fails to register, and the log says so.
   const talkKey = String(process.env.FREN_TALK_KEY || 'CommandOrControl+Shift+Space');
+  let hotkeyOk = false;            // only a key that really registered is ever named to the owner
   try {
     const { globalShortcut } = require('electron');
     const ok = globalShortcut.register(talkKey, () => {
       if (win && !win.isDestroyed()) win.webContents.send('fren:voice.toggle');
     });
+    hotkeyOk = !!ok;
     log(ok ? `[voice] hotkey ${talkKey}` : `[voice] hotkey ${talkKey} is taken by another app; set FREN_TALK_KEY to use a different one`);
     app.on('will-quit', () => { try { globalShortcut.unregisterAll(); } catch { /* going anyway */ } });
   } catch (err) {
@@ -1369,12 +1392,53 @@ app.whenReady().then(() => {
   let voiceLineOpen = false;
   let wakeWord = null;
   let syncWakeWord = () => {};
-  ipcMain.handle('fren:voice.state', (_e, open) => { voiceLineOpen = !!open; syncWakeWord(); });
+  ipcMain.handle('fren:voice.state', (_e, open) => { voiceLineOpen = !!open; syncWakeWord(); pushWakeStatus(); });
+  // The keyword the listener gets and the phrase a person can be told to say
+  // come from one derivation, so the interface can never quote a phrase the
+  // engine is not listening for.
+  const spoken = wakeTruth.wakePhrase(process.env.FREN_WAKE_KEYWORD, path.join(app.getPath('userData'), 'wake', 'hey-fren.onnx'));
+  const hotkey = wakeTruth.hotkeyLabel({ custom: process.env.FREN_TALK_KEY, registered: hotkeyOk });
+  wakeInfo = () => wakeTruth.wakeInfo({
+    status: wakeWord ? wakeWord.status() : null,
+    observing: state.get().observing,
+    gatewayOk: state.get().gatewayOk,
+    voiceAgent,
+    phrase: spoken.phrase,
+    alias: spoken.alias,
+    hotkey,
+  });
+  let lastWakeStatus = '';
+  pushWakeStatus = () => {
+    const info = wakeInfo();
+    const json = JSON.stringify(info);
+    if (json === lastWakeStatus) return;          // asked often, said only when it changed
+    lastWakeStatus = json;
+    if (win && !win.isDestroyed()) win.webContents.send('fren:voice.wakeStatus', info);
+  };
+  ipcMain.handle('fren:voice.wakeStatus', () => wakeInfo());
+  // The one explanation of "hey fren", once, for new and existing owners alike
+  // (wake-info.js has the words). The renderer asks when it sees the wake word
+  // really listening and is free to say something; it gets the text exactly
+  // once, and only while every sentence in it is true. Asking IS the telling —
+  // it is written to the transcript and marked here, in one step — so nothing
+  // the renderer does afterwards can make fren explain itself twice.
+  ipcMain.handle('fren:voice.intro', () => {
+    const info = wakeInfo();
+    if (!info.armed || !info.canConverse) return null;
+    if (!memory.getSetting('profile') || memory.getSetting('voiceIntro')) return null;
+    const text = wakeTruth.voiceIntroCopy(info);
+    remember('fren', text);
+    memory.setSetting('voiceIntro', 'done');
+    log('[wake] explained the wake word, once');
+    return text;
+  });
+  // The light going on or off, and the gateway coming or going, change what is
+  // true even when the wake word is switched off (holding the orb still works).
+  state.subscribe(() => pushWakeStatus());
   if (wakeOn) {
     try {
-      const custom = path.join(app.getPath('userData'), 'wake', 'hey-fren.onnx');
       wakeWord = createWakeListener({
-        keyword: process.env.FREN_WAKE_KEYWORD || (fs.existsSync(custom) ? custom : 'hey fren'),
+        keyword: spoken.keyword,
         sensitivity: process.env.FREN_WAKE_SENSITIVITY,
         modelsDir: path.join(app.getPath('userData'), 'wake', 'models'),
         engineOptions: { onsetRestart: String(process.env.FREN_WAKE_ONSET_RESTART || 'on').toLowerCase() !== 'off' },
@@ -1389,6 +1453,7 @@ app.whenReady().then(() => {
         },
         log,
         onWake: () => { if (win && !win.isDestroyed()) win.webContents.send('fren:voice.wake'); },
+        onChange: () => pushWakeStatus(),
       });
       syncWakeWord = () => {
         const want = state.get().observing && !voiceLineOpen;

@@ -126,3 +126,18 @@ test('a failed mint is a 502, in words', () =>
       assert.match((await res.json()).error, /elevenlabs 401/);
     } finally { await close(); }
   }));
+
+test('/health says whether a conversation could open — the provider AND the agent — and never the id', () =>
+  withEnv({ ELEVENLABS_AGENT_ID: 'agent_123' }, async () => {
+    const health = async (voice) => {
+      const { get, close } = await serve(voice);
+      try { return await (await get('/health')).json(); } finally { await close(); }
+    };
+    const both = await health({ signedUrl: async () => 'wss://x' });
+    assert.equal(both.voiceAgent, true);
+    assert.ok(!JSON.stringify(both).includes('agent_123'));
+    assert.equal((await health(null)).voiceAgent, false, 'no voice provider');
+    assert.equal((await health({ speak: async () => ({}) })).voiceAgent, false, 'a voice that cannot mint a session');
+    delete process.env.ELEVENLABS_AGENT_ID;
+    assert.equal((await health({ signedUrl: async () => 'wss://x' })).voiceAgent, false, 'no agent id');
+  }));

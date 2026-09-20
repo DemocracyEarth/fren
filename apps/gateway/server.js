@@ -484,6 +484,10 @@ async function handle(provider, voice, vision, core, req, res, pathname) {
       // defaults it is overriding instead of guessing at them.
       voiceId: voice ? voice.voice : null,
       voiceModel: voice ? voice.model : null,
+      // Whether conversation mode can open at all: the same two things
+      // /v1/voice/session needs. The desktop only says "say hey fren" when a
+      // line would really open — a boolean, never the agent's id.
+      voiceAgent: !!(voice && typeof voice.signedUrl === 'function' && process.env.ELEVENLABS_AGENT_ID),
       // The desktop app needs this to know whether the screen-looking toggle
       // can be offered at all.
       vision: vision ? vision.name : null,

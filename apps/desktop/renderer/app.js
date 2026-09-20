@@ -637,6 +637,7 @@ async function finishSetup() {
       ? `I'll be awake and watching whenever you launch me — right-click me for the menu to stop.`
       : `I'll start dark from now on, so right-click me when you want me watching.`)
   );
+  maybeIntroduceVoice();           // a new owner is owed the same one explanation
 }
 
 const SKIP_WORDS = /^(skip|no|nope|not now|later|pass|nothing|no thanks)\.?$/i;
@@ -647,6 +648,7 @@ async function handleSetupAnswer(answer) {
   if (SKIP_WORDS.test(answer.trim())) {
     await endSetup({ skipped: true });
     await speak("Fine by me. Click me any time you want to talk.");
+    maybeIntroduceVoice();
     return;
   }
 
@@ -1283,6 +1285,28 @@ let hintTimer = null;
 let hintShown = false;
 let hintNote = null;             // something fren is holding: a greeting, a noticed thing
 
+/*
+ * A greeting is a PASSING note. It used to be set and never cleared, so after
+ * any hello the hover card showed that hello for the rest of the session and
+ * the gestures — and "say hey fren" — never came back. It goes the moment it
+ * has done its job: the chat is opened (the words are in there), the orb is
+ * pressed, or a minute passes. A held suggestion is a different note with its
+ * own life, and is never touched from here.
+ */
+const PASSING_NOTE_MS = 60_000;
+let passingNote = null;
+let passingNoteTimer = null;
+function holdPassingNote(text) {
+  clearTimeout(passingNoteTimer);
+  hintNote = passingNote = text;
+  passingNoteTimer = setTimeout(dropPassingNote, PASSING_NOTE_MS);
+}
+function dropPassingNote() {
+  clearTimeout(passingNoteTimer);
+  if (passingNote !== null && hintNote === passingNote) hintNote = null;
+  passingNote = null;
+}
+
 function setHint(open) {
   if (open && (state.panelOpen || hintShown)) return;
   if (!open && !hintShown) return;
@@ -1368,6 +1392,7 @@ async function setPanel(open) {
   try {
     if (open) {
       dropHint();                  // the panel takes the window from here
+      dropPassingNote();           // whatever it said is in the chat now
       await loadPanelHistory();
       // Turn to face the corner BEFORE the window grows into it. While the
       // window is still orb-sized this costs nothing to look at; after it has
@@ -1654,6 +1679,8 @@ async function toggleRecording() {
 for (const [el, ev] of [[els.orb, 'mousedown'], [els.input, 'keydown'], [els.send, 'click'], [els.mic, 'pointerdown']]) {
   if (el) el.addEventListener(ev, () => { userActed = true; }, { once: true, capture: true });
 }
+// Pressing fren means the hello has been seen; the card goes back to gestures.
+els.orb.addEventListener('mousedown', dropPassingNote, { capture: true });
 
 // macOS delivers ctrl+click as button 0 with ctrlKey set, AND fires
 // contextmenu for it. Without this clause the same gesture asked for the menu
@@ -2270,23 +2297,81 @@ async function greetQuietly(text) {
   if (Date.now() - bootAt > GREET_DEADLINE_MS) return;
 
   addBubble('fren', text);         // read it whenever the panel is opened
-  hintNote = text;                 // and it leads the hover card in the meantime
+  holdPassingNote(text);           // and it leads the hover card for a moment
   face.pulse('bounce');
+  if (userActed) return;
+  await sayQuietly(text);
+}
 
-  let audible = false;
-  try { audible = !(await window.fren.audioSilenced()); } catch { /* assume not */ }
-  // Checked BEFORE the call, not after: speaking into a muted machine spends a
-  // paid voice request on nothing.
-  if (!audible || userActed) return;
-
+/**
+ * Words said aloud WITHOUT speak(): no bubble of its own, and never the panel.
+ * One at a time — a second quiet voice over the first is two people talking —
+ * and `quietVoice` is up for the length of it, so the wake word can be told
+ * that the "hey fren" it just heard was fren's own.
+ */
+let quietVoice = false;
+async function sayQuietly(text) {
+  if (quietVoice || busyForSpeech() || voiceActive()) return;
+  quietVoice = true;
   try {
+    let audible = false;
+    try { audible = !(await window.fren.audioSilenced()); } catch { /* assume not */ }
+    // Checked BEFORE the call, not after: speaking into a muted machine spends
+    // a paid voice request on nothing.
+    if (!audible) return;
     const res = await window.fren.speak(text);
-    if (res && res.audio) {
+    if (res && res.audio && !busyForSpeech() && !voiceActive()) {
       face.startTalking();
       await playVoice(res.audio).catch(() => {});
       face.stopTalking();
     }
-  } catch { /* a silent hello is still a hello */ }
+  } catch { /* written is enough */ } finally { quietVoice = false; }
+}
+
+/*
+ * What may truthfully be said about the wake word, as main reports it
+ * (main/wake-info.js). The input mentions the phrase only while saying it
+ * would really open a line — armed, an agent to talk to — and only the real
+ * phrase; otherwise it is the plain invitation it always was.
+ */
+let wake = { armed: false, canConverse: false, phrase: null };
+const PHRASE_FITS = 18;            // the same cap the hover card uses
+function onWakeStatus(s) {
+  if (s) wake = s;
+  const say = wake.armed && wake.canConverse && wake.phrase && wake.phrase.length <= PHRASE_FITS;
+  els.input.placeholder = say ? `Ask fren… or say “${wake.phrase}”` : 'Ask fren…';
+  maybeIntroduceVoice();
+}
+
+/**
+ * The one explanation of "hey fren", once ever (main keeps the flag and the
+ * words). It is driven by the wake status, not a launch timer: on a cold boot
+ * the gateway answers late, and the moment everything in the explanation is
+ * true is the moment that status arrives.
+ *
+ * Delivered like the greeting and for the same reason — it must never take
+ * the screen: a bubble to find, a hop, a passing note on the hover card. Aloud
+ * only for an owner who said fren may speak up, and only into silence.
+ */
+let introAsked = false;
+function maybeIntroduceVoice() {
+  if (introAsked || setup || !profile || !(wake.armed && wake.canConverse)) return;
+  introAsked = true;
+  sayWhenFree(async () => {
+    if (setup || voiceActive()) { introAsked = false; return; }
+    // History first: a lone bubble would stop the panel loading the rest.
+    await loadPanelHistory();
+    let text = null;
+    try { text = await window.fren.voice.intro(); } catch { /* next launch */ }
+    if (!text) return;
+    addBubble('fren', text);
+    if (!state.panelOpen) {
+      holdPassingNote('fren has something to tell you — right-click to read it');
+      if (face && face.hop && !REDUCED.matches) face.hop(0.5);
+    }
+    // The glyphs are for reading; a voice needs the keys' names.
+    if (volunteersOutLoud()) await sayQuietly(text.replace('⌘⇧Space', 'Command Shift Space'));
+  });
 }
 
 // When this window came up, and whether the user has done anything since. A
@@ -2517,12 +2602,19 @@ scheduleWander();
     // Not over a recording or while fren is mid-sentence.
     if (window.fren.voice && window.fren.voice.onWake) {
       window.fren.voice.onWake(() => {
-        if (voiceActive() || speaking || document.body.dataset.recording === '1') return;
+        // `quietVoice` too: the explanation of the wake word says the phrase aloud.
+        if (voiceActive() || speaking || quietVoice || document.body.dataset.recording === '1') return;
         if (face && face.hop && !REDUCED.matches) face.hop(0.5);
         voice.start().catch(() => {});
       });
     }
   }).catch((err) => console.warn('[voice] unavailable:', err && err.message));
+  // The wake word's truth, now and whenever it changes: the input's invitation
+  // follows it, and so does the one explanation of "hey fren".
+  if (window.fren.voice && window.fren.voice.onWakeStatus) {
+    window.fren.voice.onWakeStatus(onWakeStatus);
+    window.fren.voice.wakeStatus().then(onWakeStatus).catch(() => {});
+  }
   window.fren.onCurious(onCurious);
   // First run: offer to add the browser extension, so fren can see the page
   // you are on. One card, dismissable; a paired browser is confirmed with a hello.
@@ -2584,5 +2676,7 @@ scheduleWander();
   // gestures now, and the screen reader gets them through aria-describedby.
   els.orb.setAttribute('aria-label', `fren — ${orbVerb()}`);
 
-  await runSetupIfNeeded();
+  // The profile is known from here (or the interview is running, and its
+  // closing words ask again): the explanation of "hey fren" may be owed.
+  if (!(await runSetupIfNeeded())) maybeIntroduceVoice();
 })();

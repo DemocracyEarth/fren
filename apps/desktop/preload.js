@@ -55,6 +55,13 @@ contextBridge.exposeInMainWorld('fren', {
     onWake: (cb) => ipcRenderer.on('fren:voice.wake', () => cb()),
     // Whether a line is open — main stands the wake word down meanwhile.
     state: (open) => ipcRenderer.invoke('fren:voice.state', !!open),
+    // What may truthfully be said about the wake word: { armed, phrase, alias,
+    // paused, micBlocked, canConverse, hotkey }. Asked once, then pushed on change.
+    wakeStatus: () => ipcRenderer.invoke('fren:voice.wakeStatus'),
+    onWakeStatus: (cb) => ipcRenderer.on('fren:voice.wakeStatus', (_e, s) => cb(s)),
+    // fren's one explanation of the wake word: the text the first time it is
+    // asked for while true, null ever after.
+    intro: () => ipcRenderer.invoke('fren:voice.intro'),
   },
   // How a held suggestion ended: 'heard' or 'faded'. Feeds the pace governor.
   suggestionOutcome: (kind) => ipcRenderer.invoke('fren:suggestionOutcome', kind),
