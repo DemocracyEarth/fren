@@ -30,12 +30,12 @@ test('the default colour reproduces the shipped palette exactly', () => {
   assert.equal(hx(t.warm.color), '#ffa914');
   assert.equal(hx(t.excited.color), '#ffad1f');
   // The conversation line: turned toward green, softer than the moods.
-  assert.equal(hx(t.attending.color), '#b4d043');
-  assert.equal(hx(t.hearing.color), '#60c144');
+  assert.equal(hx(t.attending.color), '#649e3d');
+  assert.equal(hx(t.hearing.color), '#35883b');
   assert.equal(hx(P.sheenColorFrom(P.DEFAULT_HEX)), '#ffce6a');
 });
 
-test('the conversation line turns the hue toward green, a third then two thirds, at every worn colour', () => {
+test('the conversation line turns the hue to green — calm, never lime — at every worn colour', () => {
   // Attending is the line open and fren waiting on you; hearing is your voice
   // coming in. Both leave the base hue — the only tones that do — by fixed
   // turns, so "fren has turned green" means the same thing whatever it wears.
@@ -46,13 +46,20 @@ test('the conversation line turns the hue toward green, a third then two thirds,
     // 8-bit colour gives hue only so much precision at low saturation; the
     // turn is exact for the shipped orange and within a few degrees for a
     // muted worn colour.
-    assert.ok(Math.abs(turn(t.attending.color) - 34) < 3, `${preset.name}: attending turned ${turn(t.attending.color).toFixed(1)}deg`);
-    assert.ok(Math.abs(turn(t.hearing.color) - 68) < 3, `${preset.name}: hearing turned ${turn(t.hearing.color).toFixed(1)}deg`);
+    assert.ok(Math.abs(turn(t.attending.color) - 58) < 3, `${preset.name}: attending turned ${turn(t.attending.color).toFixed(1)}deg`);
+    assert.ok(Math.abs(turn(t.hearing.color) - 86) < 3, `${preset.name}: hearing turned ${turn(t.hearing.color).toFixed(1)}deg`);
     // Softer than the base, never louder — but never colourless either: a
     // green with no saturation has no hue to turn (the Moss preset found this).
     assert.ok(P.toHsl(t.attending.color).s <= P.toHsl(t.base.color).s + 0.5, `${preset.name}: attending louder than base`);
     assert.ok(P.toHsl(t.hearing.color).s <= P.toHsl(t.attending.color).s + 0.5, `${preset.name}: hearing louder than attending`);
     assert.ok(P.toHsl(t.hearing.color).s >= 28, `${preset.name}: hearing has only ${P.toHsl(t.hearing.color).s.toFixed(0)}% saturation left`);
+    // Calm means DARKER than the base, not brighter — brighter is how it went
+    // lime — but never so dark the emissive face has nothing to sit on.
+    for (const line of ['attending', 'hearing']) {
+      const l = P.toHsl(t[line].color).l;
+      assert.ok(l <= P.toHsl(t.base.color).l + 0.5, `${preset.name}: ${line} is brighter than the base`);
+      assert.ok(l >= 33, `${preset.name}: ${line} sank to ${l.toFixed(0)}% lightness`);
+    }
   }
 });
 

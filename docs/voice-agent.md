@@ -267,7 +267,7 @@ Two ways, both deliberate — a line never opens on its own:
 
 Either way it closes itself after 25 seconds of silence, at a 20-minute cap, or
 when the agent ends the conversation. While it is open the orb turns from its
-own colour toward green — a warm yellow-green while it waits on you, greener as
+own colour to green — a calm leaf green while it waits on you, a deeper one as
 you speak — and back to orange while it talks, so you can see whose turn it is.
 No glow, no fading: the same solid orb.
 
