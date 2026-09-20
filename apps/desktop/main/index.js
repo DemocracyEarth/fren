@@ -460,6 +460,36 @@ function showHint(info) {
   });
 }
 
+/**
+ * The models pane, in its own small window, opened from the chat's header.
+ *
+ * Everything else about fren answers to conversation; the machinery it runs ON
+ * gets a real pane, because a mistyped model id with no feedback is a silent
+ * outage. One window, reused: pressing the button twice brings it forward.
+ */
+let settingsWin = null;
+function openSettingsWin() {
+  if (settingsWin && !settingsWin.isDestroyed()) { settingsWin.show(); return; }
+  settingsWin = new BrowserWindow({
+    // The page's own size, not the frame's: the three cards measure 720 px
+    // tall at this width with every line at its longest, and a settings pane
+    // that scrolls by a few pixels looks broken rather than long.
+    useContentSize: true,
+    width: 460,
+    height: 732,
+    resizable: false,
+    title: 'fren — models & voice',
+    backgroundColor: '#FBF6EC',
+    webPreferences: {
+      preload: path.join(__dirname, '..', 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  settingsWin.loadURL(`${SCHEME}://app/settings.html`);
+  settingsWin.on('closed', () => { settingsWin = null; });
+}
+
 function createWindow() {
   win = new BrowserWindow({
     ...orbSize(),
@@ -1696,6 +1726,8 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle('fren:getOrbScale', () => ({ scale: orbScale, min: SCALE_MIN, max: SCALE_MAX }));
+
+  ipcMain.handle('fren:openSettings', () => openSettingsWin());
 
   /**
    * The model, the voice and the ear.

@@ -89,6 +89,8 @@ contextBridge.exposeInMainWorld('fren', {
   greeting: () => ipcRenderer.invoke('fren:greeting'),
   getOrbScale: () => ipcRenderer.invoke('fren:getOrbScale'),
   setOrbScale: (s) => ipcRenderer.invoke('fren:setOrbScale', s),
+  // The models pane: its own small window, opened from the chat's header.
+  openSettings: () => ipcRenderer.invoke('fren:openSettings'),
   getProviders: () => ipcRenderer.invoke('fren:getProviders'),
   setProviders: (p) => ipcRenderer.invoke('fren:setProviders', p),
   getOrbColour: () => ipcRenderer.invoke('fren:getOrbColour'),

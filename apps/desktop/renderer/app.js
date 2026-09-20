@@ -32,6 +32,7 @@ const els = {
   lightQuit: document.getElementById('light-quit'),
   lightMin: document.getElementById('light-min'),
   lightExpand: document.getElementById('light-expand'),
+  gear: document.getElementById('gear'),
   messages: document.getElementById('messages'),
   empty: document.getElementById('empty'),
   typing: document.getElementById('typing'),
@@ -2105,6 +2106,7 @@ els.lightExpand.addEventListener('click', () => {
   if (els.dashDot) els.dashDot.hidden = true;
 });
 
+els.gear.addEventListener('click', () => window.fren.openSettings());
 els.watch.addEventListener('click', () => window.fren.toggleObservation());
 // Yellow closes the CHAT, not fren — tucked away, still running, exactly what
 // minimise means. A × here that killed the whole app was the kind of thing you
