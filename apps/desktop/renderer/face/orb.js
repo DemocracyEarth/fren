@@ -21,7 +21,7 @@
  * more than failing loudly.
  */
 import * as THREE from '../vendor/three.module.min.js';
-import { drawFace } from './face-texture.js';
+import { drawFace, glowFrom } from './face-texture.js';
 import { TONE, EXPRESSIONS } from './expressions.js';
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -73,6 +73,13 @@ const LOOK = (typeof window !== 'undefined' && window.FrenPalette &&
     ambient: 2.6, key: 0.7, fill: 1.0, clearcoat: 0.24, coatRough: 0.29 };
 
 
+/** Has a colour moved enough to be seen? Any channel by four steps or more. */
+function colourMoved(a, b) {
+  return Math.abs(((a >> 16) & 255) - ((b >> 16) & 255)) >= 4
+      || Math.abs(((a >> 8) & 255) - ((b >> 8) & 255)) >= 4
+      || Math.abs((a & 255) - (b & 255)) >= 4;
+}
+
 /** Parameters that cross-fade when the expression changes. */
 const EASED = ['lit', 'lidTop', 'eyeScale', 'eyeAsym', 'mouthW', 'mouthOpen', 'mouthCurve', 'mouthWave', 'dots'];
 
@@ -114,6 +121,8 @@ class Orb {
     this.attendSmooth = 0;
     this.attendMix = 0;
     this.attendWasOn = false;   // one more frame after the mix reaches 0, to restore the look exactly
+    // The body colour the face's glow was last painted in (see the loop).
+    this.glowHex = null;
     this.nextBlink = 2 + Math.random() * 3;
     this.wobbleAmt = 0;
     this.squashAmt = 0;
@@ -735,7 +744,8 @@ class Orb {
       dirty = true;
     }
 
-    if (dirty) this._paint();
+    // (The face is painted further down, once the body's colour for this frame
+    // is known: its glow is that colour.)
 
     // Body colour follows the mood, eased in colour space.
     const ck = Math.min(1, dt * 3.4);
@@ -806,6 +816,19 @@ class Orb {
       if (this.sheenBase && this.sheenAttend) this.material.sheenColor.copy(this.sheenBase).lerp(this.sheenAttend, this.attendMix);
       this.attendWasOn = this.attendMix > 0;
     }
+    // The light around the eyes and mouth is the body's own colour, whatever
+    // the body is wearing this frame — a mood, the listening green, record red,
+    // a colour the owner chose. It used to be five fixed ambers, which left an
+    // orange halo on a green face. Repainted only when the colour has visibly
+    // moved, so an easing tone costs a few paints, not one per frame.
+    const bodyHex = this.material.color.getHex();
+    if (this.glowHex === null || colourMoved(bodyHex, this.glowHex)) {
+      this.glowHex = bodyHex;
+      this.p.glow = glowFrom(bodyHex);
+      dirty = true;
+    }
+    if (dirty) this._paint();
+
     this.material.roughness = this.matNow.rough;
     this.material.sheen = this.matNow.sheen * this.p.lit;
 

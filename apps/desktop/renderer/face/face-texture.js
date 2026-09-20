@@ -10,9 +10,16 @@
  * looking manic, so the mouth stays small and the range stays narrow.
  *
  * The light is layered the way a warm source actually photographs: a blown
- * white core falling off through amber into the material around it. On an
- * emissive map that spill is what makes the features read as lit from inside
- * the sphere instead of painted onto it.
+ * white core falling off through the material's colour into the material
+ * around it. On an emissive map that spill is what makes the features read as
+ * lit from inside the sphere instead of painted onto it.
+ *
+ * "The material's colour" is meant literally. The falloff used to be five
+ * fixed ambers, tuned against the orange body — and stayed amber when the
+ * body went green to listen, red to record, blue to be sad, or wore another
+ * colour altogether: an orange halo on a green face. glowFrom() derives the
+ * same five layers from whatever the body is wearing right now, so the light
+ * always belongs to the thing it comes out of.
  */
 
 export const FACE = {
@@ -27,12 +34,72 @@ export const FACE = {
 const GLOW = [
   { blur: 12.0, alpha: 0.30, color: '#FF7A00' },   // far spill, material hue
   { blur: 7.5,  alpha: 0.34, color: '#FF8A00' },
-  { blur: 4.4,  alpha: 0.38, color: '#FFB14A' },   // halo, full amber
+  { blur: 4.4,  alpha: 0.38, color: '#FFB14A' },   // halo, full colour
   { blur: 2.5,  alpha: 0.42, color: '#FFD08A' },
-  { blur: 1.2,  alpha: 0.46, color: '#FFE9C4' },   // bloom, warm white
+  { blur: 1.2,  alpha: 0.46, color: '#FFE9C4' },   // bloom, nearly white
 ];
+/** The body those five colours were tuned against: the shipped orange. */
+const GLOW_BODY = 0xffa200;
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+// --- colour, just enough of it ----------------------------------------------
+// Self-contained on purpose: this module is also loaded by the dev pages, where
+// the palette script may not be.
+function toHsl(hex) {
+  const r = ((hex >> 16) & 255) / 255, g = ((hex >> 8) & 255) / 255, b = (hex & 255) / 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
+  let h = 0, s = 0;
+  if (mx !== mn) {
+    const d = mx - mn;
+    s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+    h = mx === r ? ((g - b) / d + (g < b ? 6 : 0)) : mx === g ? ((b - r) / d + 2) : ((r - g) / d + 4);
+    h *= 60;
+  }
+  return { h, s: s * 100, l: l * 100 };
+}
+function toCss({ h, s, l }) {
+  const S = clamp(s, 0, 100) / 100, L = clamp(l, 0, 100) / 100;
+  const k = (n) => (n + (((h % 360) + 360) % 360) / 30) % 12;
+  const a = S * Math.min(L, 1 - L);
+  const f = (n) => Math.round(255 * (L - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)))));
+  return '#' + [f(0), f(8), f(4)].map((v) => v.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * The falloff as RELATIONSHIPS to the body it was tuned against: how far each
+ * layer's hue sits from the body's, and how light it is. Lightness is kept as
+ * it is — it describes light falling off, not the material — and saturation
+ * follows the body's, so a drained orb gives off a drained light.
+ */
+const GLOW_BODY_HUE = toHsl(GLOW_BODY).h;
+const GLOW_RECIPE = GLOW.map((g) => {
+  const c = toHsl(parseInt(g.color.slice(1), 16));
+  return { dH: c.h - GLOW_BODY_HUE, l: c.l };
+});
+/** How far the warm drift reaches around the orange it was tuned for, in degrees. */
+const WARM_REACH = 40;
+
+/**
+ * The five glow colours for a body of this colour (0xRRGGBB), widest first.
+ * For the shipped orange this reproduces the hand-tuned ambers; for anything
+ * else it is the same light in that colour.
+ */
+export function glowFrom(bodyHex) {
+  const body = toHsl(Number(bodyHex) || 0);
+  // A little more saturated than the body, never a different order of loud: a
+  // soft body gives off a soft light, a grey one gives off grey.
+  const s = clamp(body.s * 1.3, 0, 100);
+  // The outer layers were tuned to drift REDDER than the orange body, the way
+  // a warm filament dims. That is a fact about orange light, not about light:
+  // carried over to a green body the same drift pulls the halo toward
+  // yellow-green — lime — which is exactly what the listening green is not. So
+  // the drift fades out as the body leaves the orange family, and everywhere
+  // else the light is simply the body's own hue.
+  const away = Math.abs(((body.h - GLOW_BODY_HUE + 540) % 360) - 180);
+  const warm = clamp(1 - away / WARM_REACH, 0, 1);
+  return GLOW_RECIPE.map((r) => toCss({ h: body.h + r.dH * warm, s, l: r.l }));
+}
 
 /**
  * The mouth. One path, filled AND stroked with round joins, so the outline
@@ -173,15 +240,18 @@ export function drawFace(canvas, p) {
   // Additive, so each pass adds light rather than covering the one beneath.
   ctx.globalCompositeOperation = 'lighter';
 
-  for (const g of GLOW) {
+  // `p.glow` is the body's own colour as five layers (glowFrom); without it —
+  // a dev page, the first paint — the tuned ambers stand in.
+  const colours = Array.isArray(p.glow) && p.glow.length === GLOW.length ? p.glow : null;
+  GLOW.forEach((g, i) => {
     ctx.save();
     // Canvas filters work in device pixels, so the radius has to be scaled
     // out of face units or the blur changes size with the texture.
     ctx.filter = `blur(${(g.blur * S).toFixed(2)}px)`;
     ctx.globalAlpha = g.alpha * lit;
-    paintFeatures(ctx, p, g.color, 1);
+    paintFeatures(ctx, p, colours ? colours[i] : g.color, 1);
     ctx.restore();
-  }
+  });
 
   // The crisp core last, on top, so the silhouette still reads sharply
   // through all that bloom.
