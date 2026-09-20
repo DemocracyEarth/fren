@@ -56,6 +56,10 @@ const REC_HZ = 0.62;
 // chosen palette; see the note beside it.
 const _recLow = new THREE.Color();
 const _recHigh = new THREE.Color();
+// Scratch colours for the conversation line: attending (waiting on you) and
+// hearing (your voice coming in), from the worn palette.
+const _attend = new THREE.Color();
+const _attendDeep = new THREE.Color();
 const REC = (typeof window !== 'undefined' && window.FrenPalette &&
   window.FrenPalette.RECORDING) ||
   (typeof require === 'function' && (() => { try { return require('./palette.js').RECORDING; } catch { return null; } })()) ||
@@ -104,6 +108,12 @@ class Orb {
     this.blinkPhase = -1;
     this.blinkQueue = 0;
     this.listenLevel = null;
+    // The conversation line (setAttending): the level as it arrives, the level
+    // smoothed for the colour, and how far the colour has turned.
+    this.attendLevel = null;
+    this.attendSmooth = 0;
+    this.attendMix = 0;
+    this.attendWasOn = false;   // one more frame after the mix reaches 0, to restore the look exactly
     this.nextBlink = 2 + Math.random() * 3;
     this.wobbleAmt = 0;
     this.squashAmt = 0;
@@ -202,6 +212,7 @@ class Orb {
     // 0..1 turns / fractions). Defaults are the shipped look.
     // Chosen by eye in a live tuning session against a reference image —
     // which settled in one evening what four derivations had failed to.
+    this.look = LOOK;   // the worn look, kept: the loop eases its saturation push while a line is open
     this.uGoldOff = { value: new THREE.Vector3(LOOK.goldH / 360, LOOK.goldS / 100, LOOK.goldL / 100) };
     this.uCoralOff = { value: new THREE.Vector3(LOOK.coralH / 360, LOOK.coralS / 100, LOOK.coralL / 100) };
     // Re-rolled on every shake, so no two look alike.
@@ -478,6 +489,8 @@ class Orb {
     if (!P) return;
     this.tones = P.tonesFrom(hex);
     this.material.sheenColor.setHex(P.sheenColorFrom(hex));
+    this.sheenBase = new THREE.Color(P.sheenColorFrom(hex));
+    this.sheenAttend = new THREE.Color(P.sheenColorFrom(this.tones.hearing.color));
     const tone = this.tone(this.target.tone || 'base');
     this.toneTo.setHex(tone.color);
     this.matTo.rough = tone.rough;
@@ -537,6 +550,7 @@ class Orb {
    */
   tune(t) {
     const look = { ...LOOK, ...(t || {}) };
+    this.look = look;
     this.uGoldOff.value.set(look.goldH / 360, look.goldS / 100, look.goldL / 100);
     this.uCoralOff.value.set(look.coralH / 360, look.coralS / 100, look.coralL / 100);
     this.ambient.intensity = look.ambient;
@@ -562,6 +576,22 @@ class Orb {
       this.matTo.sheen = tone.sheen;
     }
     this.listenLevel = on ? clamp(level, 0, 1) : null;
+    this._wake();
+  }
+
+  /**
+   * A conversation line is open and fren is listening to YOU. `level` is your
+   * voice, 0..1; null when the line closes or the agent takes its turn.
+   *
+   * Said in colour, nothing else: the body turns from its own hue toward
+   * green — a third of the way while it waits, further as you speak — and
+   * turns back while it talks. No beat, no glow, no fading: the same solid
+   * orb, its light steady, turned toward you. Distinct from setListening,
+   * which is the LOCAL microphone recording and wears record red.
+   */
+  setAttending(level) {
+    const on = level !== null && level !== undefined;
+    this.attendLevel = on ? clamp(level, 0, 1) : null;
     this._wake();
   }
 
@@ -618,6 +648,7 @@ class Orb {
     if (this.thinking || this.p.dots > 0.005) return false;
     if (this.blinkPhase >= 0 || this.talkPhase >= 0 || this.speechLevel !== null) return false;
     if (this.listenLevel !== null) return false;
+    if (this.attendLevel !== null || this.attendMix > 0 || this.attendSmooth > 0) return false;
     if (Math.abs(this.wobbleAmt) > 0.001 || Math.abs(this.squashAmt) > 0.001) return false;
     if (Math.abs(this.nodAmt) > 0.001 || Math.abs(this.shakeAmt) > 0.001) return false;
     if (this.hopT > 0) return false;            // or a hop freezes mid-air
@@ -744,6 +775,37 @@ class Orb {
       // app must never be.
       this.material.color.copy(_recLow.setHex(REC.low)).lerp(_recHigh.setHex(REC.high), beat);
     }
+    // The conversation line: fren is listening to you, and says so in colour.
+    // The turn toward green eases in and out with the line; within it, the
+    // colour follows your voice — quick to hear you, slow to let go, so it
+    // rides the phrase rather than flickering with every syllable. Gated by
+    // `lit` like the body colour: a drained orb stays drained.
+    const attendOn = this.attendLevel !== null;
+    this.attendMix += ((attendOn ? 1 : 0) - this.attendMix) * Math.min(1, dt * 3.4);
+    if (!attendOn && this.attendMix < 0.002) this.attendMix = 0;
+    if (attendOn) {
+      const rise = this.attendLevel > this.attendSmooth;
+      this.attendSmooth += (this.attendLevel - this.attendSmooth) * Math.min(1, dt * (rise ? 10 : 2.2));
+    } else if (this.attendSmooth > 0) {
+      this.attendSmooth *= Math.pow(0.15, dt);
+      if (this.attendSmooth < 0.002) this.attendSmooth = 0;
+    }
+    if (this.attendMix > 0 || this.attendWasOn) {
+      const quiet = this.tone('attending');
+      const heard = this.tone('hearing');
+      _attend.setHex(quiet.color).lerp(_attendDeep.setHex(heard.color), Math.min(1, this.attendSmooth * 1.4));
+      this.material.color.lerp(_attend, this.attendMix * Math.min(1, this.p.lit * 1.05));
+      // The body gradient pushes saturation up by half or more — the orange's
+      // blaze — which would render the green neon. Eased off with the mix, and
+      // the sheen follows the green rather than laying its gold over it. Both
+      // return exactly to the worn look when the line closes.
+      const look = this.look || LOOK;
+      const push = 1 - 0.75 * this.attendMix;
+      this.uGoldOff.value.y = (look.goldS / 100) * push;
+      this.uCoralOff.value.y = (look.coralS / 100) * push;
+      if (this.sheenBase && this.sheenAttend) this.material.sheenColor.copy(this.sheenBase).lerp(this.sheenAttend, this.attendMix);
+      this.attendWasOn = this.attendMix > 0;
+    }
     this.material.roughness = this.matNow.rough;
     this.material.sheen = this.matNow.sheen * this.p.lit;
 
@@ -760,6 +822,10 @@ class Orb {
       const beat = this.reduced ? 0.5 : 0.5 - 0.5 * Math.cos(this.t * TAU * REC_HZ);
       this.material.emissiveIntensity = 1.45 + 0.30 + beat * 0.55 + this.listenLevel * 1.2;
       breathe = 1 + beat * 0.028 + this.listenLevel * 0.014;
+    } else if (this.attendMix > 0) {
+      // On the line the face brightens a touch as your voice comes in — the
+      // eyes and the smile, not the body; no beat.
+      this.material.emissiveIntensity = 1.45 + this.attendMix * (0.2 + this.attendSmooth * 0.8);
     } else if (this.material.emissiveIntensity !== 1.45) {
       this.material.emissiveIntensity = 1.45;
     }

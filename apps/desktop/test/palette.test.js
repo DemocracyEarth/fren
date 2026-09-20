@@ -29,26 +29,51 @@ test('the default colour reproduces the shipped palette exactly', () => {
   // vivid; at the default's 100% it simply clamps and brightness leads.
   assert.equal(hx(t.warm.color), '#ffa914');
   assert.equal(hx(t.excited.color), '#ffad1f');
-  assert.equal(hx(t.hearing.color), '#ffce33');
+  // The conversation line: turned toward green, softer than the moods.
+  assert.equal(hx(t.attending.color), '#b4d043');
+  assert.equal(hx(t.hearing.color), '#60c144');
   assert.equal(hx(P.sheenColorFrom(P.DEFAULT_HEX)), '#ffce6a');
 });
 
-test('no mood wears the listening colour', () => {
-  // The reason this exists: excited was +7.434 degrees of hue and hearing
-  // +7.529 — the same colour to a tenth of a degree. Tolerable while listening
-  // was a state you glanced at; not once the orb began PULSING toward it, when
-  // an excited fren and a listening fren became the same yellow.
+test('the conversation line turns the hue toward green, a third then two thirds, at every worn colour', () => {
+  // Attending is the line open and fren waiting on you; hearing is your voice
+  // coming in. Both leave the base hue — the only tones that do — by fixed
+  // turns, so "fren has turned green" means the same thing whatever it wears.
+  for (const preset of [...P.PRESETS, { name: 'a custom teal', hex: 0x11a8a8 }]) {
+    const t = P.tonesFrom(preset.hex);
+    const hue = (c) => P.toHsl(c).h;
+    const turn = (c) => ((hue(c) - hue(t.base.color)) % 360 + 360) % 360;
+    // 8-bit colour gives hue only so much precision at low saturation; the
+    // turn is exact for the shipped orange and within a few degrees for a
+    // muted worn colour.
+    assert.ok(Math.abs(turn(t.attending.color) - 34) < 3, `${preset.name}: attending turned ${turn(t.attending.color).toFixed(1)}deg`);
+    assert.ok(Math.abs(turn(t.hearing.color) - 68) < 3, `${preset.name}: hearing turned ${turn(t.hearing.color).toFixed(1)}deg`);
+    // Softer than the base, never louder — but never colourless either: a
+    // green with no saturation has no hue to turn (the Moss preset found this).
+    assert.ok(P.toHsl(t.attending.color).s <= P.toHsl(t.base.color).s + 0.5, `${preset.name}: attending louder than base`);
+    assert.ok(P.toHsl(t.hearing.color).s <= P.toHsl(t.attending.color).s + 0.5, `${preset.name}: hearing louder than attending`);
+    assert.ok(P.toHsl(t.hearing.color).s >= 28, `${preset.name}: hearing has only ${P.toHsl(t.hearing.color).s.toFixed(0)}% saturation left`);
+  }
+});
+
+test('no mood wears the listening colours', () => {
+  // The reason this exists: excited was +7.434 degrees of hue and the old
+  // listening gold +7.529 — the same colour to a tenth of a degree, so an
+  // excited fren and a listening fren became the same yellow.
   //
   // Listening has to mean exactly one thing, at every colour fren can wear.
   for (const preset of [...P.PRESETS, { name: 'a custom teal', hex: 0x11a8a8 },
                         { name: 'a custom pink', hex: 0xff2fa0 }]) {
     const t = P.tonesFrom(preset.hex);
     const hue = (c) => P.toHsl(c).h;
-    const listening = hue(t.hearing.color);
-    for (const mood of ['base', 'warm', 'excited']) {
-      const gap = Math.abs(hue(t[mood].color) - listening);
-      assert.ok(gap >= 5,
-        `${preset.name}: ${mood} is ${gap.toFixed(1)}deg from the listening tone`);
+    for (const line of ['attending', 'hearing']) {
+      const listening = hue(t[line].color);
+      for (const mood of ['base', 'warm', 'excited']) {
+        const d = Math.abs(hue(t[mood].color) - listening);
+        const gap = Math.min(d, 360 - d);
+        assert.ok(gap >= 20,
+          `${preset.name}: ${mood} is ${gap.toFixed(1)}deg from ${line}`);
+      }
     }
     // And the moods agree with each other, so only brightness tells them apart.
     assert.ok(Math.abs(hue(t.warm.color) - hue(t.base.color)) < 0.5, `${preset.name}: warm drifted`);
@@ -57,15 +82,14 @@ test('no mood wears the listening colour', () => {
 });
 
 test('the mood relationships survive a change of colour', () => {
-  // warm is brighter than base, excited brighter than warm, hearing brightest.
-  // If a new hue flattened that ordering the moods would stop being tellable
-  // apart, which is the whole reason the palette exists.
+  // warm is brighter than base, excited brighter than warm. If a new hue
+  // flattened that ordering the moods would stop being tellable apart, which
+  // is the whole reason the palette exists.
   for (const preset of P.PRESETS) {
     const t = P.tonesFrom(preset.hex);
     const l = (c) => P.toHsl(c).l;
     assert.ok(l(t.warm.color) > l(t.base.color), `${preset.name}: warm brighter than base`);
     assert.ok(l(t.excited.color) > l(t.warm.color), `${preset.name}: excited brighter than warm`);
-    assert.ok(l(t.hearing.color) > l(t.excited.color), `${preset.name}: hearing brightest`);
   }
 });
 

@@ -52,14 +52,19 @@ export function createVoiceSession({ getFace, addBubble, setFace, log = () => {}
     if (f) {
       if (f.stopTalking) f.stopTalking();
       if (f.setSpeechLevel) f.setSpeechLevel(null);
-      if (f.setListening) f.setListening(null);
+      if (f.setAttending) f.setAttending(null);
     }
     document.body.dataset.voice = '0';
     if (window.fren.voice.state) window.fren.voice.state(false).catch(() => {});
     onChange(false);
   }
 
-  /** The mouth follows the agent's audio; the listening breathe follows yours. */
+  /**
+   * The mouth follows the agent's audio; the colour follows yours. While fren
+   * listens the orb turns toward green, deeper as you speak (setAttending —
+   * the conversation's own state, not the local recording's red); while it
+   * talks it turns back to its own colour, so the turn-taking is visible.
+   */
   function loop() {
     if (!conv) return;
     const f = face();
@@ -68,7 +73,7 @@ export function createVoiceSession({ getFace, addBubble, setFace, log = () => {}
         if (f && f.setSpeechLevel) f.setSpeechLevel(Math.min(1, conv.getOutputVolume() * 1.6));
       } else {
         const level = conv.getInputVolume();
-        if (f && f.setListening) f.setListening(level);
+        if (f && f.setAttending) f.setAttending(level);
         if (level > 0.08) lastActivityAt = Date.now();
       }
     } catch { /* a closing session has no meters */ }
@@ -119,6 +124,7 @@ export function createVoiceSession({ getFace, addBubble, setFace, log = () => {}
           const f = face();
           if (m === 'speaking') {
             lastActivityAt = Date.now();
+            if (f && f.setAttending) f.setAttending(null);   // its turn: back to its own colour
             if (f && f.startTalking) f.startTalking();
             setFace('talking');
           } else {
