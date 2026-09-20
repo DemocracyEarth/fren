@@ -193,13 +193,13 @@ test('status says arming while the engine loads and listening only once it hears
   const changes = [];
   const w = createWakeListener({ deps, log: () => {}, onChange: () => changes.push(w.status().listening) });
   t.after(() => w.disarm());
-  assert.deepEqual(w.status(), { listening: false, arming: false, access: null, deaf: false, label: '' });
+  assert.deepEqual(w.status(), { listening: false, arming: false, access: null, deaf: false, label: '', retryAt: null });
   const arming = w.arm();
   assert.equal(w.armed(), true);
   assert.equal(w.status().arming, true);
   assert.equal(w.status().listening, false, 'loading is not listening');
   await arming;
-  assert.deepEqual(w.status(), { listening: true, arming: false, access: 'granted', deaf: false, label: 'built-in phrase "hey jarvis"' });
+  assert.deepEqual(w.status(), { listening: true, arming: false, access: 'granted', deaf: false, label: 'built-in phrase "hey jarvis"', retryAt: null });
   assert.deepEqual(changes, [true], 'armed is one change');
   w.disarm();
   assert.equal(w.status().listening, false);
@@ -277,4 +277,257 @@ test('an onChange that throws never stops the listening', async (t) => {
   assert.equal(await w.arm(), true);
   say(0); await settle();
   assert.deepEqual(wakes, [1]);
+});
+
+// --- an arm in flight can be cancelled -------------------------------------
+
+/** A promise the test resolves when it chooses: an await that is still "in flight". */
+function gate() {
+  let open;
+  const p = new Promise((r) => { open = r; });
+  return { p, open };
+}
+
+test('disarming while the microphone is still being asked for cancels the arm: nothing is opened', async (t) => {
+  const { deps, made } = fakes();
+  const asked = gate();
+  const changes = [];
+  const lines = [];
+  const w = createWakeListener({ deps, log: (l) => lines.push(l), micAccess: async () => { await asked.p; return 'granted'; }, onChange: () => changes.push({ ...w.status() }) });
+  t.after(() => w.disarm());
+  const arming = w.arm();
+  assert.equal(w.armed(), true, 'still true while loading, for its callers');
+  w.disarm();                         // the light went off, or the Mac locked
+  assert.equal(w.armed(), false, 'and false at once when cancelled');
+  asked.open();
+  assert.equal(await arming, false);
+  await settle();
+  assert.equal(made.engines.length, 0, 'no engine is loaded for a cancelled arm');
+  assert.equal(made.recorders.length, 0, 'and the microphone is never opened');
+  assert.equal(w.status().listening, false);
+  assert.equal(w.status().arming, false);
+  assert.ok(changes.length >= 1, 'the interface is told');
+  assert.ok(changes.every((c) => !c.listening));
+  assert.ok(!lines.some((l) => /armed —/.test(l)), 'it never says it armed');
+  assert.equal(w.status().retryAt, null, 'being cancelled is not a failure');
+});
+
+test('disarming while the engine is still loading cancels the arm: the engine it made is released', async (t) => {
+  const { deps, made } = fakes();
+  const loading = gate();
+  const inner = deps.createEngine;
+  deps.createEngine = async (cfg) => { await loading.p; return inner(cfg); };
+  let n = 0;
+  const w = createWakeListener({ deps, log: () => {}, onChange: () => { n += 1; } });
+  t.after(() => w.disarm());
+  const arming = w.arm();
+  await settle();                     // past the microphone question, inside the engine load
+  assert.equal(w.status().arming, true);
+  w.disarm();
+  loading.open();
+  assert.equal(await arming, false);
+  await settle();
+  assert.equal(made.engines.length, 1);
+  assert.equal(made.engines[0].released, true, 'what it made, it lets go');
+  assert.equal(made.recorders.length, 0, 'the microphone is never opened');
+  assert.equal(w.armed(), false);
+  assert.equal(w.status().listening, false);
+  assert.ok(n >= 1, 'onChange fired');
+});
+
+// On first run an engine load is a model download unpacked into one shared
+// folder; two at once would write over each other. So the arm after a
+// cancelled one waits for that load to finish — and then stands.
+test('one engine load at a time: the arm after a cancelled one waits its turn, then stands', { timeout: 5000 }, async (t) => {
+  const { deps, made } = fakes();
+  const first = gate();
+  let calls = 0;
+  const inner = deps.createEngine;
+  deps.createEngine = async (cfg) => { calls += 1; if (calls === 1) await first.p; return inner(cfg); };
+  const w = createWakeListener({ deps, log: () => {} });
+  t.after(() => { first.open(); w.disarm(); });
+  const a = w.arm();
+  await settle();
+  w.disarm();                         // light off…
+  const b = w.arm();                  // …and on again, before the first load came back
+  await settle();
+  assert.equal(calls, 1, 'the second load does not start under the first');
+  assert.equal(w.armed(), true, 'and it counts as armed while it waits');
+  first.open();
+  assert.equal(await a, false);
+  assert.equal(await b, true);
+  assert.equal(calls, 2);
+  assert.equal(w.status().listening, true, 'the second arm stands');
+  assert.equal(made.recorders.length, 1, 'one microphone');
+  assert.equal(made.engines.filter((e) => !e.released).length, 1, 'one engine; the cancelled one was let go');
+});
+
+test('an arm cancelled while it waits its turn loads nothing', { timeout: 5000 }, async (t) => {
+  const { deps, made } = fakes();
+  const first = gate();
+  let calls = 0;
+  const inner = deps.createEngine;
+  deps.createEngine = async (cfg) => { calls += 1; if (calls === 1) await first.p; return inner(cfg); };
+  const w = createWakeListener({ deps, log: () => {} });
+  t.after(() => { first.open(); w.disarm(); });
+  const a = w.arm();
+  await settle();
+  w.disarm();
+  const b = w.arm();
+  await settle();
+  w.disarm();                         // …and off again, still behind the first load
+  first.open();
+  assert.equal(await a, false);
+  assert.equal(await b, false);
+  await settle();
+  assert.equal(calls, 1, 'no second load for an arm nobody wants any more');
+  assert.equal(made.engines[0].released, true);
+  assert.equal(made.recorders.length, 0);
+  assert.equal(w.armed(), false);
+  assert.equal(w.status().retryAt, null, 'being cancelled is not a failure');
+});
+
+test('a frame still inside the engine when the listener is disarmed wakes nobody', async (t) => {
+  const { deps, made, say } = fakes();
+  const weighing = gate();
+  const wakes = [];
+  const lines = [];
+  const w = createWakeListener({ deps, log: (l) => lines.push(l), onWake: () => wakes.push(1) });
+  t.after(() => { weighing.open(); w.disarm(); });
+  await w.arm();
+  let inside = false;
+  made.engines[0].process = async () => { inside = true; await weighing.p; return 0; };
+  say(0); await settle();
+  assert.equal(inside, true, 'the frame is being weighed');
+  w.disarm();                         // the Mac locked, or the light went off, right then
+  weighing.open(); await settle();    // …and the engine says "that was the phrase"
+  assert.deepEqual(wakes, [], 'a disarmed listener opens no line');
+  assert.ok(!lines.some((l) => /heard the phrase/.test(l)));
+});
+
+// --- backing off from a microphone that keeps failing ----------------------
+
+/** A listener whose recorder cannot start while `broken.on` is true, on a clock the test moves. */
+function flaky() {
+  const f = fakes();
+  const broken = { on: true };
+  const Base = f.deps.PvRecorder;
+  f.deps.PvRecorder = class extends Base { start() { if (broken.on) throw new Error('no device'); super.start(); } };
+  const clock = { t: 100000 };
+  const lines = [];
+  const w = createWakeListener({ deps: f.deps, log: (l) => lines.push(l), now: () => clock.t });
+  return { ...f, broken, clock, lines, w };
+}
+
+test('after a failed arm the next one is refused quietly — no line, no engine, no recorder — until the backoff has passed', async (t) => {
+  const { w, made, clock, lines, broken } = flaky();
+  t.after(() => w.disarm());
+  assert.equal(await w.arm(), false);
+  assert.equal(w.status().retryAt, 105000, 'five seconds');
+  const said = lines.length;
+  const engines = made.engines.length;
+  const recorders = made.recorders.length;
+  clock.t = 104999;
+  assert.equal(await w.arm(), false);
+  assert.equal(await w.arm(), false);
+  assert.equal(lines.length, said, 'a refusal says nothing');
+  assert.equal(made.engines.length, engines, 'loads no engine');
+  assert.equal(made.recorders.length, recorders, 'opens no microphone');
+  assert.equal(w.armed(), false);
+  clock.t = 105000;
+  broken.on = false;
+  assert.equal(await w.arm(), true, 'allowed once the backoff has passed');
+  assert.equal(w.status().retryAt, null);
+});
+
+test('the backoff doubles with every failure in a row, and stops at five minutes', async (t) => {
+  const { w, clock } = flaky();
+  t.after(() => w.disarm());
+  const waits = [];
+  for (let i = 0; i < 9; i++) {
+    assert.equal(await w.arm(), false);
+    const wait = w.status().retryAt - clock.t;
+    waits.push(wait);
+    clock.t += wait;
+  }
+  assert.deepEqual(waits, [5000, 10000, 20000, 40000, 80000, 160000, 300000, 300000, 300000]);
+});
+
+test('a lost microphone and an engine error each back off; disarming does not reset it', async (t) => {
+  const lost = fakes();
+  let now = 0;
+  const w = createWakeListener({ deps: lost.deps, log: () => {}, now: () => now });
+  t.after(() => w.disarm());
+  await w.arm();
+  lost.made.recorders[0].released = true;      // the next read() throws
+  await settle(15);
+  assert.equal(w.status().retryAt, 5000);
+  w.disarm();
+  assert.equal(w.status().retryAt, 5000, 'disarm leaves the backoff alone');
+  assert.equal(await w.arm(), false, 'so arm/disarm cannot hammer a flapping device');
+  assert.equal(lost.made.engines.length, 1);
+
+  const bad = fakes();
+  const v = createWakeListener({ deps: bad.deps, log: () => {}, now: () => now });
+  t.after(() => v.disarm());
+  await v.arm();
+  bad.made.engines[0].process = async () => { throw new Error('bad frame'); };
+  bad.say(-1); await settle();
+  assert.equal(v.status().retryAt, 5000);
+  assert.equal(await v.arm(), false);
+});
+
+test('thirty seconds of healthy listening resets the backoff; a shorter run does not', async (t) => {
+  const { w, made, clock, broken, say } = flaky();
+  t.after(() => w.disarm());
+  assert.equal(await w.arm(), false);          // 5 s
+  clock.t += 5000;
+  assert.equal(await w.arm(), false);          // 10 s
+  clock.t += 10000;
+  broken.on = false;
+  assert.equal(await w.arm(), true);
+  clock.t += 29000; say(-1); await settle();   // listening, but not yet for long enough
+  made.recorders[made.recorders.length - 1].released = true;
+  await settle(15);
+  assert.equal(w.status().retryAt - clock.t, 20000, 'a short run is the same flapping device: still doubling');
+  clock.t += 20000;
+  assert.equal(await w.arm(), true);
+  clock.t += 30000; say(-1); await settle();   // a healthy run
+  made.recorders[made.recorders.length - 1].released = true;
+  await settle(15);
+  assert.equal(w.status().retryAt - clock.t, 5000, 'back to the beginning');
+});
+
+test('arm({ fresh: true }) clears the backoff — the Mac was just unlocked', async (t) => {
+  const { w, made, broken, clock } = flaky();
+  t.after(() => w.disarm());
+  assert.equal(await w.arm(), false);
+  clock.t += 5000;
+  assert.equal(await w.arm(), false);
+  assert.equal(w.status().retryAt - clock.t, 10000);
+  broken.on = false;
+  const engines = made.engines.length;
+  assert.equal(await w.arm(), false, 'still inside the window');
+  assert.equal(made.engines.length, engines);
+  assert.equal(await w.arm({ fresh: true }), true);
+  assert.equal(w.status().retryAt, null);
+  assert.equal(w.status().listening, true);
+  // …and the count started over too: the next failure waits five seconds, not twenty.
+  made.recorders[made.recorders.length - 1].released = true;
+  await settle(15);
+  assert.equal(w.status().retryAt - clock.t, 5000);
+});
+
+test('a microphone macOS refused is not backed off from: it is asked again every time, and said once', async () => {
+  const { deps, made } = fakes();
+  let asked = 0;
+  const lines = [];
+  const w = createWakeListener({ deps, log: (l) => lines.push(l), now: () => 0, micAccess: async () => { asked += 1; return 'denied'; } });
+  assert.equal(await w.arm(), false);
+  assert.equal(w.status().retryAt, null);
+  assert.equal(await w.arm(), false);
+  assert.equal(await w.arm(), false);
+  assert.equal(asked, 3);
+  assert.equal(made.engines.length, 0);
+  assert.equal(lines.filter((l) => /microphone denied/.test(l)).length, 1);
 });

@@ -49,6 +49,32 @@ function hotkeyLabel({ custom, registered, platform = process.platform } = {}) {
 }
 
 /**
+ * Should the wake word be listening right now? One story: the light is on, no
+ * conversation has the microphone, and somebody is there. A Mac that sleeps or
+ * is locked has nobody in front of it — and a wake word that could open a cloud
+ * conversation from the lock screen is exactly what fren's privacy story rules
+ * out. Asleep and locked are separate facts: a Mac that wakes is usually still
+ * locked, and stays unheard until it is unlocked. `settling` is the short pause
+ * after waking or unlocking, while the audio devices come back.
+ */
+function wantWake({ observing = false, lineOpen = false, asleep = false, locked = false, settling = false } = {}) {
+  return !!observing && !lineOpen && !asleep && !locked && !settling;
+}
+
+/**
+ * Is the screen locked? The lock and unlock events are only what fren happened
+ * to witness: it may have been started behind a lock screen, and an event
+ * posted around sleep can arrive late or never. So macOS is asked as well
+ * (powerMonitor.getSystemIdleState) and its answer wins; where it cannot say —
+ * 'unknown', or no answer at all — what the events said stands.
+ */
+function screenLocked(idleState, was = false) {
+  if (idleState === 'locked') return true;
+  if (idleState === 'active' || idleState === 'idle') return false;
+  return !!was;
+}
+
+/**
  * The whole status, as the renderer and the hover card get it.
  *   armed       really listening right now: not loading, not hearing zeros
  *   paused      the light is off, which is the only reason it is not listening
@@ -105,4 +131,4 @@ function voiceIntroCopy(info = {}) {
     other + aside;
 }
 
-module.exports = { wakePhrase, hotkeyLabel, wakeInfo, hintVoiceRow, voiceIntroCopy, quotable, PHRASE_FITS };
+module.exports = { wakePhrase, hotkeyLabel, wantWake, screenLocked, wakeInfo, hintVoiceRow, voiceIntroCopy, quotable, PHRASE_FITS };

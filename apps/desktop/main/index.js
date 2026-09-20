@@ -1392,14 +1392,17 @@ app.whenReady().then(() => {
   // The wake word: "hey fren", spoken, opens the line (wake-word.js). On-device
   // — openWakeWord, no account, no key — and it can be switched off outright
   // with FREN_WAKE_WORD=off. It follows the light — armed only while fren is
-  // watching — and it stands down for the length of a conversation, when the
-  // agent has the microphone. The phrase it listens for is "hey fren" — as
+  // watching — it stands down for the length of a conversation, when the
+  // agent has the microphone, and it stands down while the Mac sleeps or is
+  // locked, when nobody is there. The phrase it listens for is "hey fren" — as
   // text, by keyword spotting, no training — unless a trained model of your
   // own has been placed, or FREN_WAKE_KEYWORD says otherwise (a phrase, a
   // pretrained openWakeWord name, or an .onnx path; docs/voice-agent.md §9).
   // Nothing in here may take the app's boot down with it: a listener that
   // cannot be set up is a line in the log, and holding the orb still works.
   const wakeOn = String(process.env.FREN_WAKE_WORD || 'on').toLowerCase() !== 'off';
+  const WAKE_SETTLE_MS = 2000;       // after waking or unlocking, before the microphone is opened again
+  const WAKE_HEARTBEAT_MS = 30000;   // how often a backed-off listener gets another look
   let voiceLineOpen = false;
   let wakeWord = null;
   let syncWakeWord = () => {};
@@ -1466,14 +1469,62 @@ app.whenReady().then(() => {
         onWake: () => { if (win && !win.isDestroyed()) win.webContents.send('fren:voice.wake'); },
         onChange: () => pushWakeStatus(),
       });
+      // It listens only while somebody is there (wake-info.js, wantWake): the
+      // light is on, no conversation has the microphone, and the Mac is neither
+      // asleep nor locked. `fresh` is owed by an unlock — the one moment somebody
+      // is known to be there — and spent by the next arm, whenever that is: it
+      // forgets a failing microphone's backoff (wake-word.js). Merely waking
+      // earns none: a Mac also wakes by itself, with nobody there.
+      const { powerMonitor } = require('electron');
+      let asleep = false;
+      let locked = false;
+      let fresh = false;
+      let settleTimer = null;
+      // The lock events are only what fren witnessed — it may have started behind
+      // a lock screen, and one posted around sleep can come late or never — so
+      // macOS is asked too: now, after every settle, and on the heartbeat.
+      const askLocked = () => {
+        try { locked = wakeTruth.screenLocked(powerMonitor.getSystemIdleState(1), locked); } catch { /* the events stand */ }
+      };
+      askLocked();
       syncWakeWord = () => {
-        const want = state.get().observing && !voiceLineOpen;
-        if (want && !wakeWord.armed()) wakeWord.arm();
+        const want = wakeTruth.wantWake({ observing: state.get().observing, lineOpen: voiceLineOpen, asleep, locked, settling: !!settleTimer });
+        if (want && !wakeWord.armed()) { wakeWord.arm({ fresh }); fresh = false; }
         else if (!want && wakeWord.armed()) wakeWord.disarm();
       };
-      state.subscribe(syncWakeWord);
+      // Going: the microphone is let go HERE, in the handler, before the
+      // machine sleeps — not on some later tick it may never get.
+      const standDown = (why) => {
+        if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
+        fresh = false;
+        if (wakeWord.armed()) log(`[wake] standing down — the Mac ${why}`);
+        wakeWord.disarm();
+      };
+      // Coming back: audio devices return late, so wait a moment, then look
+      // again. Woken but still locked stays unheard until the unlock, and a
+      // listener that is already armed has nothing to settle for.
+      const comeBack = () => {
+        if (settleTimer) clearTimeout(settleTimer);
+        settleTimer = null;
+        if (asleep || locked || wakeWord.armed()) return;
+        settleTimer = setTimeout(() => { settleTimer = null; askLocked(); syncWakeWord(); }, WAKE_SETTLE_MS);
+      };
+      powerMonitor.on('suspend', () => { asleep = true; standDown('is going to sleep'); });
+      powerMonitor.on('lock-screen', () => { locked = true; standDown('is locked'); });
+      powerMonitor.on('resume', () => { asleep = false; comeBack(); });
+      powerMonitor.on('unlock-screen', () => { locked = false; fresh = true; comeBack(); });
+      state.subscribe(() => syncWakeWord());
       syncWakeWord();
-      app.on('will-quit', () => { try { wakeWord.disarm(); } catch { /* going anyway */ } });
+      // One slow heartbeat, so a microphone that failed is tried again when its
+      // backoff has passed, without waiting for some unrelated change of state —
+      // and so a lock or unlock whose event never came is noticed all the same.
+      // When nothing needs doing it does nothing.
+      const wakeHeartbeat = setInterval(() => { askLocked(); syncWakeWord(); }, WAKE_HEARTBEAT_MS);
+      app.on('will-quit', () => {
+        clearInterval(wakeHeartbeat);
+        if (settleTimer) clearTimeout(settleTimer);
+        try { wakeWord.disarm(); } catch { /* going anyway */ }
+      });
     } catch (err) {
       log(`[wake] setup failed — wake word off: ${err.message}`);
       wakeWord = null;
