@@ -13,7 +13,7 @@
  *   environment at startup, because it is the process that watches your screen
  *   and it has no business holding a credential. A settings field that accepted
  *   one would put it back — in this process, and in the SQLite file next to
- *   your screenshots. Keys live in .env, which only the gateway reads.
+ *   your notes. Keys live in .env, which only the gateway reads.
  *
  *   Base URLs. The base URL is where the API key gets sent. Somewhere to send a
  *   credential is not a preference, it is an exfiltration primitive, and it is

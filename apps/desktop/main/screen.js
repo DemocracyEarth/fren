@@ -6,17 +6,18 @@
  * JPEGs to disk that never leave the machine. This is the opposite kind of
  * capture and the difference is the whole point:
  *
- *   observer.js   periodic, automatic, written to disk, NEVER transmitted
- *   screen.js     one frame, on an explicit press, transmitted once,
+ *   observer.js   periodic, automatic: the front app and its window title.
+ *                 It takes no pictures (it used to keep one every ~15 s).
+ *   screen.js     one frame, on an explicit ask, transmitted once,
  *                 never written to disk and not kept afterwards
  *
  * Keeping them in separate files is not tidiness. It means the promise that
- * observed screenshots never leave the machine stays true and checkable, with
- * no shared code path that could quietly start sending them.
+ * nothing automatic ever captures or sends the screen stays checkable, with no
+ * shared code path that could quietly start.
  */
 const { desktopCapturer, systemPreferences } = require('electron');
 
-// Smaller than the observer's stored captures: enough to read a UI, not enough
+// Enough to read a UI, not enough
 // to be an expensive way to ask a question.
 const MAX_WIDTH = 1280;
 const JPEG_QUALITY = 72;

@@ -332,14 +332,29 @@ The log says what it armed: `armed — phrase "hey fren" (keyword spotting)`,
 Two rules keep it honest, and both are structural:
 
 - **It follows the light.** Armed only while fren is watching; light off, senses
-  off — this one included. So the microphone indicator you see while it is
-  armed is the same light you already control.
+  off — this one included. The macOS microphone indicator stays lit for as long
+  as it is armed — the detector holds the microphone open even though no audio
+  goes anywhere — so that dot follows the same light you already control.
 - **It stands down for the length of a conversation.** Once a line is open the
   agent has the microphone; the detector re-arms when the line closes.
 
 If the models cannot be fetched, or the microphone cannot be opened, or the
 engine fails, fren says so in its log at launch and carries on without it —
-holding the orb and the hotkey still work.
+holding the orb and the hotkey still work (unless it is the microphone itself
+that macOS has refused: they need it too).
+
+**What fren tells you about it.** Only what is true at that moment. The orb's
+hover card gains a first row — *say "hey fren" to talk* — and the chat input
+reads *Ask fren… or say "hey fren"*, only while the detector is really hearing
+(not loading, not getting silence from a blocked microphone) AND a line could
+open (the gateway is up and has an agent). With the light off the card offers
+*hold me for a conversation* instead; with the microphone blocked it offers
+nothing spoken at all. The phrase shown is the one configured — a custom text
+phrase is quoted as written, and a model file other than `hey-fren.onnx`, whose
+phrase fren cannot know, is called "my wake word". The first time all of that
+is true, fren explains the wake word once, as a message in the chat (spoken
+only if you told it it may speak up), and never again (`voiceIntro` in its
+settings).
 
 (Why not Picovoice's Porcupine, which fren used for a day: their console now
 gates every new account behind a manual review of a *commercial* use case, so a

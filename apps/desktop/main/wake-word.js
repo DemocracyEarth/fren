@@ -53,6 +53,7 @@ function createWakeListener({
   micAccess = async () => 'granted',   // → 'granted' | 'denied' | 'restricted' | 'not-determined' | 'unknown'
   deps = null,               // { createEngine, PvRecorder } — loaded on first arm if absent
   onWake = () => {},
+  onChange = () => {},       // whether it is really listening just changed; ask status()
   log = console.log,
   now = () => Date.now(),
   options = {},
@@ -68,12 +69,19 @@ function createWakeListener({
   let deaf = false;
   let label = '';
 
+  // What the interface says about the wake word follows from this, so every
+  // path that starts or stops the hearing ends here. Never allowed to throw
+  // into the listening loop.
+  function changed() { try { onChange(); } catch { /* the listener's problem */ } }
+
   function release() {
+    const was = running;
     running = false;
     const r = recorder; recorder = null;
     const e = engine; engine = null;
     try { if (r) { if (r.isRecording) r.stop(); r.release(); } } catch { /* already gone */ }
     try { if (e) e.release(); } catch { /* already gone */ }
+    if (was) changed();        // disarmed, microphone lost, engine error: all come through here
   }
 
   async function loop() {
@@ -92,10 +100,11 @@ function createWakeListener({
         else if (!deaf && now() - silentSince >= opts.deafAfterMs) {
           deaf = true;
           log('[wake] hearing nothing from the microphone — check the input device, or System Settings › Privacy & Security › Microphone');
+          changed();
         }
       } else {
         silentSince = null;
-        if (deaf) { deaf = false; log('[wake] hearing the microphone again'); }
+        if (deaf) { deaf = false; log('[wake] hearing the microphone again'); changed(); }
       }
       let idx = -1;
       try { idx = await e.process(frame); }
@@ -122,11 +131,12 @@ function createWakeListener({
         if (access !== lastAccess) log(`[wake] microphone ${access} — wake word off until it is allowed (System Settings › Privacy & Security › Microphone)`);
         lastAccess = access;
         arming = false;
+        changed();
         return false;
       }
       lastAccess = access;
       let d = deps;
-      try { d = d || loadDeps(); } catch (err) { log(`[wake] unavailable: ${err.message}`); arming = false; return false; }
+      try { d = d || loadDeps(); } catch (err) { log(`[wake] unavailable: ${err.message}`); arming = false; changed(); return false; }
       try {
         engine = await d.createEngine({ modelsDir, keyword, sensitivity, log, ...engineOptions });
         recorder = new d.PvRecorder(engine.frameLength);
@@ -135,12 +145,14 @@ function createWakeListener({
         log(`[wake] could not arm: ${err.message}`);
         release();
         arming = false;
+        changed();
         return false;
       }
       running = true;
       arming = false;
       label = engine.label;
       log(`[wake] armed — ${label}`);
+      changed();
       loop().catch((err) => { log(`[wake] stopped: ${err.message}`); release(); });
       return true;
     },
@@ -150,8 +162,12 @@ function createWakeListener({
       release();
       log('[wake] disarmed');
     },
+    // True while still loading, on purpose: it is what stops a second arm().
+    // "Is it hearing me?" is status().listening — never this.
     armed: () => running || arming,
     label: () => label,
+    /** The truth for the interface: hearing or not, and why not. `label` is a log string, not a phrase. */
+    status: () => ({ listening: running, arming, access: lastAccess, deaf, label }),
   };
 }
 

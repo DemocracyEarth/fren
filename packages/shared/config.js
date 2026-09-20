@@ -12,9 +12,6 @@ module.exports = {
 
   // Observation sampling
   SAMPLE_INTERVAL_MS: 5_000,        // active app/window sample cadence
-  SCREENSHOT_EVERY_N_SAMPLES: 3,    // screenshot every 3rd sample (~15s)
-  SCREENSHOT_MAX_WIDTH: 1280,
-  SCREENSHOT_JPEG_QUALITY: 60,
 
   // Semantic summarization
   SUMMARIZE_INTERVAL_MS: 120_000,   // how often raw observations become a memory
@@ -22,7 +19,7 @@ module.exports = {
 
   // Retention
   OBSERVATION_RETENTION_DAYS: 7,
-  MAX_SCREENSHOTS_KEPT: 200,
+  MAX_SCREENSHOTS_KEPT: 200,        // none are taken any more; this lets the old ones age out
 
   // Browser awareness (the extension <-> desktop loopback channel)
   BROWSER_SENSOR_PORT: 4526,

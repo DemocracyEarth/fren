@@ -10,7 +10,7 @@ There are exactly two, and the character itself is the truth:
 
 | State | How fren looks | What is captured |
 |---|---|---|
-| Observing ON | Lit from within, eyes open, colour warm | Active app name + window title every 5s; local screenshot every ~15s |
+| Observing ON | Lit from within, eyes open, colour warm | Active app name + window title every 5s. No screenshots. |
 | Observing OFF | Light out, eyes closed, colour drained | **Nothing. No sampling, no screenshots, no summarizing, no timers.** |
 
 This is not a UI convention layered over a background process. The `observing`
@@ -27,11 +27,34 @@ monitoring, no clipboard access.
 
 ## The microphone
 
-fren does **not** listen continuously, and there is no wake word. The
-microphone opens when you click the orb and closes when you click it again —
-the macOS recording indicator is the second source of truth for this.
+The microphone opens in three ways, and they make three different promises.
 
-This changed, and the change is worth being plain about. It used to be
+**The wake word — "hey fren".** While fren's light is on, a small detector
+listens to the microphone **on this machine** for one phrase. It answers a
+single question per sliver of audio — "was that the phrase?" — and nothing
+else: no audio leaves the machine, nothing is transcribed, nothing is kept. It
+follows the light — armed only while fren is watching, so pausing fren stops
+this too — and it stands down for the length of a conversation. `FREN_WAKE_WORD=off`
+in `.env` turns it off outright. Because the detector holds the microphone open
+for as long as it listens, **the macOS microphone indicator stays lit the whole
+time the light is on**. That dot does not mean anything is being recorded or
+sent; it means the wake word is armed. Turn the light off, or the wake word
+off, and the dot goes out. (How it works, and how to change the phrase:
+[voice-agent.md §9](voice-agent.md).)
+
+**A conversation.** Saying the phrase, holding the orb down, or pressing the
+hotkey opens a live line to fren's voice agent. This is the one time audio
+leaves the machine: **for the length of that conversation it streams to
+ElevenLabs**, and the orb glows for exactly as long as it does. A line is only
+ever opened by one of those three deliberate acts, and it closes itself after
+25 seconds of silence or at a 20-minute cap. Without an ElevenLabs agent
+configured there is no line to open, and fren does not offer one.
+
+**Dictating a message.** The microphone opens when you click the orb and closes
+when you click it again. This audio never leaves the machine — see the table
+below.
+
+Click-to-dictate changed, and the change is worth being plain about. It used to be
 press-and-hold, where the bound on a recording was your own hand. A recording
 you start with a click and stop with another has no such bound, so two things
 replace it: **a ring pulses around the orb the entire time the microphone is
@@ -42,7 +65,7 @@ two minutes**, so a forgotten microphone is a mistake rather than an afternoon.
 The mic button inside the chat panel is still press-and-hold. A button you hold
 is unambiguous, and it costs nothing to keep.
 
-What happens to that audio matters more than how it is captured:
+What happens to dictated audio matters more than how it is captured:
 
 | Step | Where it happens |
 |---|---|
@@ -81,7 +104,7 @@ space is a process confined by macOS itself (the same sandbox the system uses
 for its own apps): it can read and write only the folders fren gives it,
 cannot open apps, script the desktop, read the keychain or take screenshots,
 and reaches the network only as its automation allows. That is lighter
-isolation than a container, and fren says so in Settings; when a container
+isolation than a container; when a container
 runtime is installed, fren uses a container instead. One is created only
 when you keep a proposal fren shows you first, with the schedule and the task
 in words. It does not receive what fren observed about you: not the activity
@@ -97,7 +120,7 @@ holds the connection and asks — reach this one site, once or always, or no —
 rather than failing quietly; a yes opens exactly that host (an "always" is
 remembered for next time) and nothing else, and if no one answers, the answer
 is no. What it
-sends back is kept locally, listed under Automations with every run, and
+sends back is kept locally, said in the chat when it arrives, and
 never sent anywhere by fren. An agent automation does not look at what you are
 doing, so the light does not gate it: it runs on its schedule whether fren is
 watching or paused, and stops when fren quits. If an agent asks for something
@@ -121,24 +144,13 @@ that one page from the app and hands it over — once, or always if you let it.
 Turn fren's light off, or be on a page you excluded, and there is nothing to
 hand over. The agent never sees a page you did not agree to show it.
 
-**Script automations** are the older kind, and this is the one thing fren does
-that changes your machine rather than reading it, so the constraints are worth
-stating plainly.
-
-fren only runs a script that **you** read and approved, that has already run
-successfully **by hand**, and that you separately put on a schedule. Approval is
-bound to a hash of the exact script — change one character and the approval is
-void. Every execution re-checks that hash, so a schedule cannot become a licence
-to run something else later.
-
-A script runs with a reduced environment (PATH, HOME, USER, LANG, TMPDIR only),
-so it cannot read variables this process holds. It gets a hard timeout. Its
-output is captured and stored locally so you can read afterwards what it did —
-that output is never sent anywhere.
-
-fren will not run scripts that delete data, escalate privileges, pipe a download
-into an interpreter, read credentials or keychains, or install anything
-persistent. That blocklist is a backstop for a rushed review, not a sandbox.
+**Script automations are gone.** fren used to be able to run a shell script it
+had drafted, once you had read and approved the exact text, run it by hand, and
+put it on a schedule. Each of those gates was a button in a window that no
+longer exists, and a script nobody can review or stop is not one fren should
+run — so nothing in fren runs a script on your machine any more, scheduled or
+by hand. Scripts and run output an older version stored stay in `fren.db`,
+inert, until you delete that file.
 
 ## Looking at your screen
 
@@ -154,8 +166,8 @@ to do by accident:
 - **It is refused while fren is paused.** Looking with the light off is exactly
   what the light exists to rule out.
 - **The image is never written to disk.** It is captured in memory, sent once,
-  and dropped. It is not the observed screenshots — those are a separate code
-  path that never transmits anything.
+  and dropped. It is the only picture of your screen fren ever takes: the
+  observer, which runs on a timer, takes none and cannot reach the network.
 - **The button does not exist unless a model that can see is configured.**
   DeepSeek's chat models are text-only. This needs an `ANTHROPIC_API_KEY`.
 - The model is instructed to answer your question and ignore the rest of the
@@ -197,6 +209,7 @@ automations".
 | Transcribed text of what you said (never the audio) | When you use push-to-talk |
 | The contents of `SOUL.md` and `USER.md` | With every chat message, once you have completed first-run setup |
 | The text of fren's reply, to ElevenLabs | Only when a voice key is configured |
+| **Live audio of a conversation**, to ElevenLabs | Only while a line you opened is open — by saying the wake word, holding the orb, or the hotkey — and the orb glows throughout |
 | What you typed, and `SOUL.md`, to the assistant in the secure execution environment; from there, to the model provider | When a chat request runs through the environment (the dot in the chat header says when it is ready) |
 | An automation's task, and whatever pages the assistant fetches to do it | When an agent automation runs |
 
@@ -206,20 +219,23 @@ Pausing stops new capture; it does not redact what you already let fren see.
 
 **Never sent, to anyone, ever:**
 
-- **Observed screenshots.** The ones fren takes on its own timer, roughly every
-  15 seconds while watching, are written as local JPEGs and pruned
-  automatically. They are not sent to the gateway, not sent to the model
-  provider, not uploaded anywhere. The summarizer works from the text timeline
-  alone. **This has not changed**, and the separation is enforced in the code:
-  the observer has no way to reach the gateway at all, and a test asserts it.
+- **A picture of your screen you did not ask for.** fren takes none. Earlier
+  versions wrote a local JPEG roughly every 15 seconds while watching, for a
+  day view that no longer exists; they were never sent anywhere, fren has
+  stopped taking them, and the ones already on disk are deleted as they pass
+  7 days. The summarizer works from the text timeline alone, and the
+  separation is enforced in the code: the observer neither captures the screen
+  nor has any way to reach the gateway, and a test asserts both.
 
   There is now one narrow exception, and it is a different code path with a
   different promise — see "Looking at your screen" below. Nothing fren captures
   by itself is ever transmitted.
 - **The SQLite database.** It never leaves the userData folder.
 - **Keystrokes.** Not captured at all (see above), so there is nothing to send.
-- **Microphone audio.** Transcribed locally and deleted; only the resulting
-  text is ever transmitted.
+- **Microphone audio, outside a conversation.** What the wake word hears is
+  judged on this machine and dropped; what you dictate is transcribed locally
+  and deleted, and only the resulting text is ever transmitted. The exception
+  is a live conversation you opened — see "The microphone" above.
 
 The API key is used only by the gateway process. The desktop app reads the
 shared `.env` for its own settings but deletes `DEEPSEEK_API_KEY`,
@@ -232,8 +248,8 @@ different data-handling policies — read the one you pick.
 
 ## Choosing a model, a voice, an ear
 
-The Settings pane in the dashboard lets you pick which model answers, which
-ElevenLabs voice speaks, and which whisper model and language transcribe you.
+The settings button in the chat's header opens a pane that lets you pick which
+model answers, which ElevenLabs voice speaks, and which whisper model and language transcribe you.
 All of it is optional — every field empty means "whatever fren was started
 with", which is what a fresh install already has. Each field shows the live
 default as its placeholder, so leaving one alone is a visible choice.
@@ -244,7 +260,7 @@ the same reasons the rest of this document holds:
 - **API keys.** That window belongs to the process that watches your screen, and
   that process deletes every provider key from its own environment at startup
   (`apps/desktop/main/index.js`). A field that accepted one would put a secret
-  back into it, and into the SQLite file sitting next to your screenshots. Keys
+  back into it, and into the SQLite file sitting next to your notes. Keys
   live in `.env`, which only the gateway reads.
 - **Provider addresses.** A base URL is *where the key gets sent*. Somewhere to
   send a credential is not a preference; it is the single most useful field for
@@ -321,7 +337,7 @@ anything still true in a month. If it does, one line lands in `MEMORY.md` under
 capped at 80 facts. Most answers keep nothing. Nothing else about the exchange
 is stored, and the question itself is never written to the log.
 
-**To turn it off**, open the Memory pane and untick *"Let fren interrupt you"*.
+**To turn it off**, tell fren *"stop interrupting me"* (*"you can speak up again"* undoes it).
 Pausing fren also stops it, along with everything else.
 
 ## Storage locations
@@ -337,7 +353,7 @@ Everything is local, under Electron's userData folder:
 │   └── 2026-08-22.md    # what fren observed that day
 ├── fren.db          # SQLite: observations, memories, suggestions, settings,
 │                   #         and the conversation
-└── (screenshots)    # JPEG files, max width 1280px
+└── (screenshots)    # only if an earlier version left some; they age out
 ```
 
 `<userData>` is `~/Library/Application Support/fren` on macOS,
@@ -363,7 +379,7 @@ it along with everything else, and fren will introduce itself again next time.
 | Data | Retention |
 |---|---|
 | Raw observations (app, title, timestamp) | 7 days, then pruned automatically |
-| Screenshots | Newest 200 kept, older ones deleted automatically |
+| Screenshots | None are taken. Any left by an earlier version go with the 7-day pruning |
 | Memories (semantic summaries) | Kept until you delete the data folder |
 | **The conversation** | **7 days, on the same clock as observations** |
 
@@ -398,16 +414,11 @@ until you say so, and the answer is stored as `wakeOnLaunch`. If you say wait,
 fren pauses immediately and starts dark from then on.
 
 If you completed setup before that question existed, the default is awake. To
-change it, open the Memory pane and untick **"Wake up when you launch me"** — it is there whether or not you did the
-interview — or
-just use the watching control in the menu to pause the session you are in.
+change it, tell fren: *"don't wake up when I launch you"* (and *"wake up when I
+launch you"* to change it back) — or just use the watching switch in the chat's
+header to pause the session you are in.
 
-One consequence worth naming: scheduled script automations only run while
-fren is watching, so a fren that starts awake can run a due automation shortly
-after launch, where before it needed you to wake it first. (Agent automations
-are not gated by the light; see "Running automations".) Scheduled runs are held for
-the first two minutes after launch so there is time to pause, and all three
-execution gates still apply — see "Running automations" above.
+Agent automations are not gated by the light; see "Running automations".
 
 To stop, right-click the orb for the menu and use the watching control there —
 a left click records now rather than pausing. The
@@ -422,7 +433,7 @@ its own section rather than a line in a table.
 
 **What changed.** Until recently the conversation existed only inside the chat
 panel. Closing the panel lost it; nothing was ever written to disk. It is now
-stored in `fren.db`, so that it can be read back in the big window — everything
+stored in `fren.db`, so that the chat can show it again after a relaunch — everything
 you say to fren, and everything it says to you, in plain text in a local SQLite
 file.
 
@@ -441,10 +452,10 @@ something you said.
 transcript that outlived the observations it discusses would leave the most
 sensitive thing here as the longest-lived, which is the wrong way round.
 
-**You can drop it at any time**, without touching anything else: the Chat
-section of the big window has *Forget this conversation*, and it does exactly
-that and nothing more. There is no confirmation dialog, because this is the
-direction you are entitled to take without being argued with.
+**You can drop it at any time**, without touching anything else: say or type
+*"forget this conversation"*. fren asks once — *Yes, forget it* or *Keep it* —
+because a sentence can be misheard in a way a button could not, and a yes
+deletes the stored transcript and nothing more.
 
 **Is this a change in kind?** Honestly, partly. fren already kept window titles,
 screenshots and daily observation logs — arguably more revealing than a chat
@@ -472,9 +483,9 @@ decline any. Windows needs none of them for window titles; Linux needs
 
 | Permission | Used for | Without it |
 |---|---|---|
-| Screen Recording | Screenshots | No screenshots; app names + window titles only |
+| Screen Recording | The one screenshot you ask for ("look at my screen") | That look is refused; nothing else changes |
 | Accessibility | Window titles (via System Events) | App names only |
-| Microphone | Push-to-talk voice input | Mic button disabled; typing still works |
+| Microphone | The wake word, conversations, and dictating a message | No wake word, no conversations, mic button disabled; typing still works |
 
 How they are requested: the first time you wake fren up, the window-title
 lookup triggers the Accessibility/Automation prompt, and fren makes one

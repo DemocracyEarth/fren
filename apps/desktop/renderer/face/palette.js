@@ -309,8 +309,8 @@
   /**
    * The orb's LOOK: everything about the body that is not the colour itself.
    * Mixed by eye in a live tuning session against a reference image, and now
-   * the single source — the shader's uniforms, the lights, the dashboard's
-   * "Advanced look" sliders and the sanitizer below all read from here.
+   * the single source — the shader's uniforms, the lights and the sanitizer
+   * below all read from here.
    */
   const ORB_LOOK = {
     goldH: -3.5, goldS: 60, goldL: 9,          // the top-left stop, offsets from the base

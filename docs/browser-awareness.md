@@ -17,7 +17,7 @@ awareness reuses each one rather than inventing a parallel:
 | Persisted settings | `memory` settings table; the `orbLook` pattern: one sanitizer at the single point of entry | `browser*` settings keys, sanitized in the sensor module |
 | State broadcast | `main/state.js` → `fren:state` push to renderers | light status only (never page content) rides the same bus |
 | Context assembly | `answer()`/chat in `main/index.js` → `gateway.chat` → `intelligence.buildChatRequest` | the request gains an optional `browser` block |
-| Settings UI | dashboard `switchRow`/`fieldRow`/`setting-block` idiom | a "Browser awareness" block in Settings, debug readout included |
+| Settings | none of its own: fren's own business is managed by asking (`main/own-business.js`) | *"don't read this site"*, *"stop reading pages"*, *"stop watching my browser"* |
 | Tests | pure modules + `node --test` | sensor core, extraction, transport, protocol all pure and covered |
 
 ## Architecture
@@ -94,9 +94,9 @@ one file.
   `lib/extract.js` (pure, node-tested), `README.md` (dev install).
 - `apps/desktop/main/browser-sensor.js` — pure core, no Electron imports.
 - `apps/desktop/main/browser-transport.js` — the loopback server.
-- Dashboard Settings → "Browser awareness": switches, exclusions, status
-  ("Chrome · Connected ✓" / "Extension not installed · Enable"), and the
-  live sensor readout that doubles as the debug view.
+- No settings screen. The switches and the exclusion list are changed by
+  asking in the chat (`main/own-business.js` → `applyBrowserSettings`), and
+  the `[browser]` log lines are the debug view.
 - Tests: `apps/desktop/test/browser-sensor.test.js`,
   `browser-transport.test.js`, `apps/browser-extension/test/extract.test.js`.
 
@@ -106,15 +106,13 @@ one file.
 2. Chrome → `chrome://extensions` → Developer mode → *Load unpacked* →
    `apps/browser-extension/`
 3. fren shows the consent dialog; Allow.
-4. Browse. `[browser]` log lines and the Settings readout update live.
+4. Browse. `[browser]` log lines update live.
 
 ## The meta-prompt
 
 How fren is told to think about the page lives in
 `packages/intelligence/index.js` — `classifyPage`, `browserSense`,
-`formatBrowser` — and is pinned by `test/browser-prompt.test.js`. You can
-watch the live version in the dashboard: Settings → Browser awareness →
-*What fren is told*.
+`formatBrowser` — and is pinned by `test/browser-prompt.test.js`.
 
 When (and only when) a non-excluded page is in view, the **system prompt**
 gains:

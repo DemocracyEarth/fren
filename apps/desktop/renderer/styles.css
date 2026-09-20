@@ -361,41 +361,6 @@ body[data-watching="1"] #watch-dot {
   box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.18);
 }
 
-/* Patterns, memory, automations and routines all live in the dashboard now, so
- * this is the ONLY way through to any of them. As an unlabelled icon beside the
- * quit cross it read as a minor control; it is the primary navigation of this
- * window and has to be worth its place. */
-#open-dash {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 11px 5px 9px;
-  min-height: 26px;
-  border: 1px solid rgba(26, 23, 18, .14);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--ink-soft);
-  font-size: 12px;
-  font-weight: 600;
-  transition: background .18s var(--ease-soft), color .18s var(--ease-soft),
-              border-color .18s var(--ease-soft);
-}
-#open-dash:hover { background: rgba(26, 23, 18, .06); color: var(--ink); }
-#open-dash svg { flex: none; }
-#dash-dot {
-  position: absolute;
-  top: -1px;
-  right: -1px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--orange);
-  /* The header's own ground. --paper does not exist in tokens.css, so the
-   * previous var(--paper, …) here was always falling through to its default. */
-  box-shadow: 0 0 0 2px var(--bone);
-}
-
 /* The wordmark, as a mask rather than inline paths.
  *
  * One copy of the artwork lives in wordmark.svg and both windows point at it,
@@ -426,26 +391,14 @@ body[data-watching="1"] #watch-dot {
 
 button { font-family: inherit; -webkit-app-region: no-drag; cursor: pointer; }
 
-.ghost {
-  border: 1px solid rgba(26, 23, 18, .16);
-  background: transparent;
-  color: var(--ink-soft);
-  font-size: 12px;
-  font-weight: 600;
-  padding: 5px 11px;
-  border-radius: 999px;
-  transition: background .18s var(--ease-soft), color .18s var(--ease-soft);
-}
-.ghost:hover { background: rgba(26, 23, 18, .06); color: var(--ink); }
-
 /*
- * The traffic lights.
+ * The traffic light. There is one, and it quits.
  *
- * macOS colours, macOS behaviour: blank dots at rest, glyphs on the whole
- * group when any of them is hovered — the glyph tells you what a dot does at
- * the moment you could do it, and stays out of the way otherwise. The dots are
- * 12px like the real ones, but the BUTTONS are bigger than they look: a 12px
- * target is a miss waiting to happen, so the padding carries the hit area.
+ * macOS colour, macOS behaviour: a blank dot at rest, its glyph when hovered —
+ * the glyph tells you what the dot does at the moment you could do it, and
+ * stays out of the way otherwise. The dot is 12px like the real one, but the
+ * BUTTON is bigger than it looks: a 12px target is a miss waiting to happen,
+ * so the padding carries the hit area.
  */
 #lights { display: inline-flex; gap: 2px; align-items: center; }
 .light {
@@ -467,24 +420,10 @@ button { font-family: inherit; -webkit-app-region: no-drag; cursor: pointer; }
   font-weight: 700;
   color: transparent;        /* glyph hidden until the group is hovered */
 }
-#light-quit   > span:first-child { background: #ff5f57; }
-#light-min    > span:first-child { background: #febc2e; }
-#light-expand > span:first-child { background: #28c840; }
+#light-quit > span:first-child { background: #ff5f57; }
 #lights:hover .light > span:first-child { color: rgba(0, 0, 0, 0.55); }
 .light:active > span:first-child { filter: brightness(0.85); }
 .light:focus-visible { outline: 2px solid var(--gold, #c90); outline-offset: 1px; border-radius: 8px; }
-
-/* Something is waiting in the big window: a speck on the green light, in the
- * same place the old Expand button wore it. */
-#dash-dot {
-  position: absolute;
-  top: 2px;
-  right: 0;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--gold, #c90);
-}
 
 /* ------------------------------------------------------------- messages */
 #messages {
@@ -727,161 +666,6 @@ button { font-family: inherit; -webkit-app-region: no-drag; cursor: pointer; }
  * display on nearly everything. Rather than chase them one at a time, hidden
  * wins everywhere inside the panel. */
 #panel [hidden] { display: none !important; }
-
-/* ---- what fren noticed ---------------------------------------------------
- * The card from the reference: a quiet label, the observation in the user's
- * own terms, and the count that justifies raising it at all. */
-.noticed {
-  background: #fff;
-  border: 1px solid rgba(26, 23, 18, 0.07);
-  border-radius: 16px;
-  padding: 13px 14px;
-  margin-bottom: 10px;
-  box-shadow: 0 1px 2px rgba(24, 16, 6, 0.04), 0 4px 14px rgba(24, 16, 6, 0.05);
-}
-.noticed-head {
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
-  margin-bottom: 5px;
-}
-.noticed-head b { font-size: 12.5px; color: var(--orange-ink); font-weight: 700; }
-.noticed-head time { font-size: 11px; color: var(--ink-soft); margin-left: auto; }
-.noticed p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--ink); }
-.noticed .pattern-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 9px;
-  padding-top: 9px;
-  border-top: 1px solid rgba(26, 23, 18, 0.06);
-  font-size: 12px;
-  color: var(--ink-soft);
-}
-.noticed .count {
-  margin-left: auto;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(var(--accent-rgb), 0.13);
-  color: var(--orange-ink);
-  font-weight: 700;
-  font-size: 11.5px;
-  white-space: nowrap;
-}
-
-/* ---- empty states -------------------------------------------------------- */
-.blank {
-  text-align: center;
-  padding: 30px 18px;
-  color: var(--ink-soft);
-}
-.blank strong {
-  display: block;
-  font-size: 14px;
-  color: var(--ink);
-  margin-bottom: 5px;
-  font-weight: 600;
-}
-.blank span { font-size: 12.5px; line-height: 1.55; }
-
-/* ---- memory files -------------------------------------------------------- */
-/* ---- what can be done about a pattern -----------------------------------
- * A primary action and a way out, matching the reference. There is no "run"
- * button anywhere, because fren proposes and does not act — the script is
- * here to be read. */
-.noticed .actions {
-  display: flex;
-  gap: 7px;
-  margin-top: 11px;
-}
-.noticed .actions button {
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
-  padding: 8px 13px;
-  border-radius: 11px;
-  cursor: pointer;
-  transition: filter .15s var(--ease-soft), background .15s var(--ease-soft);
-}
-.noticed .actions .primary {
-  border: 0;
-  background: var(--accent-solid);
-  color: var(--on-accent);
-  box-shadow: 0 1px 2px rgba(var(--accent-shadow-rgb), 0.25);
-}
-.noticed .actions .primary:hover:not(:disabled) { filter: brightness(1.06); }
-.noticed .actions .primary:disabled { opacity: 0.6; cursor: default; }
-.noticed .actions .ghost {
-  border: 1px solid rgba(26, 23, 18, 0.12);
-  background: transparent;
-  color: var(--ink-soft);
-}
-.noticed .actions .ghost:hover { background: rgba(26, 23, 18, 0.05); color: var(--ink); }
-
-.draft { margin-top: 11px; }
-.draft-approach {
-  margin: 0 0 8px;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--ink);
-}
-.draft-steps {
-  margin: 0 0 10px;
-  padding-left: 18px;
-  font-size: 12.5px;
-  line-height: 1.6;
-  color: var(--ink-soft);
-}
-.draft-steps li { margin-bottom: 2px; }
-.draft-script-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 5px;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ink-soft);
-}
-.draft-script-head .tiny {
-  margin-left: auto;
-  padding: 3px 9px;
-  font-size: 11px;
-  text-transform: none;
-  letter-spacing: 0;
-  border-radius: 8px;
-  border: 1px solid rgba(26, 23, 18, 0.12);
-  background: transparent;
-  color: var(--ink-soft);
-  cursor: pointer;
-}
-.draft-script-head .tiny:hover { background: rgba(26, 23, 18, 0.05); color: var(--ink); }
-.draft-script {
-  margin: 0;
-  padding: 10px 11px;
-  border-radius: 11px;
-  background: #1B1913;
-  color: #E9E0CE;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11.5px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 200px;
-  overflow-y: auto;
-}
-.draft-note {
-  margin: 8px 0 0;
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: var(--orange-ink);
-}
-.draft-caveats {
-  margin: 7px 0 0;
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: var(--ink-soft);
-}
 
 /* ---- composer, refined ---------------------------------------------------
  * The old one was a pill on a flat strip. This sits on its own surface, lifts

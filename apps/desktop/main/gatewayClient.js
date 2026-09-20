@@ -100,7 +100,6 @@ module.exports = {
   extract: (payload) => request('/v1/extract', { method: 'POST', body: payload, timeoutMs: 20_000 }),
   pattern: (payload) => request('/v1/pattern', { method: 'POST', body: payload, timeoutMs: 60_000 }),
   vision: (payload) => request('/v1/vision', { method: 'POST', body: payload, timeoutMs: 90_000 }),
-  automate: (payload) => request('/v1/automate', { method: 'POST', body: payload, timeoutMs: 90_000 }),
   routine: (payload) => request('/v1/routine', { method: 'POST', body: payload, timeoutMs: 30_000 }),
   curious: (payload) => request('/v1/curious', { method: 'POST', body: payload, timeoutMs: 45_000 }),
   suggest: (payload) => request('/v1/suggest', { method: 'POST', body: payload, timeoutMs: 45_000 }),
@@ -115,7 +114,6 @@ module.exports = {
   greet: (payload) => request('/v1/greet', { method: 'POST', body: payload, timeoutMs: 8_000 }),
 
   // ---- FREN Core: runs and the secure execution environment ----------------
-  runtimeStatus: () => request('/v1/runtime/status', { timeoutMs: 5_000 }),
   // The chosen chat model, for the agent that answers typed chat. The fast
   // lane gets it in every POST body (withOverrides); the agent's calls never
   // pass through here, so the gateway has to be told. Null: back to default.
@@ -123,7 +121,6 @@ module.exports = {
   // Accepted, not answered: the answer arrives as events.
   startRun: (payload) => request('/v1/runs', { method: 'POST', body: payload, timeoutMs: 15_000 }),
   getRun: (id) => request(`/v1/runs/${encodeURIComponent(id)}`, { timeoutMs: 10_000 }),
-  cancelRun: (id) => request(`/v1/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: {}, timeoutMs: 10_000 }),
 
   // ---- FREN Core: automations that run an agent -----------------------------
   automationIntent: (text) => request('/v1/automations/intent', { method: 'POST', body: { text }, timeoutMs: 30_000 }),

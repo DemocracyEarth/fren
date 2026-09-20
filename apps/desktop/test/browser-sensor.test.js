@@ -113,6 +113,19 @@ test('excluding the site you are looking at drops the page already held', () => 
   assert.equal(ctx.selection, null);
 });
 
+test('"stop reading pages" and "stop reading what I select" drop what is already held', () => {
+  const { sensor } = harness();
+  sensor.ingest(page());
+  sensor.ingest({ type: 'selection', text: 'some selected words' });
+  assert.ok(sensor.getContext().page.content, 'held before');
+  assert.ok(sensor.getContext().selection, 'held before');
+  sensor.configure({ readPage: false, readSelection: false });
+  const ctx = sensor.getContext();
+  assert.equal(ctx.page.content, '');
+  assert.equal(ctx.selection, null);
+  assert.equal(ctx.tab.domain, 'example.com', 'which page it is stays known: that is what was promised');
+});
+
 test('an excluded domain keeps its content out even if the extension sent it', () => {
   // The second enforcement: a stale extension config must not be enough to
   // leak a banking page into fren.

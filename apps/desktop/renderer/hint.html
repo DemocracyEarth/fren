@@ -15,7 +15,7 @@
    * surface disagreed. A tooltip in a separate window never touches the orb's
    * window at all, so the failure is not rare any more, it is impossible.
    *
-   * Everything here is deliberately slight: one line, one wash, a tail. The
+   * Everything here is deliberately slight: a line or two, one wash, a tail. The
    * card language is the chat's — same wash-over-cream the bubble tail wears,
    * same white hairline — at whisper volume.
    */
@@ -48,6 +48,10 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  #card .row { overflow: hidden; text-overflow: ellipsis; }
+  /* Two rows — how to talk, then what the hands do — stop being a pill. The
+     window (HINT_WIN, 84px) has 58px between its paddings; two rows are 47. */
+  #card.rows { border-radius: 14px; text-align: center; }
   /* A held thought is a sentence, not a list; let it take two lines. */
   #card.note {
     white-space: normal;

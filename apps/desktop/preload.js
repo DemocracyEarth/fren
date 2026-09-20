@@ -8,53 +8,28 @@ contextBridge.exposeInMainWorld('fren', {
   aimPanel: () => ipcRenderer.invoke('fren:aimPanel'),
   // The orb's tooltip — its own little window, never a resize of this one.
   setHint: (open, info) => ipcRenderer.invoke('fren:setHint', open, info),
-  // Browser awareness: status + settings for the dashboard, and the live
-  // sensor state pushed to any window that cares. Never page content.
-  getBrowserState: () => ipcRenderer.invoke('fren:getBrowserState'),
-  getBrowserPrompt: () => ipcRenderer.invoke('fren:getBrowserPrompt'),
-  // Ask fren to have a thought right now, if it has one. Silence is honest.
-  nudge: () => ipcRenderer.invoke('fren:nudge'),
-  setBrowserSettings: (patch) => ipcRenderer.invoke('fren:setBrowserSettings', patch),
+  // Browser awareness: the first-run offer to set it up. Its switches and its
+  // exclusions are changed by asking (ownBusiness below), never from here.
   openBrowserExtension: () => ipcRenderer.invoke('fren:openBrowserExtension'),
-  onBrowserState: (fn) => ipcRenderer.on('fren:browserState', (_e, s) => fn(s)),
   onBrowserSetup: (cb) => ipcRenderer.on('fren:browserSetup', (_e, s) => cb(s)),
   onBrowserConnected: (cb) => ipcRenderer.on('fren:browserConnected', () => cb()),
   dismissBrowserSetup: () => ipcRenderer.invoke('fren:dismissBrowserSetup'),
-  // The orb's advanced look: read, write (null clears), and hear about changes.
+  // A look tuned in an earlier version, still worn. Read only.
   getOrbLook: () => ipcRenderer.invoke('fren:getOrbLook'),
-  setOrbLook: (look) => ipcRenderer.invoke('fren:setOrbLook', look),
-  onOrbLook: (fn) => ipcRenderer.on('fren:orbLook', (_e, look) => fn(look)),
   quit: () => ipcRenderer.invoke('fren:quit'),
   getProfile: () => ipcRenderer.invoke('fren:getProfile'),
   setProfile: (p) => ipcRenderer.invoke('fren:setProfile', p),
   extractSetup: (p) => ipcRenderer.invoke('fren:extractSetup', p),
-  readSoul: () => ipcRenderer.invoke('fren:readSoul'),
-  readLog: (name) => ipcRenderer.invoke('fren:readLog', name),
   openDataFolder: () => ipcRenderer.invoke('fren:openDataFolder'),
   lookAtScreen: (text) => ipcRenderer.invoke('fren:lookAtScreen', text),
   audioSilenced: () => ipcRenderer.invoke('fren:audioSilenced'),
-  getSuggestions: () => ipcRenderer.invoke('fren:getSuggestions'),
-  openDashboard: () => ipcRenderer.invoke('fren:openDashboard'),
-  collapse: () => ipcRenderer.invoke('fren:collapse'),
   messages: () => ipcRenderer.invoke('fren:messages'),
   clearMessages: () => ipcRenderer.invoke('fren:clearMessages'),
-  days: () => ipcRenderer.invoke('fren:days'),
-  day: (d) => ipcRenderer.invoke('fren:day', d),
-  routines: () => ipcRenderer.invoke('fren:routines'),
   maybeRoutine: (t) => ipcRenderer.invoke('fren:maybeRoutine', t),
   setRoutineEnabled: (id, on) => ipcRenderer.invoke('fren:setRoutineEnabled', id, on),
   deleteRoutine: (id) => ipcRenderer.invoke('fren:deleteRoutine', id),
   onRoutineRan: (cb) => ipcRenderer.on('fren:routineRan', (_e, r) => cb(r)),
   onGreet: (cb) => ipcRenderer.on('fren:greet', (_e, g) => cb(g)),
-  automations: () => ipcRenderer.invoke('fren:automations'),
-  keepAutomation: (sid) => ipcRenderer.invoke('fren:keepAutomation', sid),
-  approveAutomation: (id, hash) => ipcRenderer.invoke('fren:approveAutomation', id, hash),
-  revokeAutomation: (id) => ipcRenderer.invoke('fren:revokeAutomation', id),
-  runAutomation: (id) => ipcRenderer.invoke('fren:runAutomation', id),
-  scheduleAutomation: (id, s) => ipcRenderer.invoke('fren:scheduleAutomation', id, s),
-  deleteAutomation: (id) => ipcRenderer.invoke('fren:deleteAutomation', id),
-  onAutomationRan: (cb) => ipcRenderer.on('fren:automationRan', (_e, r) => cb(r)),
-  automate: (id) => ipcRenderer.invoke('fren:automate', id),
   dismissSuggestion: (id) => ipcRenderer.invoke('fren:dismissSuggestion', id),
   dragStart: () => ipcRenderer.invoke('fren:dragStart'),
   dragEnd: () => ipcRenderer.invoke('fren:dragEnd'),
@@ -80,12 +55,18 @@ contextBridge.exposeInMainWorld('fren', {
     onWake: (cb) => ipcRenderer.on('fren:voice.wake', () => cb()),
     // Whether a line is open — main stands the wake word down meanwhile.
     state: (open) => ipcRenderer.invoke('fren:voice.state', !!open),
+    // What may truthfully be said about the wake word: { armed, phrase, alias,
+    // paused, micBlocked, canConverse, hotkey }. Asked once, then pushed on change.
+    wakeStatus: () => ipcRenderer.invoke('fren:voice.wakeStatus'),
+    onWakeStatus: (cb) => ipcRenderer.on('fren:voice.wakeStatus', (_e, s) => cb(s)),
+    // fren's one explanation of the wake word: the text the first time it is
+    // asked for while true, null ever after.
+    intro: () => ipcRenderer.invoke('fren:voice.intro'),
   },
   // How a held suggestion ended: 'heard' or 'faded'. Feeds the pace governor.
   suggestionOutcome: (kind) => ipcRenderer.invoke('fren:suggestionOutcome', kind),
   onCurious: (cb) => ipcRenderer.on('fren:curious', (_e, q) => cb(q)),
   learn: (question, answer) => ipcRenderer.invoke('fren:learn', question, answer),
-  setVolunteer: (on) => ipcRenderer.invoke('fren:setVolunteer', on),
   greeting: () => ipcRenderer.invoke('fren:greeting'),
   getOrbScale: () => ipcRenderer.invoke('fren:getOrbScale'),
   setOrbScale: (s) => ipcRenderer.invoke('fren:setOrbScale', s),
@@ -94,22 +75,17 @@ contextBridge.exposeInMainWorld('fren', {
   getProviders: () => ipcRenderer.invoke('fren:getProviders'),
   setProviders: (p) => ipcRenderer.invoke('fren:setProviders', p),
   getOrbColour: () => ipcRenderer.invoke('fren:getOrbColour'),
-  setOrbColour: (hex) => ipcRenderer.invoke('fren:setOrbColour', hex),
   onOrbColour: (cb) => ipcRenderer.on('fren:orbColour', (_e, hex) => cb(hex)),
-  getWakeOnLaunch: () => ipcRenderer.invoke('fren:getWakeOnLaunch'),
   setWakeOnLaunch: (on) => ipcRenderer.invoke('fren:setWakeOnLaunch', on),
-  // The secure execution environment: ask fren through it (the answer arrives
-  // as events, not as the return value), stop a run, and read its status.
+  // The secure execution environment: ask fren through it. The answer arrives
+  // as events, not as the return value.
   run: (text) => ipcRenderer.invoke('fren:run', text),
-  cancelRun: (id) => ipcRenderer.invoke('fren:cancelRun', id),
-  runtimeStatus: () => ipcRenderer.invoke('fren:runtimeStatus'),
   // Everything Core reports, to every window: runs, messages, automations,
   // permission requests, the environment's state.
   onCoreEvent: (cb) => ipcRenderer.on('fren:coreEvent', (_e, ev) => cb(ev)),
-  // Automations that run an agent in the secure execution environment. The
-  // older script automations keep their own calls above.
+  // Automations that run an agent in the secure execution environment: made
+  // from a sentence, and paused, run or deleted from the cards fren shows.
   automationIntent: (text) => ipcRenderer.invoke('fren:automationIntent', text),
-  agentAutomations: () => ipcRenderer.invoke('fren:agentAutomations'),
   createAgentAutomation: (spec) => ipcRenderer.invoke('fren:createAgentAutomation', spec),
   patchAgentAutomation: (id, patch) => ipcRenderer.invoke('fren:patchAgentAutomation', id, patch),
   deleteAgentAutomation: (id) => ipcRenderer.invoke('fren:deleteAgentAutomation', id),

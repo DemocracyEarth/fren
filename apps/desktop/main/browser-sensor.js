@@ -247,8 +247,16 @@ function createBrowserSensor({ onEvent, now = Date.now } = {}) {
         state.active = false;
       }
     }
-    if (typeof rp === 'boolean') readPage = rp;
-    if (typeof rs === 'boolean') readSelection = rs;
+    // "Stop reading pages" is said with a page already held. Like an exclusion
+    // below, the promise has to be true at once, not from the next navigation.
+    if (typeof rp === 'boolean') {
+      readPage = rp;
+      if (!rp && state.page && !state.page.excluded) state.page = { ...state.page, content: '', hash: '', truncated: false };
+    }
+    if (typeof rs === 'boolean') {
+      readSelection = rs;
+      if (!rs) state.selection = null;
+    }
     if (ex !== undefined) {
       exclusions = [...DEFAULT_EXCLUSIONS, ...sanitizeExclusions(ex)];
       // "Don't read this site" is said while LOOKING at the site. Without this
@@ -283,7 +291,7 @@ function createBrowserSensor({ onEvent, now = Date.now } = {}) {
     };
   }
 
-  /** Everything the debug view shows; safe to ship to the dashboard. */
+  /** The sensor's state with no page content in it: safe to log or assert on. */
   function debugState() {
     return {
       connected: state.connected,

@@ -4,10 +4,9 @@ const path = require('path');
 const { app, BrowserWindow, ipcMain, screen, protocol, net, shell, dialog, Menu, Notification } = require('electron');
 const arrival = require('./arrival');
 const { pathToFileURL } = require('node:url');
-const fs = require('node:fs');
 const { config, loadEnv } = require('../../../packages/shared');
 const { openMemory } = require('../../../packages/memory');
-const intelligence = require('../../../packages/intelligence');   // page sense, narration, the voice digest
+const intelligence = require('../../../packages/intelligence');   // the voice digest
 const state = require('./state');
 const gateway = require('./gatewayClient');
 const { ensureGateway, stopGateway } = require('./gateway-process');
@@ -20,6 +19,7 @@ const { createCuriosityWatcher } = require('./curiosity');
 const { createProactiveWatcher } = require('./proactive');
 const { createNarrator } = require('./narrator');
 const { createWakeListener } = require('./wake-word');
+const wakeTruth = require('./wake-info');
 const { wakeOnLaunchFrom } = require('./wake');
 const {
   clampInto, offsetInWindow, windowFor, chooseSide,
@@ -29,8 +29,7 @@ const {
 // sanitize the orb-look setting at its single point of entry.
 const palette = require('../renderer/face/palette.js');
 const providerSettings = require('./settings');
-const { createRoutineRunner, nextRunAt, isDue } = require('./routines');
-const executor = require('./executor');
+const { createRoutineRunner, nextRunAt } = require('./routines');
 const whisper = require('./whisper');
 const soul = require('./soul');
 const { createOwnBusiness } = require('./own-business');
@@ -64,21 +63,6 @@ function serveRenderer() {
     const url = new URL(request.url);
     const pathname = decodeURIComponent(url.pathname);
 
-    // fren://shot/<path> serves a stored screenshot to the dashboard.
-    //
-    // This reads a file from a path that arrives in a URL, so it is confined
-    // twice: only under the screenshots directory, and only files whose exact
-    // path the database recorded. A traversal or a guessed path gets nothing,
-    // and no other part of the disk is reachable through this scheme.
-    if (url.hostname === 'shot') {
-      const shotDir = path.join(app.getPath('userData'), 'screenshots');
-      const file = path.resolve(pathname.replace(/^\//, ''));
-      if (path.relative(shotDir, file).startsWith('..') || !path.isAbsolute(file)) {
-        return new Response('forbidden', { status: 403 });
-      }
-      return net.fetch(pathToFileURL(file).toString());
-    }
-
     const file = path.resolve(RENDERER_DIR, '.' + pathname);
     // Never serve anything outside the renderer directory.
     if (path.relative(RENDERER_DIR, file).startsWith('..')) {
@@ -101,19 +85,6 @@ function serveRenderer() {
  * point of the character — is lost. Above double it stops being a thing in the
  * corner of your screen and becomes something you have to work around.
  */
-// Where macOS puts the dashboard's close/minimise/zoom buttons, in window
-// coordinates.
-//
-// THE ONLY PLACE THIS NUMBER LIVES. The stylesheet used to carry its own copy
-// of the resulting centre, which meant moving the buttons up was two edits and
-// forgetting the second left the Collapse button pointing at where they used to
-// be. The page is handed the computed centre on its URL instead, so there is
-// nothing to keep in step.
-const TRAFFIC_LIGHT_Y = 13;
-const TRAFFIC_LIGHT_X = 18;     // inset from the left edge
-const TRAFFIC_LIGHT_H = 12;     // macOS draws them 12px tall
-const trafficCentre = () => TRAFFIC_LIGHT_Y + TRAFFIC_LIGHT_H / 2;
-
 /*
  * CHARACTER_BASE, STAGE_PAD and SHADOW_ROOM come from place.js, which is where
  * the arithmetic that uses them lives. They are the stylesheet's numbers, and
@@ -199,7 +170,6 @@ let win = null;
 let memory = null;
 let gazeTimer = null;
 let drag = null;
-let dash = null;
 let observer = null;
 let browserSensor = null;
 let browserTransport = null;
@@ -211,10 +181,6 @@ let curiosity = null;
 let proactive = null;
 let narrator = null;
 let heartbeat = null;
-// Set once the user has actually chosen to quit, so the dashboard's close
-// handler does not ask again while app.quit() is closing that same window.
-let quitting = false;
-const bootAt = Date.now();
 // When fren was last alive. Written on a heartbeat rather than on quit, because
 // a crash, a force-quit or a logout all skip the tidy exit — and the greeting
 // would then claim a gap of days that was really a gap of minutes.
@@ -222,9 +188,7 @@ let lastSeenAt = null;
 // When the user last said something. Curiosity checks this so a question never
 // lands in the middle of a conversation that is already going.
 let lastChatAt = 0;
-let automationTimer = null;
 let coreEvents = null;      // the push channel from Core, closed on quit
-let automationTickBusy = false;
 
 const log = (...args) => console.log(...args);
 
@@ -414,6 +378,12 @@ function setPanelOpen(open) {
 const HINT_WIN = { width: 380, height: 84 };
 let hintWin = null;
 
+// What may truthfully be said about the wake word right now (wake-info.js).
+// Main owns every fact behind it AND the hover card, so the card asks here
+// instead of having the renderer carry the answer back. Until the wake word is
+// set up it claims nothing.
+let wakeInfo = () => wakeTruth.wakeInfo();
+
 function hideHint() {
   if (hintWin && !hintWin.isDestroyed()) hintWin.destroy();
   hintWin = null;
@@ -438,6 +408,10 @@ function showHint(info) {
   const q = new URLSearchParams();
   if (info.voice) q.set('v', '1');
   if (info.note) q.set('n', String(info.note).slice(0, 200));
+  // The voice row: "say hey fren" only while that would really open a line.
+  const row = wakeTruth.hintVoiceRow(wakeInfo());
+  if (row) q.set('w', row.kind);
+  if (row && row.phrase) q.set('p', row.phrase);
   if (below) q.set('b', '1');
   q.set('tx', String(Math.round(cx - x)));    // where the tail finds the orb
 
@@ -594,7 +568,6 @@ function syncBrowserPolicy() {
     readSelection: memory.getSetting('browserReadSelection') !== 'off',
     exclusions: safeParse(memory.getSetting('browserExclusions'), []),
   });
-  broadcastBrowserState();
 }
 
 function safeParse(s, fallback) {
@@ -602,11 +575,9 @@ function safeParse(s, fallback) {
   catch { return fallback; }
 }
 
-/** Say it to every window, not just the orb. */
-function broadcast(channel, payload) {
-  for (const w of BrowserWindow.getAllWindows()) {
-    if (!w.isDestroyed()) w.webContents.send(channel, payload);
-  }
+/** To the orb's window: the hover card and the models pane listen to nothing. */
+function sendToOrb(channel, payload) {
+  if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
 /**
@@ -647,15 +618,6 @@ function showOsNotification({ title, body }) {
     n.show();
   } catch (err) {
     log(`[notify] could not show: ${err.message}`);
-  }
-}
-
-/** The light status every window may know. Never page content. */
-function broadcastBrowserState() {
-  if (!browserSensor) return;
-  const d = browserSensor.debugState();
-  for (const w of BrowserWindow.getAllWindows()) {
-    if (!w.isDestroyed()) w.webContents.send('fren:browserState', d);
   }
 }
 
@@ -747,7 +709,6 @@ app.whenReady().then(() => {
       else if (type === BROWSER_EVENTS.BROWSER_FOCUSED) { log('[browser] focused'); noteBrowsing('browser'); }
       else if (type === BROWSER_EVENTS.BROWSER_BLURRED) log('[browser] blurred');
       else if (type === BROWSER_EVENTS.PAGE_CLOSED) log('[browser] page closed');
-      broadcastBrowserState();
     },
   });
   browserTransport = createBrowserTransport({
@@ -780,7 +741,7 @@ app.whenReady().then(() => {
   });
   browserTransport.start().catch((err) => {
     // The port being taken must not take fren down with it; the sense is
-    // simply unavailable and the settings UI says so.
+    // simply unavailable.
     log(`[browser] sensor port unavailable: ${err.message}`);
     browserTransport = null;
   });
@@ -878,15 +839,6 @@ app.whenReady().then(() => {
     },
   });
 
-  // "Any thoughts?" — the same moment machinery, on demand. force skips the
-  // timing gates (you ASKED, so the timing is right by definition); the
-  // model's own bar and the topic dedup still apply, so silence stays an
-  // honest answer.
-  ipcMain.handle('fren:nudge', async () => {
-    const found = await proactive.consider('check-in', {}, true);
-    return { spoke: !!found };
-  });
-
   // Routines: the same questions, at times the user chose. The runner refuses
   // to fire while paused, and a missed one expires rather than arriving hours
   // late — see routines.js.
@@ -903,57 +855,6 @@ app.whenReady().then(() => {
     },
   });
   routines.start();
-
-  // Scheduled execution rides the same clock and the same rules as routines:
-  // nothing fires while fren is paused, and a missed run expires rather than
-  // arriving hours late. Crucially it still goes through runAutomation, so the
-  // approval hash is re-checked against the current script at the moment of
-  // running — a schedule is permission to run a SPECIFIC script, not a standing
-  // permission to run whatever now sits under that name.
-  automationTimer = setInterval(async () => {
-    // The tick is async and nothing awaits it, so without this the next tick
-    // starts while this one is still inside a running script.
-    if (automationTickBusy) return;
-    if (!state.get().observing) return;
-    // fren now starts awake, and `observing` is what gates scheduled runs — so
-    // without this, "runs while I have fren watching" quietly became "runs on
-    // every launch", and a slot missed while the machine was off would fire
-    // during the first seconds of the next boot. The grace is small on purpose:
-    // enough to notice and pause, no change at all for a fren left running.
-    if (Date.now() - bootAt < 2 * 60 * 1000) return;
-
-    let due = [];
-    try {
-      due = memory.getAutomations().filter((a) => {
-        if (!a.schedule || !a.schedule.enabled || !a.verified) return false;
-        return isDue({ ...a.schedule, enabled: true, lastRun: a.lastRun }, Date.now());
-      });
-    } catch (err) {
-      log(`[automation] could not read the schedule: ${err.message}`);
-      return;
-    }
-    if (!due.length) return;
-
-    automationTickBusy = true;
-    try {
-      for (const a of due) {
-        // Re-checked per item, not just at the top: pausing partway through a
-        // batch should stop the rest of it.
-        if (!state.get().observing) break;
-        const result = await runAutomation(a.id, 'scheduled');
-        if (win && !win.isDestroyed()) {
-          win.webContents.send('fren:automationRan', { name: a.name, status: result.status });
-        }
-      }
-    } catch (err) {
-      // An escaping error here would kill the interval and silently end all
-      // future scheduled runs.
-      log(`[automation] scheduled run failed: ${err.message}`);
-    } finally {
-      automationTickBusy = false;
-    }
-  }, 30 * 1000);
-  if (automationTimer.unref) automationTimer.unref();
 
   // Read BEFORE the first beat overwrites it: this is how long fren was gone,
   // and it is the one thing the greeting is built from.
@@ -983,7 +884,7 @@ app.whenReady().then(() => {
   createWindow();
 
   // fren wakes up when it launches. This is the owner's decision, and it can be
-  // reversed — at setup, from the Memory pane, or by tapping the orb.
+  // reversed — at setup, by saying so, or by tapping the orb.
   //
   // It is a real trade, and worth naming: being lit means fren IS watching, so
   // capture begins before anyone has said anything this session. Two things
@@ -1031,13 +932,19 @@ app.whenReady().then(() => {
     });
   }
 
-  // Every window: the dashboard shows the light and the environment too, and
-  // it used to hear about neither because this only reached the orb.
-  state.subscribe((s) => broadcast('fren:stateChanged', s));
+  // Every window, not just the orb: the models pane shows what is running too.
+  state.subscribe((s) => sendToOrb('fren:stateChanged', s));
 
+  // Whether the gateway has a voice agent to open a line to (/health), and the
+  // push that tells the renderer what it may say about the wake word. The real
+  // push is assigned where the wake word is set up, further down.
+  let voiceAgent = false;
+  let pushWakeStatus = () => {};
   const checkHealth = async () => {
     try {
       const health = await gateway.health();
+      // Before gatewayOk flips, so the one push that follows carries both.
+      voiceAgent = !!(health && health.voiceAgent);
       if (!state.get().gatewayOk) state.set({ gatewayOk: true });
       // Whether the screen-looking button can be offered at all depends on a
       // model that can actually see; DeepSeek's chat models cannot.
@@ -1048,6 +955,9 @@ app.whenReady().then(() => {
       // memory, which a gateway restart empties. Say it again whenever the
       // gateway has not heard it: at launch, and after any restart.
       if (providerSettings.runtimeModelStale(health, providerSettings.read(memory))) tellRuntimeModel();
+      // A cold gateway answers its first health check late; whether "say hey
+      // fren" may be promised changes right here, not on any wake event.
+      pushWakeStatus();
     } catch {
       if (state.get().gatewayOk) state.set({ gatewayOk: false });
       noteRuntime(null);
@@ -1098,20 +1008,12 @@ app.whenReady().then(() => {
       // content lives only here; hand back this one page, or an absence.
       respondBrowserRead(e.id);
     }
-    broadcast('fren:coreEvent', e);
+    sendToOrb('fren:coreEvent', e);
   }
   coreEvents = gateway.openEvents({
     since: 'latest',
     onEvent: handleCoreEvent,
     onStatus: (status, detail) => { if (status === 'disconnected') log(`[core] events ${status}${detail ? `: ${detail}` : ''}`); },
-  });
-
-  ipcMain.handle('fren:runtimeStatus', async () => {
-    try { return await gateway.runtimeStatus(); } catch (err) { return { status: { state: 'unavailable', reason: err.message }, kind: null }; }
-  });
-
-  ipcMain.handle('fren:cancelRun', async (_e, id) => {
-    try { return await gateway.cancelRun(String(id)); } catch (err) { return { error: err.message }; }
   });
 
   // Automations that run an agent: FREN's model, kept by Core. Every call is
@@ -1121,7 +1023,6 @@ app.whenReady().then(() => {
     try { return await fn(...args); } catch (err) { return { error: err.message }; }
   };
   ipcMain.handle('fren:automationIntent', passthrough((text) => gateway.automationIntent(String(text ?? '').trim().slice(0, 2000))));
-  ipcMain.handle('fren:agentAutomations', passthrough(async () => (await gateway.agentAutomations()).automations));
   ipcMain.handle('fren:createAgentAutomation', passthrough(async (spec) => (await gateway.createAgentAutomation(spec && typeof spec === 'object' ? spec : {})).automation));
   ipcMain.handle('fren:patchAgentAutomation', passthrough(async (id, patch) => (await gateway.patchAgentAutomation(String(id), patch && typeof patch === 'object' ? patch : {})).automation));
   ipcMain.handle('fren:deleteAgentAutomation', passthrough((id) => gateway.deleteAgentAutomation(String(id))));
@@ -1181,39 +1082,6 @@ app.whenReady().then(() => {
     return { side: how.side, drop: how.drop };
   });
 
-  /*
-   * The orb's LOOK — the advanced appearance settings in the dashboard.
-   * Everything passes through the palette's sanitizeLook on the way in, so
-   * the stored value is always in range and "reset to default" is stored as
-   * nothing at all. Changed in the dashboard, worn in the orb's window, so a
-   * change travels as a broadcast like the colour does.
-   */
-  // Browser awareness: status for the settings block and the debug readout,
-  // the switches, and the exclusion list. Everything passes syncBrowserPolicy
-  // so the sensor, the stored settings and the extension's policy agree.
-  // The meta-prompt, live: exactly what would enter the model's prompt about
-  // the browser if the user asked something right now. The dashboard shows it
-  // so the behaviour is inspectable rather than folklore.
-  ipcMain.handle('fren:getBrowserPrompt', () => {
-    const b = currentBrowserContext();
-    const block = intelligence.formatBrowser(b);
-    if (!block) return { present: false, system: '', message: '' };
-    const kind = intelligence.classifyPage({
-      url: b.tab.url, domain: b.tab.domain,
-      contentType: (b.page || {}).contentType,
-    });
-    return { present: true, kind, system: intelligence.browserSense(kind), message: block };
-  });
-
-  ipcMain.handle('fren:getBrowserState', () => ({
-    available: !!browserTransport,
-    paired: !!(browserTransport && browserTransport.hasPairs()),
-    awareness: memory.getSetting('browserAwareness') !== 'off',
-    readPage: memory.getSetting('browserReadPage') !== 'off',
-    readSelection: memory.getSetting('browserReadSelection') !== 'off',
-    exclusions: safeParse(memory.getSetting('browserExclusions'), []),
-    sensor: browserSensor ? browserSensor.debugState() : null,
-  }));
   // A function rather than a handler body: saying "don't read this site" in
   // the chat has to mean exactly what flipping the switch meant.
   function applyBrowserSettings(patch) {
@@ -1228,7 +1096,6 @@ app.whenReady().then(() => {
     syncBrowserPolicy();
     return safeParse(memory.getSetting('browserExclusions'), []);
   }
-  ipcMain.handle('fren:setBrowserSettings', (_e, patch) => applyBrowserSettings(patch));
   // "Enable" / "Add to Chrome": once the extension is on the Web Store this
   // opens its listing (one click); until then it opens the unpacked folder so
   // the developer path can load it. One flag decides which.
@@ -1246,13 +1113,6 @@ app.whenReady().then(() => {
     try { return palette.sanitizeLook(JSON.parse(memory.getSetting('orbLook') || 'null')); }
     catch { return null; }
   });
-  ipcMain.handle('fren:setOrbLook', (_e, raw) => {
-    const look = palette.sanitizeLook(raw);
-    memory.setSetting('orbLook', look ? JSON.stringify(look) : '');
-    if (win && !win.isDestroyed()) win.webContents.send('fren:orbLook', look);
-    return look;
-  });
-
   // The governor's food: the renderer says how each held suggestion ended,
   // and fren's forwardness drifts to match. See paceFor in proactive.js.
   ipcMain.handle('fren:suggestionOutcome', (_e, kind) => {
@@ -1282,7 +1142,6 @@ app.whenReady().then(() => {
     app.dock.setMenu(Menu.buildFromTemplate([
       { label: 'Bring fren back', click: () => recenter() },
       { label: 'Open the chat', click: () => { setPanelOpen(true); recenter(); } },
-      { label: 'Open the dashboard', click: () => openDashboard() },
     ]));
   }
 
@@ -1470,21 +1329,27 @@ app.whenReady().then(() => {
   /**
    * remember: something they said, weighed the same way a curiosity answer is.
    * One function for the spoken line and for a typed "remember that …", so a
-   * note is kept by the same judgement however it was said.
+   * note lands in the same place however it was said.
    */
   async function rememberNote(note, tag) {
     const said = String(note || '').trim().slice(0, 500);
     if (!said) return { kept: false };
+    let fact = '';
     try {
-      const { worthKeeping, fact } = await gateway.learn({ question: 'Something they said in conversation', answer: said });
-      if (!worthKeeping || !fact) return { kept: false };
-      const kept = soul.rememberFact(userDataDir(), fact);
-      if (kept) log(`[${tag}] kept one thing from the conversation`);   // PRIVACY: that, never what
-      return { kept };
+      const weighed = await gateway.learn({ question: 'Something they said in conversation', answer: said });
+      if (weighed.worthKeeping) fact = weighed.fact || '';
     } catch (err) {
       log(`[${tag}] could not weigh that: ${err.message}`);
-      return { kept: false };
     }
+    // A typed or dictated "remember that …" is an instruction from the owner,
+    // so the model only gets to tidy the wording: if it declines, or cannot be
+    // reached, their own words are kept. The voice agent's tool is a model
+    // deciding what to file, and stays behind the judgement.
+    if (!fact && tag === 'chat') fact = said;
+    if (!fact) return { kept: false };
+    const kept = soul.rememberFact(userDataDir(), fact);
+    if (kept) log(`[${tag}] kept one thing from the conversation`);   // PRIVACY: that, never what
+    return { kept };
   }
   ipcMain.handle('fren:voice.remember', (_e, note) => rememberNote(note, 'voice'));
 
@@ -1503,11 +1368,13 @@ app.whenReady().then(() => {
   // Alfred (Option+Space); FREN_TALK_KEY overrides it. A key already taken by
   // another app simply fails to register, and the log says so.
   const talkKey = String(process.env.FREN_TALK_KEY || 'CommandOrControl+Shift+Space');
+  let hotkeyOk = false;            // only a key that really registered is ever named to the owner
   try {
     const { globalShortcut } = require('electron');
     const ok = globalShortcut.register(talkKey, () => {
       if (win && !win.isDestroyed()) win.webContents.send('fren:voice.toggle');
     });
+    hotkeyOk = !!ok;
     log(ok ? `[voice] hotkey ${talkKey}` : `[voice] hotkey ${talkKey} is taken by another app; set FREN_TALK_KEY to use a different one`);
     app.on('will-quit', () => { try { globalShortcut.unregisterAll(); } catch { /* going anyway */ } });
   } catch (err) {
@@ -1528,12 +1395,53 @@ app.whenReady().then(() => {
   let voiceLineOpen = false;
   let wakeWord = null;
   let syncWakeWord = () => {};
-  ipcMain.handle('fren:voice.state', (_e, open) => { voiceLineOpen = !!open; syncWakeWord(); });
+  ipcMain.handle('fren:voice.state', (_e, open) => { voiceLineOpen = !!open; syncWakeWord(); pushWakeStatus(); });
+  // The keyword the listener gets and the phrase a person can be told to say
+  // come from one derivation, so the interface can never quote a phrase the
+  // engine is not listening for.
+  const spoken = wakeTruth.wakePhrase(process.env.FREN_WAKE_KEYWORD, path.join(app.getPath('userData'), 'wake', 'hey-fren.onnx'));
+  const hotkey = wakeTruth.hotkeyLabel({ custom: process.env.FREN_TALK_KEY, registered: hotkeyOk });
+  wakeInfo = () => wakeTruth.wakeInfo({
+    status: wakeWord ? wakeWord.status() : null,
+    observing: state.get().observing,
+    gatewayOk: state.get().gatewayOk,
+    voiceAgent,
+    phrase: spoken.phrase,
+    alias: spoken.alias,
+    hotkey,
+  });
+  let lastWakeStatus = '';
+  pushWakeStatus = () => {
+    const info = wakeInfo();
+    const json = JSON.stringify(info);
+    if (json === lastWakeStatus) return;          // asked often, said only when it changed
+    lastWakeStatus = json;
+    if (win && !win.isDestroyed()) win.webContents.send('fren:voice.wakeStatus', info);
+  };
+  ipcMain.handle('fren:voice.wakeStatus', () => wakeInfo());
+  // The one explanation of "hey fren", once, for new and existing owners alike
+  // (wake-info.js has the words). The renderer asks when it sees the wake word
+  // really listening and is free to say something; it gets the text exactly
+  // once, and only while every sentence in it is true. Asking IS the telling —
+  // it is written to the transcript and marked here, in one step — so nothing
+  // the renderer does afterwards can make fren explain itself twice.
+  ipcMain.handle('fren:voice.intro', () => {
+    const info = wakeInfo();
+    if (!info.armed || !info.canConverse) return null;
+    if (!memory.getSetting('profile') || memory.getSetting('voiceIntro')) return null;
+    const text = wakeTruth.voiceIntroCopy(info);
+    remember('fren', text);
+    memory.setSetting('voiceIntro', 'done');
+    log('[wake] explained the wake word, once');
+    return text;
+  });
+  // The light going on or off, and the gateway coming or going, change what is
+  // true even when the wake word is switched off (holding the orb still works).
+  state.subscribe(() => pushWakeStatus());
   if (wakeOn) {
     try {
-      const custom = path.join(app.getPath('userData'), 'wake', 'hey-fren.onnx');
       wakeWord = createWakeListener({
-        keyword: process.env.FREN_WAKE_KEYWORD || (fs.existsSync(custom) ? custom : 'hey fren'),
+        keyword: spoken.keyword,
         sensitivity: process.env.FREN_WAKE_SENSITIVITY,
         modelsDir: path.join(app.getPath('userData'), 'wake', 'models'),
         engineOptions: { onsetRestart: String(process.env.FREN_WAKE_ONSET_RESTART || 'on').toLowerCase() !== 'off' },
@@ -1548,6 +1456,7 @@ app.whenReady().then(() => {
         },
         log,
         onWake: () => { if (win && !win.isDestroyed()) win.webContents.send('fren:voice.wake'); },
+        onChange: () => pushWakeStatus(),
       });
       syncWakeWord = () => {
         const want = state.get().observing && !voiceLineOpen;
@@ -1669,7 +1578,7 @@ app.whenReady().then(() => {
     const verdict = arrival.shouldGreetOnReturn({ awayMs, lastGreetAt, now: Date.now(), minAwayMs: RETURN_AFTER_MS });
     if (!verdict.greet) { log(`[greeting] ${why}: ${verdict.why}`); return; }
     const { text } = await composeGreeting(awayMs);
-    if (text) broadcast('fren:greet', { text, why });
+    if (text) sendToOrb('fren:greet', { text, why });
   };
   powerMonitor.on('suspend', () => away('sleep'));
   powerMonitor.on('lock-screen', () => away('lock'));
@@ -1790,11 +1699,11 @@ app.whenReady().then(() => {
   /**
    * What colour fren is.
    *
-   * Stored as a plain integer and broadcast, because the setting is changed in
-   * the DASHBOARD window while the orb lives in the PANEL window. Without the
-   * broadcast the choice would only take effect at the next launch, which for
-   * a colour — the one setting whose whole point is that you can see it — would
-   * feel broken rather than deferred.
+   * Stored as a plain integer and sent to the orb, because the colour is
+   * changed HERE (by asking for it — see own-business.js) while the orb is
+   * drawn in the window. Without the message the choice would only take effect
+   * at the next launch, which for a colour — the one setting whose whole point
+   * is that you can see it — would feel broken rather than deferred.
    *
    * The renderer clamps too (palette.js), but the value is clamped here as
    * well: this is what gets written to disk and read at boot, and a hand-edited
@@ -1813,13 +1722,13 @@ app.whenReady().then(() => {
     const value = Number.isFinite(n) && n >= 0 && n <= 0xffffff ? Math.round(n) : null;
     if (value === null) return { colour: null };
     memory.setSetting('orbColour', value);
+    // "Go back to orange" means all the way back: a look tuned in the old
+    // window has no other way off, now that the window is gone.
+    if (value === palette.DEFAULT_HEX) memory.setSetting('orbLook', '');
     if (win && !win.isDestroyed()) win.webContents.send('fren:orbColour', value);
     log(`[orb] colour set to #${value.toString(16).padStart(6, '0')}`);
     return { colour: value };
   }
-  ipcMain.handle('fren:setOrbColour', (_e, hex) => setOrbColour(hex));
-
-  ipcMain.handle('fren:getWakeOnLaunch', () => wakeOnLaunchFrom(memory.getSetting('wakeOnLaunch')));
   function setWakeOnLaunch(on) {
     memory.setSetting('wakeOnLaunch', !!on);
     log(`[state] launches ${on ? 'awake' : 'paused'} from now on`);
@@ -1846,7 +1755,6 @@ app.whenReady().then(() => {
     log(`[setup] interruptions ${next.volunteer ? 'allowed' : 'turned off'}`);
     return { volunteer: next.volunteer };
   }
-  ipcMain.handle('fren:setVolunteer', (_e, on) => setVolunteer(on));
   ipcMain.handle('fren:setProfile', (_e, profile) => {
     const clean = profile && typeof profile === 'object' ? profile : null;
     memory.setSetting('profile', clean);
@@ -1883,12 +1791,6 @@ app.whenReady().then(() => {
     }
   });
 
-  // What fren holds about you, as the actual files. Nothing is summarised or
-  // paraphrased on the way out: the point is to show the bytes.
-  ipcMain.handle('fren:readSoul', () => soul.readAll(app.getPath('userData')));
-  ipcMain.handle('fren:readLog', (_e, name) => soul.readLog(app.getPath('userData'), name));
-  // And a way out to the folder itself, so the files can be edited in a real
-  // editor rather than only read here.
   ipcMain.handle('fren:openDataFolder', async () => {
     const err = await shell.openPath(app.getPath('userData'));
     return { ok: !err, error: err || null };
@@ -1899,8 +1801,8 @@ app.whenReady().then(() => {
    *
    * There is no standing permission here on purpose. Every capture is a
    * separate deliberate act, the image is held in memory for the length of one
-   * request, and it is never written to disk — which keeps the promise that
-   * OBSERVED screenshots never leave the machine intact and separate.
+   * request, and it is never written to disk. It is the only picture of the
+   * screen fren takes: the observer no longer keeps any.
    *
    * It also refuses while paused. Looking at the screen with the light off
    * would be exactly the thing the light exists to rule out.
@@ -1938,151 +1840,8 @@ app.whenReady().then(() => {
   // smaller sin than opening one over someone's work every time fren talks.
   ipcMain.handle('fren:audioSilenced', () => audioOutput.isSilenced());
 
-  // What fren has noticed, newest first, for the Patterns view.
-  ipcMain.handle('fren:getSuggestions', () => {
-    try { return memory.getSuggestions().slice().reverse(); } catch { return []; }
-  });
-
-  /**
-   * Draft an automation for something fren noticed.
-   *
-   * The draft is stored and shown. It is never run — fren proposes, the person
-   * decides, and there is deliberately no code path here that executes what
-   * comes back.
-   */
-  ipcMain.handle('fren:automate', async (_e, id) => {
-    const all = memory.getSuggestions();
-    const s = all.find((x) => x.id === Number(id));
-    if (!s) return { error: 'that suggestion is gone' };
-    if (s.draft) return { draft: s.draft };          // drafted once is enough
-    state.beginWork();
-    try {
-      const memories = memory.getRecentMemories({ sinceMs: Date.now() - 24 * 60 * 60 * 1000 });
-      const draft = await gateway.automate({
-        pattern: s.pattern,
-        message: s.message,
-        memories,
-        platform: process.platform === 'win32' ? 'Windows'
-          : process.platform === 'linux' ? 'Linux' : 'macOS',
-      });
-      memory.setSuggestionDraft(s.id, draft);
-      log(`[automate] drafted for suggestion ${s.id} (feasible=${draft.feasible})`);
-      return { draft };
-    } catch (err) {
-      log(`[automate] failed: ${err.message}`);
-      return { error: err.message };
-    } finally {
-      state.endWork();
-    }
-  });
-
   ipcMain.handle('fren:dismissSuggestion', (_e, id) => {
     memory.setSuggestionStatus(Number(id), 'dismissed');
-    return true;
-  });
-
-  /**
-   * The dashboard: a normal, resizable window for reading back days and
-   * patterns properly.
-   *
-   * Separate from the companion panel on purpose. The panel is glanceable and
-   * lives beside the orb; this is something you open occasionally and browse.
-   * Trying to fold a sidebar and a day timeline into 384px would have made both
-   * worse.
-   */
-  /** Open the dashboard, or bring the one that exists to the front. */
-  function openDashboard() {
-    // One conversation at a time. The dashboard shows the same transcript in a
-    // window with room for it, so leaving the little panel open behind it gives
-    // you two views of one thing and a question about which is the real one.
-    if (state.get().panelOpen) setPanelOpen(false);
-    if (dash && !dash.isDestroyed()) { dash.show(); dash.focus(); return true; }
-    dash = new BrowserWindow({
-      width: 1040,
-      height: 720,
-      minWidth: 720,
-      minHeight: 520,
-      title: 'fren',
-      backgroundColor: '#F2EDE4',
-      // 'hidden' rather than 'hiddenInset', because trafficLightPosition only
-      // applies to 'hidden' — under 'hiddenInset' macOS keeps its own inset and
-      // the position below is quietly ignored, which would leave the Collapse
-      // button aligned to a number nothing else uses.
-      titleBarStyle: process.platform === 'darwin' ? 'hidden' : 'default',
-      // Pinned rather than left to the default, so the stylesheet can line up
-      // with it. "Align this button with those buttons" is not something you
-      // can eyeball across two coordinate systems; setting it makes the answer
-      // one number both sides read. The buttons are 12px tall from
-      // TRAFFIC_LIGHT_Y, so their centre is +6 — see --traffic-centre in
-      // dashboard.css.
-      ...(process.platform === 'darwin'
-        ? { trafficLightPosition: { x: TRAFFIC_LIGHT_X, y: TRAFFIC_LIGHT_Y } }
-        : {}),
-      webPreferences: {
-        preload: path.join(__dirname, '..', 'preload.js'),
-        contextIsolation: true,
-        nodeIntegration: false,
-      },
-    });
-    // The traffic-light centre rides along, so the stylesheet never has to
-    // guess at it or keep a second copy in step.
-    // Both numbers ride along: where the window's own buttons sit vertically,
-    // and how far they are tucked in from their edge. Collapse mirrors the
-    // second on the other side, so the two ends of the title bar are inset the
-    // same amount by construction rather than by a matching pair of guesses.
-    dash.loadURL(
-      `${SCHEME}://app/dashboard.html?tl=${trafficCentre()}&ti=${TRAFFIC_LIGHT_X}`
-    );
-
-    /**
-     * Closing the dashboard asks whether that means closing fren.
-     *
-     * The orb has no title bar, no close button and no menu — so once the
-     * chat's × stops quitting, this window is the only place the question can
-     * be asked. Getting it wrong in the quiet direction leaves fren running
-     * with no window to reach it by; getting it wrong in the loud direction
-     * kills the app when someone tidied a window away.
-     *
-     * `quitting` guards the re-entry: app.quit() closes this window too, which
-     * would fire this handler again and ask a second time.
-     */
-    dash.on('close', (e) => {
-      if (quitting) return;
-      e.preventDefault();
-      const response = dialog.showMessageBoxSync(dash, {
-        type: 'question',
-        buttons: ['Close this window', 'Quit fren', 'Cancel'],
-        defaultId: 0,
-        cancelId: 2,
-        message: 'Close the dashboard, or quit fren?',
-        detail: 'fren keeps running in the corner of your screen unless you quit it. ' +
-                'Quitting stops it watching and closes everything.',
-      });
-      if (response === 2) return;                 // cancel: leave it open
-      if (response === 1) { quitting = true; app.quit(); return; }
-      dash.destroy();                             // just this window
-    });
-
-    dash.on('closed', () => { dash = null; });
-    return true;
-  }
-
-  ipcMain.handle('fren:openDashboard', () => openDashboard());
-
-  /**
-   * Back to the orb, with the conversation still open beside it.
-   *
-   * The exact inverse of Expand, and it has to do both halves: opening the
-   * panel without closing the big window would leave the two views of one
-   * conversation that Expand exists to avoid.
-   */
-  ipcMain.handle('fren:collapse', () => {
-    setPanelOpen(true);
-    // destroy(), not close(): close() runs the handler that asks whether you
-    // meant to quit fren, and collapsing is not that question.
-    if (dash && !dash.isDestroyed()) dash.destroy();
-    recenter();          // shows the window, and makes sure it is on screen
-    if (win && !win.isDestroyed()) win.focus();
     return true;
   });
 
@@ -2115,36 +1874,12 @@ app.whenReady().then(() => {
     }
   });
 
-  ipcMain.handle('fren:days', () => {
-    try { return memory.getActiveDays(60); } catch { return []; }
-  });
-
-  /** One day, as the dashboard needs it: what was done, and any stills of it. */
-  ipcMain.handle('fren:day', (_e, day) => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day || ''))) return { memories: [], shots: [] };
-    const [y, m, d] = String(day).split('-').map(Number);
-    const from = new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
-    const to = new Date(y, m - 1, d + 1, 0, 0, 0, 0).getTime();
-    try {
-      const memories = memory.getMemoriesBetween({ fromMs: from, toMs: to });
-      // Screenshots are already on disk and have never been transmitted.
-      // Showing them in a local window changes nothing about that; it only
-      // lets the person see what was stored about them.
-      const shots = memory.getScreenshotsBetween({ fromMs: from, toMs: to, limit: 60 })
-        .map((s) => ({ ...s, url: `${SCHEME}://shot/${encodeURIComponent(s.screenshotPath)}` }));
-      return { memories, shots };
-    } catch {
-      return { memories: [], shots: [] };
-    }
-  });
-
   // ---- routines ----------------------------------------------------------
   function listRoutines() {
     try {
       return memory.getRoutines().map((r) => ({ ...r, nextRun: nextRunAt(r) }));
     } catch { return []; }
   }
-  ipcMain.handle('fren:routines', () => listRoutines());
 
   /**
    * fren's own business: what the owner told fren to do about itself, already
@@ -2161,7 +1896,12 @@ app.whenReady().then(() => {
     setWatching: (on) => (on ? startObserving() : stopObserving()),
     routines: listRoutines,
     automations: async () => (await gateway.agentAutomations()).automations,
-    browser: () => ({ exclusions: safeParse(memory.getSetting('browserExclusions'), []) }),
+    browser: () => ({
+      exclusions: safeParse(memory.getSetting('browserExclusions'), []),
+      awareness: memory.getSetting('browserAwareness') !== 'off',
+      readPage: memory.getSetting('browserReadPage') !== 'off',
+      readSelection: memory.getSetting('browserReadSelection') !== 'off',
+    }),
     setBrowser: applyBrowserSettings,
     currentDomain: () => { const b = currentBrowserContext(); return (b && b.tab && b.tab.domain) || ''; },
     setColour: setOrbColour,
@@ -2217,131 +1957,9 @@ app.whenReady().then(() => {
     return true;
   });
 
-  // ---- automations: running what fren drafted ----------------------------
-  //
-  // Every path to execution goes through runAutomation, and it re-checks the
-  // approval hash against the CURRENT script text every single time. Approval
-  // is not a flag that gets set once; it is a claim about a specific script,
-  // and it is verified at the moment of running rather than trusted from
-  // whenever it was granted.
-  // Automations currently executing, so one cannot be started twice over.
-  const running = new Set();
-
-  async function runAutomation(id, trigger) {
-    const a = memory.getAutomations().find((x) => x.id === Number(id));
-    if (!a) return { error: 'that automation is gone' };
-
-    const hash = executor.hashScript(a.script);
-    if (!a.approvedHash || a.approvedHash !== hash) {
-      const out = a.approvedHash
-        ? 'the script changed since you approved it, so the approval no longer applies'
-        : 'this has not been approved yet';
-      memory.recordRun({ automationId: a.id, trigger, status: 'blocked', output: out });
-      return { status: 'blocked', output: out };
-    }
-    if (trigger === 'scheduled' && !a.verified) {
-      const out = 'not run by hand yet — a schedule only starts after one successful manual run';
-      memory.recordRun({ automationId: a.id, trigger, status: 'blocked', output: out });
-      return { status: 'blocked', output: out };
-    }
-    // The pause check belongs HERE, not only in the scheduling loop, so every
-    // path to execution carries it. A loop that has already dispatched its work
-    // would otherwise keep running scripts after the light went out.
-    if (trigger === 'scheduled' && !state.get().observing) {
-      return { status: 'blocked', output: 'fren was paused before this could run' };
-    }
-    // One at a time. Without this a script that outlives the 30s tick is
-    // started again by the next tick, and a single approval for a single 09:00
-    // slot executes two or three overlapping copies.
-    if (running.has(a.id)) {
-      return { status: 'blocked', output: 'this automation is already running' };
-    }
-    running.add(a.id);
-
-    // Claim the slot BEFORE the work, so a long or crashing run cannot be
-    // re-fired every thirty seconds for the rest of its grace window. The real
-    // outcome overwrites this a moment later.
-    memory.recordRun({ automationId: a.id, trigger, status: 'started', output: null });
-
-    let result;
-    try {
-      result = await executor.run({ script: a.script, language: a.language });
-    } finally {
-      running.delete(a.id);
-    }
-    memory.recordRun({ automationId: a.id, trigger, status: result.status, output: result.output });
-    // A successful MANUAL run is what earns the right to be scheduled.
-    if (result.status === 'ok' && trigger === 'manual') memory.markAutomationVerified(a.id);
-    // PRIVACY: name and status only. Output can contain anything the script saw.
-    log(`[automation] "${a.name}" ${trigger} -> ${result.status}`);
-    return result;
-  }
-
-  ipcMain.handle('fren:automations', () => {
-    try {
-      return memory.getAutomations().map((a) => ({
-        ...a,
-        currentHash: executor.hashScript(a.script),
-        scan: executor.scan(a.script),
-        nextRun: a.schedule && a.schedule.enabled
-          ? nextRunAt({ ...a.schedule, enabled: true })
-          : null,
-        runs: memory.getRuns(a.id, 8),
-      }));
-    } catch { return []; }
-  });
-
-  /** Keep a drafted script as an automation, so it can be reviewed. */
-  ipcMain.handle('fren:keepAutomation', (_e, suggestionId) => {
-    const s = memory.getSuggestions().find((x) => x.id === Number(suggestionId));
-    if (!s || !s.draft || !s.draft.script) return { error: 'no script to keep' };
-    const id = memory.addAutomation({
-      suggestionId: s.id,
-      name: s.pattern || 'automation',
-      language: s.draft.language,
-      script: s.draft.script,
-    });
-    return { id };
-  });
-
-  ipcMain.handle('fren:approveAutomation', (_e, id, hash) => {
-    const a = memory.getAutomations().find((x) => x.id === Number(id));
-    if (!a) return { error: 'that automation is gone' };
-    // The hash must be the one the reviewer was looking at. If the script has
-    // changed since it was rendered, the approval is for a different thing.
-    const current = executor.hashScript(a.script);
-    if (String(hash) !== current) return { error: 'the script changed while you were reading it' };
-    memory.approveAutomation(a.id, current);
-    log(`[automation] "${a.name}" approved`);
-    return { ok: true };
-  });
-
-  ipcMain.handle('fren:revokeAutomation', (_e, id) => {
-    memory.revokeAutomation(Number(id));
-    log('[automation] approval revoked');
-    return true;
-  });
-
-  ipcMain.handle('fren:runAutomation', (_e, id) => runAutomation(id, 'manual'));
-
-  ipcMain.handle('fren:scheduleAutomation', (_e, id, schedule) => {
-    const a = memory.getAutomations().find((x) => x.id === Number(id));
-    if (!a) return { error: 'that automation is gone' };
-    if (schedule.enabled && !a.verified) {
-      return { error: 'run it by hand successfully first — a schedule starts from something known to work' };
-    }
-    memory.setAutomationSchedule(a.id, schedule);
-    return { ok: true };
-  });
-
-  ipcMain.handle('fren:deleteAutomation', (_e, id) => {
-    memory.deleteAutomation(Number(id));
-    return true;
-  });
-
-  // The chat's red light. It asks, the way the dashboard's close button asks:
-  // quitting stops fren watching and forgets nothing, but it is still the kind
-  // of decision a 12px dot should not make on a slipped click.
+  // The chat's red light. It asks: quitting stops fren watching and forgets
+  // nothing, but it is still the kind of decision a 12px dot should not make
+  // on a slipped click.
   ipcMain.handle('fren:quit', () => {
     const response = dialog.showMessageBoxSync(win, {
       type: 'question',
@@ -2351,7 +1969,7 @@ app.whenReady().then(() => {
       message: 'Quit fren?',
       detail: 'fren stops watching and everything closes. What it remembers is kept.',
     });
-    if (response === 0) { quitting = true; app.quit(); }
+    if (response === 0) app.quit();
   });
 
   /**
@@ -2419,20 +2037,18 @@ app.whenReady().then(() => {
 });
 
 // NOT app.quit(). The orb window is the app: it is frameless with no close
-// button, so "all windows closed" can only mean the dashboard was closed and
-// the orb is being rebuilt — quitting there would take fren down with it.
-// Quitting is a decision made in one place, the dashboard's close dialog.
+// button, so "all windows closed" can only mean the orb is being rebuilt —
+// quitting there would take fren down with it. Quitting is decided in two
+// places and nowhere else: the chat's red light (fren:quit, which asks) and
+// the system's own Quit (Cmd+Q, the Dock), which both arrive at before-quit.
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') return;      // and even then, stay up
 });
 
 app.on('before-quit', () => {
-  // FIRST, before anything is torn down. Quitting closes the dashboard too, and
-  // that window's close handler asks whether you meant to quit — so without
-  // this, Cmd+Q ran this teardown, stopped every timer, closed the database,
-  // and was then blocked by a dialog asking a question already answered.
-  // Choosing "Cancel" there left fren running on a closed database.
-  quitting = true;
+  // No window here may veto a quit with a close handler of its own: by the
+  // time one could ask, the timers below are stopped and the database is
+  // closed, and "Cancel" would leave fren running on nothing.
   stopGateway();                                  // only if we started it
   if (gazeTimer) clearInterval(gazeTimer);
   if (drag) clearInterval(drag.timer);
@@ -2442,7 +2058,6 @@ app.on('before-quit', () => {
   if (patterns) patterns.stop();
   if (curiosity) curiosity.stop();
   if (routines) routines.stop();
-  if (automationTimer) clearInterval(automationTimer);
   if (coreEvents) coreEvents.close();
   if (memory) memory.close();
 });

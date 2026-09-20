@@ -10,6 +10,14 @@ is noted.
 Line numbers refer to FREN at commit `8bd4881` and NanoClaw v2.3.0 at commit
 `5c3082a` (`nanocoai/nanoclaw`, main, 2026-09-02).
 
+> **Since this was written the dashboard window was removed.** fren is the orb
+> and its chat. Wherever this document says "dashboard", read the chat: the
+> automations and routines lists are the cards behind *"what are you
+> running?"*, "Requests" are the permission cards in the conversation, and the
+> status block is the tooltip on the header's dot. The legacy host-script
+> automations (§ phase 5's `script` bodies) were retired rather than migrated:
+> main no longer runs scripts at all.
+
 ## 0. Decisions in one screen
 
 | Decision | Choice | Why (short) |

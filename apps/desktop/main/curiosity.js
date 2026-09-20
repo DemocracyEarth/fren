@@ -172,7 +172,7 @@ function createCuriosityWatcher({
       timer = null;
     },
     consider,            // force=true skips the gates, for tests and for "ask me something"
-    why,                 // why it is staying quiet, for the dashboard
+    why,                 // why it is staying quiet
   };
 }
 

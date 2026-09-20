@@ -431,6 +431,13 @@ function buildChatRequest({ question, memories = [], observations = [], profile 
     'Figma, then back in the editor", never "you spent 47 minutes in Figma".',
     'If the context is insufficient or observation was off, say so plainly instead of guessing.',
     'No generic productivity advice.',
+    // fren's own business is done by fren, from the person's own words, before
+    // a message reaches a model. One that got here was not understood, and a
+    // model that answers "okay, I've stopped watching" has withdrawn nothing.
+    // The agent lane's persona carries the same rule (runtime-nanoclaw).
+    'You cannot change fren\'s own settings, what it watches or reads, its notes, its routines or',
+    'its automations. If asked to, say you did not catch that as an instruction, and tell them to',
+    'say it plainly: "stop watching", "don\'t read this site", "what are you running".',
     // What the user told fren about themselves. It is context for TONE and for
     // what they care about -- it is not observed activity, and must never be
     // reported back as if fren had seen it.
@@ -532,78 +539,6 @@ const PATTERN_SCHEMA = {
     },
   },
 };
-
-const AUTOMATION_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['feasible', 'approach', 'steps', 'script', 'language', 'caveats'],
-  properties: {
-    feasible: {
-      type: 'boolean',
-      description: 'False when this cannot honestly be automated from what was observed.',
-    },
-    approach: { type: 'string', description: 'One or two sentences: how it would work.' },
-    steps: {
-      type: 'array',
-      items: { type: 'string' },
-      description: 'The manual steps this would replace, in order.',
-    },
-    script: {
-      type: 'string',
-      description: 'A script the user could run themselves, or an empty string if none fits.',
-    },
-    language: { type: 'string', description: 'bash, applescript, python, powershell, or empty.' },
-    caveats: {
-      type: 'string',
-      description: 'What you could not know from window titles alone, and what to check first.',
-    },
-  },
-};
-
-/**
- * Draft an automation for a pattern fren noticed.
- *
- * fren does not act. It writes something down and the person decides — so the
- * output is a plan and a script for THEM to run, and the prompt is built around
- * the limits of what fren actually saw.
- *
- * It only ever had application names and window titles. It never saw the
- * contents of anything, so it cannot know a URL, a filename, a column or a
- * credential. A draft that quietly invents those looks authoritative and wastes
- * the reader's time, so it is told to name what it is missing instead.
- */
-function buildAutomationRequest({ pattern, message, memories = [], platform = 'macOS' } = {}) {
-  const system = [
-    'You draft an automation for a workflow that fren, a desktop companion, noticed being repeated.',
-    '',
-    'WHAT YOU ACTUALLY KNOW: fren sees only which application is in front and what its window',
-    'is called. It has never seen the contents of any window. You therefore do NOT know URLs,',
-    'file paths, field names, spreadsheet columns, credentials or record IDs.',
-    'Do not invent any of them. Where one is needed, use an obvious placeholder and say so in caveats.',
-    '',
-    'THE SCRIPT IS FOR THE USER TO RUN, not for you to run, and they will read it first.',
-    'It must be safe to read and reversible in effect:',
-    '- Never delete, overwrite or move files. Never `rm`, `mv` over an existing path, or truncate.',
-    '- Never touch credentials, keychains or password stores.',
-    '- Never send anything to the network except an API the user clearly already uses.',
-    '- Prefer reading, copying and opening over writing and changing.',
-    'If a safe script is not possible, return an empty script and explain why in caveats.',
-    '',
-    `Target platform: ${platform}.`,
-    'Be concrete and short. If this genuinely cannot be automated from what was observed,',
-    'set feasible to false and say so plainly — that is a useful answer, not a failure.',
-  ].join('\n');
-
-  const content = [
-    `The repeated workflow: ${pattern || '(unnamed)'}`,
-    `What fren said about it: ${message || '(nothing)'}`,
-    '',
-    'Recent activity summaries for context:',
-    formatMemories(memories) || '(none)',
-  ].join('\n');
-
-  return { system, messages: [{ role: 'user', content }], schema: AUTOMATION_SCHEMA };
-}
 
 /**
  * How long fren was away, coarsely — and deliberately not as a number.
@@ -970,10 +905,10 @@ const EXTRACT_SCHEMA = {
  */
 const FREN_FACTS = [
   'fren watches which application is in front and what its window is called, but only while its light is on.',
-  'It never captures keystrokes, and screenshots never leave the machine.',
+  'It never captures keystrokes, and it takes no picture of the screen unless you ask it to look.',
   'It summarises that activity every couple of minutes, and looks across hours of those summaries for a workflow you repeat.',
   'It CAN raise something it noticed on its own, without being asked — that is what the "when to speak up" question decides.',
-  'It listens only while you hold the orb; speech is transcribed on your own machine.',
+  'While its light is on it listens on this Mac for one phrase, "hey fren"; no sound leaves the machine until it hears that, you hold the orb, or you click to dictate. Dictation is transcribed on your own machine; a spoken conversation goes to the voice service.',
   'It suggests things. It acts on your behalf only inside a secure execution environment, only for what you asked, and it shows you what it did.',
 ].join(' ');
 
@@ -1437,7 +1372,6 @@ module.exports = {
   buildPatternRequest,
   buildExtractRequest,
   buildVisionRequest,
-  buildAutomationRequest,
   buildRoutineRequest,
   buildCuriosityRequest,
   buildGreetingRequest,
@@ -1445,6 +1379,5 @@ module.exports = {
   partOfDay,
   buildLearnRequest,
   ROUTINE_SCHEMA,
-  AUTOMATION_SCHEMA,
   EXTRACT_SCHEMA,
 };

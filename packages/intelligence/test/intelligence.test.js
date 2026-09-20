@@ -165,6 +165,14 @@ test('buildChatRequest: empty context is labeled, not invented', () => {
   assert.match(req.messages[0].content, /anything\?/);
 });
 
+test('buildChatRequest: the model is told it cannot change fren, and what the person should say instead', () => {
+  // The fast lane is also the fallback inside the agent lane, so a sentence the
+  // chat window did not recognise must not be answered with "done".
+  const { system } = buildChatRequest({ question: 'stop observing me whenever I open my bank' });
+  assert.match(system, /You cannot change fren's own settings, what it watches or reads/);
+  for (const say of ['"stop watching"', '"don\'t read this site"', '"what are you running"']) assert.ok(system.includes(say), say);
+});
+
 test('buildPatternRequest: shape and schema', () => {
   const req = buildPatternRequest({
     memories: [
