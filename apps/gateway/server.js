@@ -206,40 +206,6 @@ async function handleVision(vision, body, res) {
   }
 }
 
-/** Draft an automation. fren writes it down; the user decides what to run. */
-async function handleAutomate(provider, body, res) {
-  const { pattern, message } = body || {};
-  if (typeof message !== 'string' || !message.trim()) {
-    return send(res, 400, { error: 'message must be a non-empty string' });
-  }
-  const request = intelligence.buildAutomationRequest({
-    pattern: String(pattern || ''),
-    message,
-    memories: Array.isArray(body.memories) ? body.memories : [],
-    platform: String(body.platform || 'macOS'),
-  });
-  const raw = await callProvider(provider, request, res);
-  if (raw === null) return;
-  try {
-    const p = JSON.parse(String(raw).replace(/^```(?:json)?|```$/gm, '').trim());
-    send(res, 200, {
-      feasible: !!p.feasible,
-      approach: String(p.approach || ''),
-      steps: Array.isArray(p.steps) ? p.steps.map(String).slice(0, 12) : [],
-      script: String(p.script || ''),
-      language: String(p.language || ''),
-      caveats: String(p.caveats || ''),
-    });
-  } catch {
-    // An unusable draft is not a draft. Saying so beats showing nonsense the
-    // user might run.
-    send(res, 200, {
-      feasible: false, approach: '', steps: [], script: '', language: '',
-      caveats: 'I could not put together a usable draft for this one.',
-    });
-  }
-}
-
 /** Is this a request for a repeating routine, and if so, what? */
 async function handleRoutine(provider, body, res) {
   const text = body && body.text;
@@ -536,7 +502,7 @@ async function handle(provider, voice, vision, core, req, res, pathname) {
   if (req.method === 'POST' && (pathname === '/v1/summarize' || pathname === '/v1/chat' ||
                                 pathname === '/v1/speak' || pathname === '/v1/extract' ||
                                 pathname === '/v1/pattern' || pathname === '/v1/vision' ||
-                                pathname === '/v1/automate' || pathname === '/v1/routine' ||
+                                pathname === '/v1/routine' ||
                                 pathname === '/v1/curious' || pathname === '/v1/learn' ||
                                 pathname === '/v1/suggest' || pathname === '/v1/narrate' ||
                                 pathname === '/v1/greet')) {
@@ -567,7 +533,6 @@ async function handle(provider, voice, vision, core, req, res, pathname) {
     if (pathname === '/v1/extract') return handleExtract(provider, body, res);
     if (pathname === '/v1/pattern') return handlePattern(provider, body, res);
     if (pathname === '/v1/vision') return handleVision(vision, body, res);
-    if (pathname === '/v1/automate') return handleAutomate(provider, body, res);
     if (pathname === '/v1/routine') return handleRoutine(provider, body, res);
     if (pathname === '/v1/curious') return handleCuriosity(provider, body, res);
     if (pathname === '/v1/suggest') return handleSuggest(provider, body, res);
