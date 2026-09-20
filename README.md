@@ -5,8 +5,8 @@
 fren is a minimal ambient AI companion that lives on your desktop — macOS,
 Windows or Linux. It is a
 small floating sphere with a face lit from within. When the light is **on** and
-the eyes are **open**, fren is observing what you do — which app is active, what
-the window title says, an occasional local screenshot. When the light goes
+the eyes are **open**, fren is observing what you do — which app is active and
+what the window title says. When the light goes
 **out** and the eyes **close**, it observes nothing at all. That signal and the
 capture pipeline share one source of truth in the Electron main process, so what
 you see is what is happening.
@@ -58,8 +58,8 @@ accurate and useful enough to chat with?
 │  mascot UI          observer                memory            summarizer    │
 │  (sphere,      ←→   (samples every 5s:  →   (SQLite,     ←→   (every 2 min: │
 │  chat panel)        app + window title,     local only)       timeline →    │
-│                     screenshot ~15s,                          gateway,      │
-│                     stored locally)                           stores a      │
+│                     stored locally)                           gateway,      │
+│                                                               stores a      │
 │                                                               memory)       │
 └──────────────────────────────────────┬──────────────────────────────────────┘
                                        │ HTTP, 127.0.0.1:4519, bearer token
@@ -73,9 +73,9 @@ accurate and useful enough to chat with?
                              └──────────────────┘        └───────────────┘
 ```
 
-- The **desktop app** samples your active app and window title every 5 seconds
-  and takes a local screenshot roughly every 15 seconds. Raw observations go
-  into a local SQLite database.
+- The **desktop app** samples your active app and window title every 5 seconds.
+  It takes no screenshots on its own. Raw observations go into a local SQLite
+  database.
 - Every 2 minutes, the **summarizer** sends the recent app/window timeline —
   text only, never screenshots — to the local gateway, which asks the model for
   a compact summary ("debugging the auth flow in VS Code and Chrome"). That
@@ -131,8 +131,8 @@ versions prompt for it too; on older ones, enable it manually and restart).
 In dev the app shows up as "Electron", because it runs under the stock
 Electron binary:
 
-- **Screen Recording** — needed for screenshots. Without it, fren degrades
-  gracefully to app + window title only.
+- **Screen Recording** — only for the one screenshot fren takes when you ask it
+  to look at your screen. Without it, that look is refused; nothing else changes.
 - **Accessibility** — needed for window titles. Without it, fren degrades to
   app names only.
 - **Microphone** — only for push-to-talk. Declining disables the mic button;
@@ -168,7 +168,7 @@ Everything lives locally in Electron's userData folder:
 ```
 ~/Library/Application Support/fren/
 ├── fren.db          # SQLite: observations, memories, suggestions
-└── (screenshots)    # local JPEGs, capped at 200, pruned automatically
+└── (screenshots)    # only from earlier versions, which kept them; they age out within 7 days
 ```
 
 Raw observations are kept for 7 days. To delete everything fren knows: quit the
@@ -201,9 +201,8 @@ have one.
 
 What **never** leaves your machine:
 
-- the screenshots fren takes on its own timer (stored locally, pruned
-  automatically — not even sent to the gateway; a separate code path from the
-  eye button, and a test enforces the separation)
+- a picture of your screen you did not ask for: fren takes none on its own (a
+  test enforces it; earlier versions kept local ones, which age out)
 - microphone audio (recorded only between the click that starts it and the one
   that stops it, transcribed
   locally by whisper.cpp, then deleted)

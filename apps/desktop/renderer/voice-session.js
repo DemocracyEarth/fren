@@ -17,7 +17,7 @@
 const SILENCE_END_MS = 25_000;      // nobody said anything for this long: hang up
 const MAX_SESSION_MS = 20 * 60_000; // and never run longer than this, whatever happens
 
-export function createVoiceSession({ getFace, addBubble, setFace, log = () => {}, onChange = () => {} } = {}) {
+export function createVoiceSession({ getFace, addBubble, setFace, heard = null, log = () => {}, onChange = () => {} } = {}) {
   let conv = null;
   let mode = 'listening';
   let startedAt = 0;
@@ -118,6 +118,14 @@ export function createVoiceSession({ getFace, addBubble, setFace, log = () => {}
           const role = source === 'user' ? 'user' : 'fren';
           addBubble(role, text);
           window.fren.voice.said(role, text).catch(() => {});
+          // The agent cannot change fren. "Stop watching", said on the line, is
+          // done by the chat window (which obeys only what makes fren see or
+          // say less), and the agent is told what happened so it can say so.
+          if (role === 'user' && heard) {
+            Promise.resolve(heard(text)).then((done) => {
+              if (done && conv && conv.sendContextualUpdate) conv.sendContextualUpdate(`fren has just done what they asked. Tell them so, briefly: ${done}`);
+            }).catch(() => {});
+          }
         },
         onModeChange: ({ mode: m }) => {
           mode = m;

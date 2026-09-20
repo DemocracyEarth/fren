@@ -61,6 +61,7 @@ function wakeInfo({ status = null, observing = false, gatewayOk = false, voiceAg
   return {
     armed: !!(s.listening && !s.deaf),
     phrase,
+    quoted: quotable(phrase),   // what a small space may print; null reads "my wake word"
     alias: !!alias,
     paused: !!status && !observing,
     micBlocked: refused || !!s.deaf,

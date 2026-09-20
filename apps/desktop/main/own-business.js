@@ -26,7 +26,6 @@ const OB = require('../renderer/own-business.js');
 const palette = require('../renderer/face/palette.js');
 const { isExcluded, DEFAULT_EXCLUSIONS } = require('./browser-sensor');
 
-const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const pad = (n) => String(n).padStart(2, '0');
 const clip = (s, n) => { const t = String(s || '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -39,7 +38,7 @@ function whenText(ts, now = Date.now()) {
   const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   if (days === 0) return `today at ${time}`;
   if (days === 1) return `tomorrow at ${time}`;
-  if (days > 1 && days < 7) return `${DAYS[d.getDay()]} at ${time}`;
+  if (days > 1 && days < 7) return `${OB.DAY_NAMES[d.getDay()]} at ${time}`;
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} at ${time}`;
 }
 
@@ -61,8 +60,12 @@ function automationRow(a, now) {
   const state = a.enabled
     ? (a.nextRunAt ? `Next: ${whenText(a.nextRunAt, now)}.` : '')
     : a.pausedByRuntime ? `Stopped: ${clip(a.pausedByRuntime, 120)}.` : 'Paused.';
+  // It runs with nobody watching, so where it may go is said every time it is
+  // listed, not only on the day it was made.
+  const domains = a.network && Array.isArray(a.network.domains) ? a.network.domains : [];
+  const reach = domains.length ? `Can reach ${domains.slice(0, 6).join(', ')}${domains.length > 6 ? ` and ${domains.length - 6} more` : ''}, and nothing else.` : 'Reaches no websites.';
   return {
-    text: `${clip(a.name, 60)} — ${a.describe || 'when asked'}${what ? `: ${what}` : ''}. ${state}`.trim(),
+    text: `${clip(a.name, 60)} — ${a.describe || 'when asked'}${what ? `: ${what}` : ''}. ${reach} ${state}`.trim(),
     chips: [
       { label: a.enabled ? 'Pause' : 'Resume', call: 'patchAgentAutomation', args: [a.id, { enabled: !a.enabled }], then: 'redraw' },
       { label: 'Run now', call: 'runAgentAutomation', args: [a.id], then: 'keep', done: "Running it now. I'll say what comes back." },
@@ -71,6 +74,7 @@ function automationRow(a, now) {
   };
 }
 
+const NOT_IN_BROWSER = "I will once I'm back in your browser — say \"start watching my browser\".";
 const NOTES_CHIP = { label: 'Open my notes folder', call: 'openDataFolder', args: [], then: 'keep' };
 const MAX_LISTED = 12;
 
@@ -94,10 +98,12 @@ function createOwnBusiness(d) {
   }
 
   const verbs = {
-    watch({ on }) {
-      if (!!on === !!d.watching()) return { say: on ? "I'm already watching." : "I'm not watching — my light is off." };
+    watch({ on, timed }) {
+      // "for ten minutes": fren has no timer for its light, and must not imply one.
+      const stays = timed && !on ? " I won't start again on my own — say \"start watching\"." : '';
+      if (!!on === !!d.watching()) return { say: on ? "I'm already watching." : `I'm not watching — my light is off.${stays}` };
       d.setWatching(!!on);
-      return { say: on ? 'Okay — watching again.' : 'Okay — not watching.' };
+      return { say: on ? 'Okay — watching again.' : `Okay — not watching.${stays}` };
     },
 
     async running() {
@@ -142,12 +148,33 @@ function createOwnBusiness(d) {
 
     readPages({ on }) {
       d.setBrowser({ readPage: !!on });
+      if (on && !d.browser().awareness) return { say: NOT_IN_BROWSER };
       return { say: on ? 'Okay — reading pages again.' : "Okay — I'll see which page you're on, but not what's on it." };
     },
 
     readSelections({ on }) {
       d.setBrowser({ readSelection: !!on });
+      if (on && !d.browser().awareness) return { say: NOT_IN_BROWSER };
       return { say: on ? "Okay — I'll read what you select again." : "Okay — I won't read what you select." };
+    },
+
+    /** What the browser lets fren see, read back. Changes nothing. */
+    reading() {
+      const b = d.browser();
+      const say = !b.awareness ? "I'm out of your browser: I don't see pages at all."
+        : b.readPage && b.readSelection ? 'I read the pages you visit and what you select.'
+          : b.readPage ? 'I read the pages you visit, but not what you select.'
+            : b.readSelection ? "I see which page you're on and what you select, but not what's on the page."
+              : "I see which page you're on, and nothing on it.";
+      const mine = b.exclusions;
+      const skipped = mine.length ? ` You've told me to skip ${plural(mine.length, 'site', 'sites')}.` : " You haven't told me to skip any site.";
+      return {
+        say: `${say}${skipped} Banks, passwords and the like I never read.`,
+        rows: mine.slice(-MAX_LISTED).map((site) => ({
+          text: site,
+          chips: [{ label: 'Read it again', call: 'ownBusiness', args: ['include', { domain: site }, ''], then: 'drop' }],
+        })),
+      };
     },
 
     awareness({ on }) {
@@ -186,7 +213,7 @@ function createOwnBusiness(d) {
 
     async remember({ note }) {
       const res = await d.remember(String(note || ''));
-      return { say: res && res.kept ? "I'll remember that." : "I didn't keep that — either I already have it, or it isn't the kind of thing I hold on to." };
+      return { say: res && res.kept ? "I'll remember that." : 'I already have that.' };
     },
 
     knows() {
@@ -227,6 +254,13 @@ function createOwnBusiness(d) {
           { label: 'Yes, forget it', call: 'clearMessages', args: [], then: 'wipe', done: 'Gone.' },
           { label: 'Keep it' },
         ],
+      };
+    },
+
+    settings() {
+      return {
+        say: 'The models I use are behind the sliders button at the top of the chat.',
+        chips: [{ label: 'Open it', call: 'openSettings', args: [], then: 'keep' }],
       };
     },
 

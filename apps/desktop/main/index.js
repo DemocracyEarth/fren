@@ -4,7 +4,6 @@ const path = require('path');
 const { app, BrowserWindow, ipcMain, screen, protocol, net, shell, dialog, Menu, Notification } = require('electron');
 const arrival = require('./arrival');
 const { pathToFileURL } = require('node:url');
-const fs = require('node:fs');
 const { config, loadEnv } = require('../../../packages/shared');
 const { openMemory } = require('../../../packages/memory');
 const intelligence = require('../../../packages/intelligence');   // the voice digest
@@ -576,11 +575,9 @@ function safeParse(s, fallback) {
   catch { return fallback; }
 }
 
-/** Say it to every window, not just the orb. */
-function broadcast(channel, payload) {
-  for (const w of BrowserWindow.getAllWindows()) {
-    if (!w.isDestroyed()) w.webContents.send(channel, payload);
-  }
+/** To the orb's window: the hover card and the models pane listen to nothing. */
+function sendToOrb(channel, payload) {
+  if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
 /**
@@ -887,7 +884,7 @@ app.whenReady().then(() => {
   createWindow();
 
   // fren wakes up when it launches. This is the owner's decision, and it can be
-  // reversed — at setup, from the Memory pane, or by tapping the orb.
+  // reversed — at setup, by saying so, or by tapping the orb.
   //
   // It is a real trade, and worth naming: being lit means fren IS watching, so
   // capture begins before anyone has said anything this session. Two things
@@ -936,7 +933,7 @@ app.whenReady().then(() => {
   }
 
   // Every window, not just the orb: the models pane shows what is running too.
-  state.subscribe((s) => broadcast('fren:stateChanged', s));
+  state.subscribe((s) => sendToOrb('fren:stateChanged', s));
 
   // Whether the gateway has a voice agent to open a line to (/health), and the
   // push that tells the renderer what it may say about the wake word. The real
@@ -1011,7 +1008,7 @@ app.whenReady().then(() => {
       // content lives only here; hand back this one page, or an absence.
       respondBrowserRead(e.id);
     }
-    broadcast('fren:coreEvent', e);
+    sendToOrb('fren:coreEvent', e);
   }
   coreEvents = gateway.openEvents({
     since: 'latest',
@@ -1332,21 +1329,27 @@ app.whenReady().then(() => {
   /**
    * remember: something they said, weighed the same way a curiosity answer is.
    * One function for the spoken line and for a typed "remember that …", so a
-   * note is kept by the same judgement however it was said.
+   * note lands in the same place however it was said.
    */
   async function rememberNote(note, tag) {
     const said = String(note || '').trim().slice(0, 500);
     if (!said) return { kept: false };
+    let fact = '';
     try {
-      const { worthKeeping, fact } = await gateway.learn({ question: 'Something they said in conversation', answer: said });
-      if (!worthKeeping || !fact) return { kept: false };
-      const kept = soul.rememberFact(userDataDir(), fact);
-      if (kept) log(`[${tag}] kept one thing from the conversation`);   // PRIVACY: that, never what
-      return { kept };
+      const weighed = await gateway.learn({ question: 'Something they said in conversation', answer: said });
+      if (weighed.worthKeeping) fact = weighed.fact || '';
     } catch (err) {
       log(`[${tag}] could not weigh that: ${err.message}`);
-      return { kept: false };
     }
+    // A typed or dictated "remember that …" is an instruction from the owner,
+    // so the model only gets to tidy the wording: if it declines, or cannot be
+    // reached, their own words are kept. The voice agent's tool is a model
+    // deciding what to file, and stays behind the judgement.
+    if (!fact && tag === 'chat') fact = said;
+    if (!fact) return { kept: false };
+    const kept = soul.rememberFact(userDataDir(), fact);
+    if (kept) log(`[${tag}] kept one thing from the conversation`);   // PRIVACY: that, never what
+    return { kept };
   }
   ipcMain.handle('fren:voice.remember', (_e, note) => rememberNote(note, 'voice'));
 
@@ -1575,7 +1578,7 @@ app.whenReady().then(() => {
     const verdict = arrival.shouldGreetOnReturn({ awayMs, lastGreetAt, now: Date.now(), minAwayMs: RETURN_AFTER_MS });
     if (!verdict.greet) { log(`[greeting] ${why}: ${verdict.why}`); return; }
     const { text } = await composeGreeting(awayMs);
-    if (text) broadcast('fren:greet', { text, why });
+    if (text) sendToOrb('fren:greet', { text, why });
   };
   powerMonitor.on('suspend', () => away('sleep'));
   powerMonitor.on('lock-screen', () => away('lock'));
@@ -1719,6 +1722,9 @@ app.whenReady().then(() => {
     const value = Number.isFinite(n) && n >= 0 && n <= 0xffffff ? Math.round(n) : null;
     if (value === null) return { colour: null };
     memory.setSetting('orbColour', value);
+    // "Go back to orange" means all the way back: a look tuned in the old
+    // window has no other way off, now that the window is gone.
+    if (value === palette.DEFAULT_HEX) memory.setSetting('orbLook', '');
     if (win && !win.isDestroyed()) win.webContents.send('fren:orbColour', value);
     log(`[orb] colour set to #${value.toString(16).padStart(6, '0')}`);
     return { colour: value };
@@ -1795,8 +1801,8 @@ app.whenReady().then(() => {
    *
    * There is no standing permission here on purpose. Every capture is a
    * separate deliberate act, the image is held in memory for the length of one
-   * request, and it is never written to disk — which keeps the promise that
-   * OBSERVED screenshots never leave the machine intact and separate.
+   * request, and it is never written to disk. It is the only picture of the
+   * screen fren takes: the observer no longer keeps any.
    *
    * It also refuses while paused. Looking at the screen with the light off
    * would be exactly the thing the light exists to rule out.
@@ -1890,7 +1896,12 @@ app.whenReady().then(() => {
     setWatching: (on) => (on ? startObserving() : stopObserving()),
     routines: listRoutines,
     automations: async () => (await gateway.agentAutomations()).automations,
-    browser: () => ({ exclusions: safeParse(memory.getSetting('browserExclusions'), []) }),
+    browser: () => ({
+      exclusions: safeParse(memory.getSetting('browserExclusions'), []),
+      awareness: memory.getSetting('browserAwareness') !== 'off',
+      readPage: memory.getSetting('browserReadPage') !== 'off',
+      readSelection: memory.getSetting('browserReadSelection') !== 'off',
+    }),
     setBrowser: applyBrowserSettings,
     currentDomain: () => { const b = currentBrowserContext(); return (b && b.tab && b.tab.domain) || ''; },
     setColour: setOrbColour,

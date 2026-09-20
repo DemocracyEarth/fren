@@ -9,34 +9,7 @@ const state = {
   gatewayOk: s.gatewayOk !== false,
 };
 contextBridge.exposeInMainWorld('fren', {
-  // Enough of the soul files to see the view rendered.
-  automate: async () => ({ draft: {
-    feasible: true,
-    approach: 'A shortcut can pull the three columns straight out of the dashboard export and append them to the sheet, so the copy step disappears.',
-    steps: ['Open the dashboard export', 'Copy the three columns', 'Paste into the weekly sheet', 'Fix the date row'],
-    script: '#!/usr/bin/env bash\\n# Replace with your own export URL and sheet id.\\ncurl -s "$DASHBOARD_EXPORT_URL" -o /tmp/latest.csv\\nopen /tmp/latest.csv',
-    language: 'bash',
-    caveats: 'I have only ever seen window titles, so I do not know the export URL or which sheet you paste into. Both are placeholders above.',
-  } }),
   dismissSuggestion: async () => true,
-  getSuggestions: async () => ([
-    { ts: Date.now() - 3600e3, pattern: 'export dashboard numbers into the weekly sheet',
-      message: 'You have exported the dashboard numbers into the weekly sheet seven times this week, always the same three columns.' },
-    { ts: Date.now() - 26 * 3600e3, pattern: 'generate the PDF report',
-      message: 'The PDF report gets rebuilt by hand most mornings, right after you check the campaign metrics.' },
-  ]),
-  readSoul: async () => ({
-    dir: '/Users/you/Library/Application Support/fren',
-    files: [
-      { name: 'SOUL.md', title: 'Who fren tries to be',
-        text: '# SOUL\n\n## How to talk to Santi\n\n> warmer and conversational is fine.\n\n_Their words. Follow them._\n' },
-      { name: 'USER.md', title: 'What you told it about yourself',
-        text: '# USER\n\n**Name:** Santi\n\n**Working on:** building fren\n' },
-      { name: 'MEMORY.md', title: 'Durable facts', text: '' },
-    ],
-    logs: [{ name: '2026-08-22.md', bytes: 2200 }],
-  }),
-  readLog: async () => '# 2026-08-22\n\n- **20:22** working in Claude, checking WhatsApp\n',
   openDataFolder: async () => ({ ok: true }),
 
   getState: async () => state,

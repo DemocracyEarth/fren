@@ -363,6 +363,7 @@ let cutReplyShort = null;
 
 /** fren says it out loud: the mouth moves while the words arrive. */
 async function speak(text, opts = {}) {
+  hush();
   // While a live line is open the agent owns the voice: anything else fren has
   // to say (a routine, an automation reporting in) lands in the chat as text
   // and is not spoken over the conversation.
@@ -939,6 +940,24 @@ async function recoverPermissionCards() {
   for (const request of open) await showPermissionCard(request);
 }
 
+/**
+ * A turn the owner SPOKE on the live line. The voice agent has no way to
+ * change fren, so fren reads the turn itself — but only obeys what makes it see
+ * or say less (own-business.js, reducesOnly): these words came back from a
+ * speech service, and a mishearing must never widen anything. Resolves what
+ * fren did, in words, for the agent to say; null when it did nothing.
+ */
+async function obeySpoken(text) {
+  const deed = window.FrenOwnBusiness.parse(text);
+  if (!window.FrenOwnBusiness.reducesOnly(deed)) return null;
+  // No `heard`: the line has already written this turn into the transcript.
+  const res = await window.fren.ownBusiness(deed.verb, deed.args);
+  if (res && Array.isArray(res.refresh) && res.refresh.includes('profile')) {
+    try { profile = await window.fren.getProfile(); } catch { /* keep the old copy */ }
+  }
+  return (res && res.say) || null;
+}
+
 /** What fren is running, by name, so "pause the stretch one" is recognised. */
 let ownNames = [];
 function refreshOwnNames() {
@@ -988,13 +1007,15 @@ function drawCard(bubble, res, deed) {
 const CHIP_CALLS = new Set([
   'setRoutineEnabled', 'deleteRoutine',
   'patchAgentAutomation', 'deleteAgentAutomation', 'runAgentAutomation',
-  'dismissSuggestion', 'openDataFolder', 'clearMessages', 'ownBusiness',
+  'dismissSuggestion', 'openDataFolder', 'clearMessages', 'ownBusiness', 'openSettings',
 ]);
 
 function chipRow(chips, where) {
   const row = document.createElement('div');
   row.className = 'chips';
-  const born = Date.now();
+  // On the element, not in the closure: "Keep it" puts the ORIGINAL row back
+  // under the pointer, and it has to count as new again.
+  row.dataset.born = Date.now();
   for (const c of chips) {
     const b = document.createElement('button');
     b.className = 'chip';
@@ -1002,8 +1023,8 @@ function chipRow(chips, where) {
     b.addEventListener('click', () => {
       // A double-click on "Delete" must not land on "Yes, delete it", which
       // has just appeared under the pointer.
-      if (Date.now() - born < 400) return;
-      if (c.back) return void row.replaceWith(c.back);
+      if (Date.now() - Number(row.dataset.born) < 400) return;
+      if (c.back) { c.back.dataset.born = Date.now(); return void row.replaceWith(c.back); }
       if (c.confirm) {
         return void row.replaceWith(chipRow([{ ...c, label: c.confirm, confirm: null }, { label: 'Keep it', back: row }], where));
       }
@@ -1041,7 +1062,10 @@ async function pressChip(c, row, where) {
     buttons.forEach((b) => { b.disabled = false; });
   } else if (c.then === 'wipe') {
     // The transcript is gone, so what is on screen goes too — except a
-    // question an agent is still waiting on, which is not conversation.
+    // question an agent is still waiting on, which is not conversation. A
+    // proposal that was on screen is let go: a later "okay" must not keep
+    // something nobody can see any more.
+    if (pendingProposal) pendingProposal.settle({ keep: false, answer: false });
     const waiting = new Set([...permissionCards.values()].map((r) => r.parentElement));
     els.messages.querySelectorAll('.bubble, .thought').forEach((n) => { if (!waiting.has(n)) n.remove(); });
   } else {
@@ -1102,12 +1126,15 @@ function busyForSpeech() {
   return speaking || awaitingReply || wantRecording || stopping ||
     document.body.dataset.recording === '1' || !!(mic && mic.isRecording && mic.isRecording());
 }
+// The quiet voice (a hello, the wake-word explanation) is fren talking too, so
+// what fren volunteers waits for it. It is NOT part of busyForSpeech(): the
+// owner never waits for it — see hush().
 function sayWhenFree(fn) {
-  if (busyForSpeech()) later.push(fn);
+  if (busyForSpeech() || quietVoice) later.push(fn);
   else fn();
 }
 function drainLater() {
-  if (!later.length || busyForSpeech()) return;
+  if (!later.length || busyForSpeech() || quietVoice) return;
   const fn = later.shift();
   Promise.resolve(fn()).finally(() => setTimeout(drainLater, 350));
 }
@@ -1115,15 +1142,22 @@ function drainLater() {
 /** Something said while fren was still busy. Answered next, never dropped. */
 let queued = null;
 
-async function sendMessage(text) {
+async function sendMessage(text, { shown = false } = {}) {
   const question = (text ?? els.input.value).trim();
   if (!question) return;
+  if (text === undefined) els.input.value = '';   // typed: the box is theirs again
+  // fren's own business ("stop watching", "what are you running") is read from
+  // these words, here, before any model sees them — and only from these words.
+  // See own-business.js for why that is the whole point.
+  const deed = window.FrenOwnBusiness.parse(question, { names: ownNames });
   if (pendingProposal) {
     // A proposal is waiting: the next thing said answers it. A short yes or
-    // no is the answer; anything else lets the proposal go and stands on its own.
-    const answer = readYesNo(question);
+    // no is the answer; anything else lets the proposal go and stands on its
+    // own. An instruction to fren is never an answer — "please stop watching"
+    // opens with a yes-word and "don't read this site" with a no-word, and
+    // neither was about the proposal.
+    const answer = deed ? null : readYesNo(question);
     if (answer !== null) {
-      els.input.value = '';
       addBubble('user', question);
       pendingProposal.settle({ keep: answer, answer: !answer && /answer/i.test(question) });
       return;
@@ -1135,18 +1169,13 @@ async function sendMessage(text) {
   // instead and answer it when the current one finishes.
   if (awaitingReply) {
     queued = question;
-    els.input.value = '';
     addBubble('user', question);
     vlog('queued-while-busy');
     return;
   }
-  addBubble('user', question);
+  if (!shown) addBubble('user', question);
   // During setup the answers are for fren, not for the model.
   if (setup) return handleSetupAnswer(question);
-  // fren's own business ("stop watching", "what are you running") is read from
-  // these words, here, before any model sees them — and only from these words.
-  // See own-business.js for why that is the whole point.
-  const deed = window.FrenOwnBusiness.parse(question, { names: ownNames });
   // If fren asked something, this is the answer — see if it taught anything.
   // An instruction is not an answer.
   if (!deed) learnFrom(question);
@@ -1215,7 +1244,7 @@ async function sendMessage(text) {
       const next = queued;
       queued = null;
       // Already shown as a bubble when it was queued.
-      setTimeout(() => sendMessage(next), 0);
+      setTimeout(() => sendMessage(next, { shown: true }), 0);
     }
   }
 }
@@ -1291,8 +1320,9 @@ let hintNote = null;             // something fren is holding: a greeting, a not
  * the gestures — and "say hey fren" — never came back. It goes the moment it
  * has done its job: the chat is opened (the words are in there), the orb is
  * pressed, or a minute passes. A held suggestion is a different note with its
- * own life, and is never touched from here.
+ * own life: a passing note may cover it for that minute, and hands it back.
  */
+const SUGGESTION_NOTE = 'fren noticed something — right-click to hear it';
 const PASSING_NOTE_MS = 60_000;
 let passingNote = null;
 let passingNoteTimer = null;
@@ -1303,7 +1333,7 @@ function holdPassingNote(text) {
 }
 function dropPassingNote() {
   clearTimeout(passingNoteTimer);
-  if (passingNote !== null && hintNote === passingNote) hintNote = null;
+  if (passingNote !== null && hintNote === passingNote) hintNote = pendingSuggestion ? SUGGESTION_NOTE : null;
   passingNote = null;
 }
 
@@ -1351,20 +1381,34 @@ function paintPanel() {
  * screen or fight a conversation in progress.
  */
 const PANEL_HISTORY = 50;
-async function loadPanelHistory() {
+let historyLoading = null;
+function loadPanelHistory() {
+  // One at a time: opening the panel and the wake-word explanation can both
+  // find the panel empty before either has filled it.
+  if (!historyLoading) historyLoading = fillPanelFromDisk().finally(() => { historyLoading = null; });
+  return historyLoading;
+}
+async function fillPanelFromDisk() {
   // Gated on the panel being EMPTY rather than on a once-only flag: after
   // "forget this conversation" wipes it, the next open starts from disk again.
+  // That makes ORDER matter — one bubble written first (a hello, a permission
+  // card, a spoken turn) would keep the whole transcript out — so init() loads
+  // it before anything can write.
   if (setup) return;
   if (els.messages.querySelector('.bubble')) return;
   let msgs = [];
   try { msgs = await window.fren.messages(); } catch { return; }
-  if (!msgs.length) return;
+  if (!msgs.length || els.messages.querySelector('.bubble')) return;
+  // Yesterday's words are not a conversation in progress: replaying them must
+  // not hold fren's thoughts back the way a real exchange does.
+  const before = lastConversationAt;
   // This is the only place the conversation can be read back, so it carries
   // a real stretch of it rather than a glance. Bounded all the same: every row
   // is a DOM node, and Markdown is rendered for each of fren's.
   for (const m of msgs.slice(-PANEL_HISTORY)) {
     addBubble(m.role === 'fren' ? 'fren' : 'user', m.text);
   }
+  lastConversationAt = before;
   scrollDown();
 }
 
@@ -1473,12 +1517,6 @@ async function activateOrb() {
   }
   // If fren has been sitting on something, that is what a tap is for.
   if (await deliverPendingSuggestion()) return;
-  react('click');
-  await setPanel(!state.panelOpen);
-}
-
-// Kept for the keyboard path and anything else that just wants the panel.
-async function togglePanel() {
   react('click');
   await setPanel(!state.panelOpen);
 }
@@ -1710,6 +1748,7 @@ els.orb.addEventListener('mousedown', (e) => {
       holdTimer = null;
       if (!pressing || dragging) return;
       heldToTalk = true;
+      hush();
       voice.start().catch(() => {});
     }, HOLD_TO_TALK_MS);
   }
@@ -2051,6 +2090,7 @@ function listening(level) {
 
 async function startTalking() {
   vlog('startTalking:enter');
+  hush();                          // or the recording opens over fren's own voice
   if (!mic || !voiceReady) {
     vlog('startTalking:BLOCKED', { reason: !mic ? 'no mic' : 'voice not ready' });
     return;
@@ -2310,6 +2350,8 @@ async function greetQuietly(text) {
  * that the "hey fren" it just heard was fren's own.
  */
 let quietVoice = false;
+/** The owner always wins over a hello or an explanation: it stops mid-word. */
+function hush() { if (quietVoice && audioStop) audioStop(); }
 async function sayQuietly(text) {
   if (quietVoice || busyForSpeech() || voiceActive()) return;
   quietVoice = true;
@@ -2325,7 +2367,10 @@ async function sayQuietly(text) {
       await playVoice(res.audio).catch(() => {});
       face.stopTalking();
     }
-  } catch { /* written is enough */ } finally { quietVoice = false; }
+  } catch { /* written is enough */ } finally {
+    quietVoice = false;
+    setTimeout(drainLater, 350);   // whatever waited for the quiet voice
+  }
 }
 
 /*
@@ -2334,12 +2379,13 @@ async function sayQuietly(text) {
  * would really open a line — armed, an agent to talk to — and only the real
  * phrase; otherwise it is the plain invitation it always was.
  */
-let wake = { armed: false, canConverse: false, phrase: null };
-const PHRASE_FITS = 18;            // the same cap the hover card uses
+let wake = { armed: false, canConverse: false, phrase: null, quoted: null };
 function onWakeStatus(s) {
   if (s) wake = s;
-  const say = wake.armed && wake.canConverse && wake.phrase && wake.phrase.length <= PHRASE_FITS;
-  els.input.placeholder = say ? `Ask fren… or say “${wake.phrase}”` : 'Ask fren…';
+  // `quoted` is the phrase only when it is short enough to print: main decides
+  // that once, so the input and the hover card cannot disagree.
+  const say = wake.armed && wake.canConverse && wake.quoted;
+  els.input.placeholder = say ? `Ask fren… or say “${wake.quoted}”` : 'Ask fren…';
   maybeIntroduceVoice();
 }
 
@@ -2404,7 +2450,7 @@ async function onCurious({ question }) {
   // Never over a conversation in progress. There is no queue for this: a
   // question that has waited is a question about something you have already
   // moved on from, and stale curiosity reads worse than none.
-  if (!question || speaking || awaitingReply || setup) return;
+  if (!question || speaking || awaitingReply || quietVoice || setup) return;
 
   mood.note('idea');
   setFace('curious');
@@ -2502,7 +2548,7 @@ function browserSetupCard({ storeUrl } = {}) {
 }
 
 async function onSuggestion({ message }) {
-  if (!message || speaking || awaitingReply || voiceActive()) { pendingSuggestion = message; pendingAt = Date.now(); return; }
+  if (!message || speaking || awaitingReply || quietVoice || voiceActive()) { pendingSuggestion = message; pendingAt = Date.now(); return; }
   pendingSuggestion = message;
   pendingAt = Date.now();
   mood.note('idea');
@@ -2517,7 +2563,7 @@ async function onSuggestion({ message }) {
   // Reserved: hold the thought and LOOK like it — the beckon keeps bouncing
   // until it is heard. Right-clicking fren or tapping it delivers it; typing
   // a question does not (sendMessage leaves a held thought held).
-  hintNote = 'fren noticed something — right-click to hear it';
+  hintNote = SUGGESTION_NOTE;
   startBeckoning();
 }
 
@@ -2560,6 +2606,9 @@ scheduleWander();
     els.send.disabled = true;
     return;
   }
+  // The transcript first, before anything below can write a bubble: the panel
+  // only ever fills while it is empty. (A new owner has none; nothing happens.)
+  await loadPanelHistory();
   // fren glances toward the pointer while it's watching, so it reads as
   // paying attention to what you're doing.
   window.fren.onCursor((point) => {
@@ -2587,6 +2636,7 @@ scheduleWander();
       getFace: () => face,
       addBubble,
       setFace,
+      heard: obeySpoken,
       log: (m) => console.log(m),
       onChange: (on) => { if (!on) setFace(emotionFor(state)); },
     });
@@ -2595,7 +2645,7 @@ scheduleWander();
     if (window.fren.voice && window.fren.voice.onToggle) {
       window.fren.voice.onToggle(() => {
         if (voiceActive()) voice.end('hotkey');
-        else voice.start().catch(() => {});
+        else { hush(); voice.start().catch(() => {}); }
       });
     }
     // The wake word: a small hop to show it heard you, then the line opens.
@@ -2627,6 +2677,9 @@ scheduleWander();
     // buttons orange looks like a bug rather than a choice.
     if (window.FrenPalette) window.FrenPalette.applyAccent(hex);
     if (face && face.setPalette) face.setPalette(hex);
+    // Back to ember is all the way back: main forgets a tuned look with it.
+    const P = window.FrenPalette;
+    if (P && hex === P.DEFAULT_HEX && face && face.tune) face.tune(P.ORB_LOOK);
   };
   try {
     const chosen = await window.fren.getOrbColour();

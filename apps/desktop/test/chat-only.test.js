@@ -53,7 +53,7 @@ test('everything the windows call exists in preload, and everything in preload i
   for (const name of called) assert.ok(entries[name], `a window calls fren.${name}, which preload does not have`);
 
   const handled = new Set([...mainSource.matchAll(/ipcMain\.handle\(\s*'([^']+)'/g)].map((m) => m[1]));
-  const sent = new Set([...mainSource.matchAll(/(?:send|broadcast)\(\s*'([^']+)'/g)].map((m) => m[1]));
+  const sent = new Set([...mainSource.matchAll(/(?:send|sendToOrb)\(\s*'([^']+)'/g)].map((m) => m[1]));
   for (const [name, e] of Object.entries(entries)) {
     if (e.kind === 'invoke') assert.ok(handled.has(e.channel), `preload's ${name} invokes ${e.channel}, which main does not handle`);
     else assert.ok(sent.has(e.channel), `preload's ${name} listens for ${e.channel}, which main never sends`);

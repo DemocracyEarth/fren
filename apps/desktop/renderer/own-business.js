@@ -56,7 +56,7 @@
   function normalise(text) {
     let t = lead(text);
     for (let i = 0; i < 3; i++) {
-      t = t.replace(/[,]?\s+(?:please|for now|right now|now|thanks|thank you)$/i, '').trim();
+      t = t.replace(/[,]?\s+(?:please|for now|right now|now|anymore|any more|for a bit|for a while|thanks|thank you)$/i, '').trim();
     }
     return t;
   }
@@ -64,6 +64,10 @@
   const DOMAIN = '((?:[a-z0-9-]+\\.)+[a-z]{2,})';
   const SITE = '(?:this|that|the current) (?:site|page|website|domain|tab)';
   const NOUN = '(?:routine|automation|reminder)s?';
+  const NOT = "(?:don't|dont|do not)";
+  // "for ten minutes", "until lunch": said after "stop watching". It has to look
+  // like a length of time, or "stop looking for my keys" would turn the light off.
+  const SPAN = "(?: for (?:\\d+|an?|a few|a couple of|half an) (?:sec(?:ond)?s?|min(?:ute)?s?|hours?|hrs?)| until .{1,30})?";
   const MANAGE = "(?:pause|unpause|stop|resume|restart|delete|cancel|remove|disable|enable|kill|turn off|turn on|switch off|switch on|get rid of)";
 
   /** People paste URLs; a domain is what the exclusion list holds. */
@@ -71,14 +75,19 @@
     return String(s || '').toLowerCase().replace(/^[a-z]+:\/\//, '').replace(/[/?#].*$/, '').replace(/^www\./, '');
   }
 
+  // "ignore package.json" is coding talk, not a website. A few real domains end
+  // this way (.md, .rs, .sh); "don't read this site" still reaches those.
+  const FILE_EXT = /\.(?:js|mjs|cjs|ts|tsx|jsx|json|md|html?|css|py|rb|go|rs|txt|ya?ml|toml|lock|png|jpe?g|gif|svg|pdf|sh|zip|csv)$/i;
+  const site = (verb, token) => (FILE_EXT.test(token) ? null : { verb, args: { domain: bareDomain(token) } });
+
   const re = (src) => new RegExp(`^(?:${src})$`, 'i');
 
   // Ordered: the first match wins. Each entry is [pattern, (match) => deed].
   const RULES = [
     // ---- the light --------------------------------------------------------
-    [re("(?:stop|quit|pause) (?:watching|looking|observing)(?: me| my screen| the screen| what i'm doing)?|pause(?: yourself)?|take a break from (?:watching|looking)|(?:don't|do not) (?:watch|look)(?: at)?(?: me| my screen)?|go dark|go to sleep|(?:turn|switch) (?:your |the )?light off|(?:turn|switch) off (?:your|the) light"),
+    [re(`(?:stop|quit|pause) (?:watching|looking|observing)(?: at)?(?: me| my screen| the screen| what i'm doing)?${SPAN}|pause(?: yourself)?${SPAN}|take a break from (?:watching|looking)|${NOT} (?:watch|look)(?: at)?(?: me| my screen| the screen)?|go dark|go to sleep|(?:turn|switch) (?:your |the )?light off|(?:turn|switch) off (?:your|the) light`),
       () => ({ verb: 'watch', args: { on: false } })],
-    [re("(?:resume|start|begin) (?:watching|looking|observing)(?: me| my screen)?(?: again)?|(?:watch|look) again|(?:you can|you may|it's ok(?:ay)? to) (?:look|watch)(?: again)?|unpause|wake up|(?:turn|switch) (?:your |the )?light (?:back )?on|(?:turn|switch) on (?:your|the) light"),
+    [re("(?:resume|start|begin) (?:watching|looking|observing)(?: me| my screen)?(?: again)?|(?:watch|look) again|resume|(?:you can|you may|it's ok(?:ay)? to) (?:look|watch)(?: again)?|unpause|wake up|(?:turn|switch) (?:your |the )?light (?:back )?on|(?:turn|switch) on (?:your|the) light"),
       () => ({ verb: 'watch', args: { on: true } })],
 
     // ---- what is running, and every wish to change it ---------------------
@@ -86,41 +95,47 @@
     // deletes anything: the chip on the card does.
     [re(`what(?: are|'re) you running|what's running|what do you have running|what (?:${NOUN}(?: (?:and|or) ${NOUN})*) (?:do i have|have i got|are there|are (?:running|set up|active|on))|(?:show|list|tell)(?: me)? (?:my|the|your|all my|all the) ${NOUN}(?: (?:and|or) ${NOUN})*|(?:do i have|are there) any ${NOUN}(?: (?:and|or) ${NOUN})*(?: running| set up)?`),
       () => ({ verb: 'running', args: {} })],
+    // "turn on A reminder for 9am" asks for a new one, which is the scheduling
+    // path's business: only something that already exists can be managed.
     [re(`${MANAGE} (?:.{0,60} )?${NOUN}(?: (?:called|named|about|for|that|which|to) .{1,80})?|stop reminding me(?: .{1,80})?`),
-      () => ({ verb: 'running', args: {} })],
+      (m) => (/^(?:enable|turn on|switch on|restart|resume) (?:a|an|another|new)\b/i.test(m[0]) ? null : { verb: 'running', args: {} })],
 
     // ---- what the browser lets fren see -----------------------------------
-    [re(`(?:don't|do not|never|stop) (?:read|reading|look at|looking at|watch|watching) ${SITE}|(?:exclude|ignore|skip) ${SITE}`),
+    [re(`(?:${NOT}|never|stop) (?:read|reading|look at|looking at|watch|watching) ${SITE}|(?:exclude|ignore|skip) ${SITE}`),
       () => ({ verb: 'exclude', args: { domain: null } })],
-    [re(`(?:(?:don't|do not|never|stop) (?:read|reading|look at|looking at)|exclude|ignore|skip) (?:https?://)?(?:www\\.)?${DOMAIN}(?:/\\S*)?`),
-      (m) => ({ verb: 'exclude', args: { domain: bareDomain(m[1]) } })],
-    [re(`you can (?:read|look at) ${SITE} again|(?:stop excluding|unexclude|un-exclude|start reading) ${SITE}(?: again)?`),
+    [re(`(?:(?:${NOT}|never|stop) (?:read|reading|look at|looking at)|exclude|ignore|skip) (?:https?://)?(?:www\\.)?${DOMAIN}(?:/\\S*)?`),
+      (m) => site('exclude', m[1])],
+    [re(`you can (?:read|look at) ${SITE} again|read (?:this|that|the current) (?:site|website|domain) again|(?:stop excluding|unexclude|un-exclude|start reading) ${SITE}(?: again)?`),
       () => ({ verb: 'include', args: { domain: null } })],
     [re(`you can (?:read|look at) (?:https?://)?(?:www\\.)?${DOMAIN}(?:/\\S*)? again|(?:stop excluding|unexclude|un-exclude|start reading) (?:https?://)?(?:www\\.)?${DOMAIN}(?:/\\S*)?(?: again)?`),
-      (m) => ({ verb: 'include', args: { domain: bareDomain(m[1] || m[2]) } })],
-    [re("(stop|quit|start|resume) reading (?:my |the )?(?:web ?)?pages?(?: content)?(?: again)?|you can read (?:my |the )?(?:web ?)?pages again"),
+      (m) => site('include', m[1] || m[2])],
+    [re("(stop|quit|start|resume) reading (?:my |the )?(?:(?:web ?)?pages?|tabs?)(?: content)?(?: again)?|you can read (?:my |the )?(?:web ?)?pages again"),
       (m) => ({ verb: 'readPages', args: { on: !/^(stop|quit)$/i.test(m[1] || 'start') } })],
     [re("(stop|quit|start|resume) reading (?:my |the )?(?:selections?|selected text|highlights?|what i (?:select|highlight))(?: again)?"),
       (m) => ({ verb: 'readSelections', args: { on: !/^(stop|quit)$/i.test(m[1]) } })],
     [re("(?:turn|switch) (?:browser awareness|browser reading) (off|on)|(?:turn|switch) (off|on) (?:browser awareness|browser reading)|(stop|start) (?:watching|reading|looking at) my browser(?: again)?"),
       (m) => ({ verb: 'awareness', args: { on: /^(on|start)$/i.test(m[1] || m[2] || m[3]) } })],
+    // Asking changes nothing: it is how an exclusion made last month gets checked.
+    [re("(?:what|which) (?:sites?|websites?) (?:are you|do you) (?:skipping|skip|ignoring|ignore|excluding|exclude|not reading|not read)|what (?:sites? )?have i excluded|are you reading (?:pages|my pages|my browser|my selections?)"),
+      () => ({ verb: 'reading', args: {} })],
 
     // ---- colour -----------------------------------------------------------
     [re("go back to (?:orange|ember|(?:your|the) (?:normal|usual|default|original|old) colou?r)|(?:reset|restore) your colou?r|change your colou?r back"),
       () => ({ verb: 'colour', args: { name: 'default' } })],
-    [re("(?:change|set|make|switch|turn) (?:your|the orb's?) colou?r (?:to|into) (?:the )?([a-z -]{2,30})"),
+    [re("(?:(?:change|set|switch) (?:your|the orb's?) colou?r (?:to|into)|(?:make|turn) (?:your|the orb's?) colou?r(?: to| into)?) (?:the )?([a-z -]{2,30})"),
       (m) => ({ verb: 'colour', args: { name: m[1].trim().toLowerCase() } })],
     [re("what colou?rs (?:can you be|do you (?:have|come in)|can i (?:pick|choose)(?: from)?)"),
       () => ({ verb: 'colour', args: { name: '' } })],
 
     // ---- the light at launch ----------------------------------------------
-    [re("(?:stop|quit) (?:waking|turning on|starting)(?: up)?(?: yourself)? (?:at|on|when) (?:launch|start ?up|i (?:launch|open|start) you)|(?:don't|do not) (?:wake|turn on|start)(?: up)? (?:at|on|when) (?:launch|start ?up|i (?:launch|open|start) you)|(?:start|launch|stay) (?:dark|asleep|paused)(?: (?:at|on) (?:launch|start ?up))?"),
+    // "stay dark" is about now; only "at launch" makes it a standing setting.
+    [re(`(?:stop|quit) (?:waking|turning on|starting)(?: up)?(?: yourself)? (?:at|on|when) (?:launch|start ?up|i (?:launch|open|start) you)|${NOT} (?:wake|turn on|start)(?: up)? (?:at|on|when) (?:launch|start ?up|i (?:launch|open|start) you)|(?:start|launch) (?:dark|asleep|paused)(?: (?:at|on) (?:launch|start ?up))?|stay (?:dark|asleep|paused) (?:at|on) (?:launch|start ?up)`),
       () => ({ verb: 'wakeOnLaunch', args: { on: false } })],
     [re("(?:start |go back to )?(?:waking|wake) up (?:at|on|when) (?:launch|start ?up|i (?:launch|open|start) you)(?: again)?|(?:start|launch) awake(?: (?:at|on) (?:launch|start ?up))?"),
       () => ({ verb: 'wakeOnLaunch', args: { on: true } })],
 
     // ---- speaking up ------------------------------------------------------
-    [re("stop interrupting(?: me)?|(?:don't|do not) interrupt(?: me)?|(?:don't|do not) (?:speak|talk|say anything) unless (?:i (?:talk|speak) to you(?: first)?|i ask|spoken to)|only (?:speak|talk) when (?:i (?:talk|speak) to you|i ask|spoken to)|stop (?:speaking|talking|piping) up"),
+    [re(`stop interrupting(?: me)?|${NOT} interrupt(?: me)?|${NOT} (?:speak|talk|say anything) unless (?:i (?:talk|speak) to you(?: first)?|i ask|spoken to)|only (?:speak|talk) when (?:i (?:talk|speak) to you|i ask|spoken to)|stop (?:speaking|talking|piping) up`),
       () => ({ verb: 'volunteer', args: { on: false } })],
     [re("you (?:can|may) (?:speak|talk|pipe) up(?: again)?|you (?:can|may) interrupt(?: me)?(?: again)?|(?:start|resume) (?:speaking|talking) up(?: again)?|feel free to (?:speak up|interrupt(?: me)?)(?: again)?"),
       () => ({ verb: 'volunteer', args: { on: true } })],
@@ -129,21 +144,31 @@
     [re("(?:forget|clear|delete|erase|wipe) (?:this|the|our) (?:conversation|chat|transcript|chat history)"),
       () => ({ verb: 'forgetConversation', args: {} })],
     [re("forget (?:that|about|what i said about|the fact that) (.{3,200})"),
-      (m) => (/^(?:it|that|this|them|me)$/i.test(m[1].trim()) ? null : { verb: 'forget', args: { query: m[1].trim() } })],
+      // "forget about the meeting, what should I cook" is a question with a preamble.
+      (m) => (/^(?:it|that|this|them|me)$/i.test(m[1].trim()) || /\?|, ?(?:what|how|why|when|where|who|can you|could you)\b/i.test(m[1])
+        ? null : { verb: 'forget', args: { query: m[1].trim() } })],
     [re("what do you (?:know|remember) about me|what have you (?:kept|remembered|learned|learnt|noted)(?: about me)?|what(?:'s| is) in your (?:memory|notes)|(?:show|open)(?: me)? (?:my|your) notes(?: folder)?"),
       () => ({ verb: 'knows', args: {} })],
 
     // ---- patterns ---------------------------------------------------------
-    [re("what patterns (?:have you|did you|do you) (?:noticed?|seen?|found|find|spotted|spot)(?: lately| recently| so far)?|(?:have you )?(?:noticed|seen|found|spotted) any patterns(?: lately| recently)?|(?:show|list|tell)(?: me)?(?: about)? (?:my|the|your) patterns|any patterns(?: lately| recently)?"),
+    [re("what patterns (?:have you|did you|do you) (?:noticed?|seen?|found|find|spotted|spot)(?: lately| recently| so far)?|(?:have you )?(?:noticed|seen|found|spotted) any patterns(?: lately| recently)?|(?:show|list|tell)(?: me)?(?: about)? (?:my |the |your )?patterns|any patterns(?: lately| recently)?|what have you noticed(?: lately| recently)?|have you noticed anything(?: lately| recently)?"),
       () => ({ verb: 'patterns', args: {} })],
+
+    // ---- the one pane there is --------------------------------------------
+    [re("(?:open|show)(?: me)? (?:the |your |my )?settings|change (?:the|your) model|(?:what|which) model (?:are you using|do you use)"),
+      () => ({ verb: 'settings', args: {} })],
   ];
 
   // "remember that …" keeps the person's own words, case and all — and their
   // ending: "I live in Lisbon now" must not lose its "now". Without "that" it
   // has to be plainly about them ("remember I take the 8:15"), or "remember
   // the milk" becomes a note.
-  const REMEMBER = /^remember(?: this)?(?:(?::| that| -) (.{3,500})| ((?:i|i'm|i've|my|we|our)\b.{3,500}))$/i;
-  const NOT_A_NOTE = /^(?:to|when|how|what|why|where|who|the time)\b/i;
+  const REMEMBER = /^remember(?: this)?(?:(?::|,| that| -) (.{3,500})| ((?:i|i'm|i've|my|we|our)\b.{3,500}))$/i;
+  // Back-references ("remember that for later"), reminiscence ("that time in
+  // Lisbon", "I asked you about taxes") and appointments ("we have a meeting at
+  // 3", which is a reminder) are not facts about the person.
+  const NOT_A_NOTE = /^(?:to|when|how|what|why|where|who|the time|time|for (?:later|next time|me|now)|it|this|that|(?:i|we) (?:asked|said|told|talked|spoke)|my last|our last|(?:i|we) have an? (?:meeting|call|appointment))\b/i;
+  const TIMED = /\b(?:for (?:a|an|\d+|half) |until )/i;
 
   /**
    * What fren was asked to do about itself, or null.
@@ -154,14 +179,20 @@
    */
   function parse(text, ctx) {
     const raw = String(text || '');
-    const t = normalise(raw);
+    // The question mark goes first, or it hides "… right now?" from normalise.
+    const t = normalise(raw.trim().replace(/[?\s]+$/, ''));
     if (!t || t.length > 300) return null;
     const asked = /\?\s*$/.test(raw.trim());
-    const s = t.replace(/\?+$/, '').trim();
+    const s = t;
 
     for (const [pattern, make] of RULES) {
       const m = pattern.exec(s);
-      if (m) return make(m);
+      if (!m) continue;
+      const deed = make(m);
+      // "for ten minutes" is understood and not obeyed: fren has no timer for
+      // its light, so main says it will not come back on by itself.
+      if (deed && deed.verb === 'watch' && !deed.args.on && TIMED.test(lead(raw))) deed.args.timed = true;
+      return deed;
     }
 
     // A question is not an instruction: "remember that time in Lisbon?"
@@ -180,12 +211,25 @@
         // Every word they used has to be in one name: "the music" is not
         // "Morning recap", and "it" is not anything.
         const said = words(m[1].replace(/ (?:one|thing)$/i, ''));
-        if (said.length && names.some((n) => { const have = new Set(words(n)); return said.every((w) => have.has(w)); })) {
+        // …and be at least half of it, or one shared word ("the build") would do.
+        if (said.length && names.some((n) => { const have = new Set(words(n)); return said.every((w) => have.has(w)) && said.length * 2 >= have.size; })) {
           return { verb: 'running', args: {} };
         }
       }
     }
     return null;
+  }
+
+  /**
+   * Whether a deed can only make fren see, read or say LESS. These are the only
+   * ones obeyed from a spoken conversation, where the words come back from a
+   * speech service rather than from the keyboard: a mishearing can then cost
+   * the owner some of fren's attention, and never any of their privacy.
+   */
+  function reducesOnly(deed) {
+    if (!deed) return false;
+    if (deed.verb === 'exclude') return true;
+    return ['watch', 'readPages', 'readSelections', 'awareness', 'volunteer'].includes(deed.verb) && deed.args.on === false;
   }
 
   const key = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -244,5 +288,5 @@
     return `on ${r.days.map((d) => DAY_NAMES[d].slice(0, 3)).join(', ')} at ${time}`;
   }
 
-  return { parse, normalise, resolveColour, matchFacts, factText, describeWhen };
+  return { parse, reducesOnly, resolveColour, matchFacts, factText, describeWhen, DAY_NAMES };
 });

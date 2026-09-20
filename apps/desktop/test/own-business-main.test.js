@@ -10,12 +10,12 @@
  */
 const test = require('node:test');
 const assert = require('node:assert');
-const { createOwnBusiness, whenText } = require('../main/own-business.js');
+const { createOwnBusiness, whenText, automationRow } = require('../main/own-business.js');
 
 function harness(over = {}) {
   const calls = [];
   const world = {
-    watching: true, exclusions: [], domain: '', volunteer: true,
+    watching: true, exclusions: [], domain: '', volunteer: true, awareness: true, readPage: true, readSelection: true,
     routines: [], automations: [], facts: [], patterns: [],
     ...over,
   };
@@ -25,7 +25,7 @@ function harness(over = {}) {
     setWatching: (on) => { world.watching = on; calls.push(['setWatching', on]); },
     routines: () => world.routines,
     automations: async () => { if (world.automations === 'down') throw new Error('gateway down'); return world.automations; },
-    browser: () => ({ exclusions: world.exclusions }),
+    browser: () => ({ exclusions: world.exclusions, awareness: world.awareness, readPage: world.readPage, readSelection: world.readSelection }),
     // The real one sanitises: junk never reaches the list.
     setBrowser: (patch) => {
       calls.push(['setBrowser', patch]);
@@ -51,6 +51,12 @@ test('watch: does it, and says nothing happened when nothing did', async () => {
   assert.match((await ob.apply('watch', { on: false })).say, /not watching/);
   assert.equal(calls.length, 1, 'already off: no second deed');
   assert.equal((await ob.apply('watch', { on: true })).say, 'Okay — watching again.');
+});
+
+test('watch: a length of time is not promised, because there is no timer', async () => {
+  const { ob } = harness({ watching: true });
+  assert.equal((await ob.apply('watch', { on: false, timed: true })).say, 'Okay — not watching. I won\'t start again on my own — say "start watching".');
+  assert.match((await ob.apply('watch', { on: false, timed: true })).say, /light is off\. I won't start again/);
 });
 
 test('"this site" is the page in front of them, and with no page fren says so', async () => {
@@ -96,6 +102,30 @@ test('the three browser switches go through the one settings function', async ()
   ]);
 });
 
+test('reading again is not claimed while fren is out of the browser', async () => {
+  const out = harness({ awareness: false });
+  assert.match((await out.ob.apply('readPages', { on: true })).say, /once I'm back in your browser.*start watching my browser/);
+  assert.match((await out.ob.apply('readSelections', { on: true })).say, /once I'm back in your browser/);
+  assert.deepEqual(out.calls, [['setBrowser', { readPage: true }], ['setBrowser', { readSelection: true }]], 'the wish is still stored');
+  assert.equal((await harness().ob.apply('readPages', { on: true })).say, 'Okay — reading pages again.');
+});
+
+test('what are you reading: the switches in words, each exclusion with its way back, nothing changed', async () => {
+  const { ob, calls } = harness({ readSelection: false, exclusions: ['github.com', 'example.org'] });
+  const res = await ob.apply('reading', {});
+  assert.match(res.say, /^I read the pages you visit, but not what you select\. You've told me to skip 2 sites\./);
+  assert.deepEqual(res.rows.map((r) => r.text), ['github.com', 'example.org']);
+  assert.deepEqual(res.rows[0].chips, [{ label: 'Read it again', call: 'ownBusiness', args: ['include', { domain: 'github.com' }, ''], then: 'drop' }]);
+  assert.equal(calls.length, 0);
+  assert.match((await harness({ awareness: false }).ob.apply('reading', {})).say, /^I'm out of your browser/);
+});
+
+test('settings: points at the one pane, with a chip that opens it', async () => {
+  const res = await harness().ob.apply('settings', {});
+  assert.match(res.say, /sliders button/);
+  assert.deepEqual(res.chips, [{ label: 'Open it', call: 'openSettings', args: [], then: 'keep' }]);
+});
+
 test('colour: a preset by name or by what people call it; an unknown name lists the names', async () => {
   const { ob, calls } = harness();
   assert.equal((await ob.apply('colour', { name: 'blue' })).say, 'Cornflower it is.');
@@ -135,7 +165,8 @@ test('remember: says whether it kept it', async () => {
   const kept = harness({ keeps: true });
   assert.equal((await kept.ob.apply('remember', { note: 'I take the 8:15' })).say, "I'll remember that.");
   assert.deepEqual(kept.calls, [['remember', 'I take the 8:15']]);
-  assert.match((await harness().ob.apply('remember', { note: 'hmm' })).say, /didn't keep/);
+  // An instruction is never refused: the only reason left is that it is there already.
+  assert.equal((await harness().ob.apply('remember', { note: 'hmm' })).say, 'I already have that.');
 });
 
 const FACTS = ['- Takes the 8:15 train _(2026-03-01)_', '- Sister is called Ana _(2026-03-02)_'];
@@ -199,7 +230,14 @@ test('the card: what each thing does, when it next runs, on or paused', async ()
   const res = await ob.apply('running', {});
   assert.equal(res.say, '2 things running.');
   assert.equal(res.rows[0].text, 'Morning recap — asks "what did I do yesterday" every weekday at 09:00. Next: tomorrow at 09:00.');
-  assert.equal(res.rows[1].text, 'News — every day at 08:00: Read the headlines and tell me three. Stopped: it kept failing.');
+  assert.equal(res.rows[1].text, 'News — every day at 08:00: Read the headlines and tell me three. Reaches no websites. Stopped: it kept failing.');
+});
+
+test('the card: where an automation may go is said every time it is listed', () => {
+  const row = automationRow({ ...AUTOMATION, network: { domains: ['example.com', 'news.example.org'] } }, Date.now());
+  assert.match(row.text, /Can reach example\.com, news\.example\.org, and nothing else\./);
+  const many = automationRow({ ...AUTOMATION, network: { domains: 'abcdefgh'.split('').map((c) => `${c}.com`) } }, Date.now());
+  assert.match(many.text, /Can reach a\.com, b\.com, c\.com, d\.com, e\.com, f\.com and 2 more, and nothing else\./);
 });
 
 test('the card: each chip is an entry the chat window already has, with the right arguments', async () => {

@@ -431,6 +431,13 @@ function buildChatRequest({ question, memories = [], observations = [], profile 
     'Figma, then back in the editor", never "you spent 47 minutes in Figma".',
     'If the context is insufficient or observation was off, say so plainly instead of guessing.',
     'No generic productivity advice.',
+    // fren's own business is done by fren, from the person's own words, before
+    // a message reaches a model. One that got here was not understood, and a
+    // model that answers "okay, I've stopped watching" has withdrawn nothing.
+    // The agent lane's persona carries the same rule (runtime-nanoclaw).
+    'You cannot change fren\'s own settings, what it watches or reads, its notes, its routines or',
+    'its automations. If asked to, say you did not catch that as an instruction, and tell them to',
+    'say it plainly: "stop watching", "don\'t read this site", "what are you running".',
     // What the user told fren about themselves. It is context for TONE and for
     // what they care about -- it is not observed activity, and must never be
     // reported back as if fren had seen it.
@@ -970,10 +977,10 @@ const EXTRACT_SCHEMA = {
  */
 const FREN_FACTS = [
   'fren watches which application is in front and what its window is called, but only while its light is on.',
-  'It never captures keystrokes, and screenshots never leave the machine.',
+  'It never captures keystrokes, and it takes no picture of the screen unless you ask it to look.',
   'It summarises that activity every couple of minutes, and looks across hours of those summaries for a workflow you repeat.',
   'It CAN raise something it noticed on its own, without being asked — that is what the "when to speak up" question decides.',
-  'It listens only while you hold the orb; speech is transcribed on your own machine.',
+  'While its light is on it listens on this Mac for one phrase, "hey fren"; no sound leaves the machine until it hears that, you hold the orb, or you click to dictate. Dictation is transcribed on your own machine; a spoken conversation goes to the voice service.',
   'It suggests things. It acts on your behalf only inside a secure execution environment, only for what you asked, and it shows you what it did.',
 ].join(' ');
 

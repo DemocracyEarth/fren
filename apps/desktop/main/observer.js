@@ -1,10 +1,11 @@
 // Activity observer for the Electron main process. Runs on macOS, Windows and
-// Linux; the platform-specific part lives in active-window.js. Samples the frontmost
-// app/window on an interval and occasionally grabs a downscaled screenshot.
-// Privacy invariant: stop() guarantees no further capture, and screenshots are
-// written to local disk only — this module never touches the network.
-const fs = require('node:fs');
-const path = require('node:path');
+// Linux; the platform-specific part lives in active-window.js. Samples the
+// frontmost app and its window title on an interval, and nothing else: it used
+// to keep a screenshot every few samples for the dashboard's day view, and with
+// that window gone nothing could show them, so it no longer takes them. (The one
+// picture fren does take is asked for, and lives in screen.js.)
+// Privacy invariant: stop() guarantees no further capture, and this module
+// never touches the network.
 const { config } = require('../../../packages/shared');
 const activeWindow = require('./active-window');
 
@@ -20,65 +21,12 @@ const getActiveWindowInfo = activeWindow.getActiveWindowInfo;
 function createObserver({ onObservation, log = console.error }) {
   let timer = null;
   let ticking = false; // no overlapping ticks if child processes run long
-  let sampleCount = 0;
   let titleFailures = 0;
   let unknownApps = 0;
   let titleBackoffUntil = 0;
-  let warnedNoScreenPermission = false;
-  let screenshotDirMade = false;
-
-  // Electron is required lazily so the child-process helpers above stay
-  // loadable (and testable) under plain Node.
-  async function captureScreenshot(ts) {
-    const { desktopCapturer, systemPreferences, app } = require('electron');
-    if (systemPreferences.getMediaAccessStatus('screen') !== 'granted') {
-      if (!warnedNoScreenPermission) {
-        warnedNoScreenPermission = true;
-        // One throwaway capture attempt so macOS registers the app in the
-        // Screen Recording privacy pane (and prompts on newer macOS).
-        // getMediaAccessStatus alone never triggers registration.
-        try {
-          await desktopCapturer.getSources({
-            types: ['screen'],
-            thumbnailSize: { width: 1, height: 1 },
-          });
-        } catch (_err) {
-          // expected while permission is missing
-        }
-        log(
-          'observer: screenshots disabled — ' +
-            (process.platform === 'darwin'
-              ? 'enable Screen Recording for this app in System Settings > ' +
-                'Privacy & Security, then restart fren'
-              : 'the system refused a screen capture')
-        );
-      }
-      return undefined;
-    }
-    const sources = await desktopCapturer.getSources({
-      types: ['screen'],
-      thumbnailSize: {
-        width: config.SCREENSHOT_MAX_WIDTH,
-        height: Math.round(config.SCREENSHOT_MAX_WIDTH * 0.72),
-      },
-    });
-    if (!timer) return undefined; // stopped while the capture was in flight
-    const thumbnail = sources && sources[0] && sources[0].thumbnail;
-    if (!thumbnail || thumbnail.isEmpty()) return undefined;
-
-    const dir = path.join(app.getPath('userData'), 'screenshots');
-    if (!screenshotDirMade) {
-      fs.mkdirSync(dir, { recursive: true });
-      screenshotDirMade = true;
-    }
-    const file = path.join(dir, ts + '.jpg');
-    fs.writeFileSync(file, thumbnail.toJPEG(config.SCREENSHOT_JPEG_QUALITY));
-    return file;
-  }
 
   async function tick() {
     const ts = Date.now();
-    sampleCount += 1;
 
     const skipTitle = ts < titleBackoffUntil;
     const info = await getActiveWindowInfo({ skipTitle });
@@ -116,17 +64,6 @@ function createObserver({ onObservation, log = console.error }) {
     if (appName === 'electron' || appName === 'fren') return;
 
     const obs = { ts, activeApp: info.activeApp, windowTitle: info.windowTitle };
-
-    if (sampleCount % config.SCREENSHOT_EVERY_N_SAMPLES === 0) {
-      const screenshotPath = await captureScreenshot(ts);
-      if (!timer) {
-        // Stopped while capturing: never report it, and never keep an
-        // untracked file that retention could not reach.
-        if (screenshotPath) fs.rmSync(screenshotPath, { force: true });
-        return;
-      }
-      if (screenshotPath) obs.screenshotPath = screenshotPath;
-    }
 
     onObservation(obs);
   }

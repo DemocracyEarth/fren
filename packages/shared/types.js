@@ -7,7 +7,7 @@
  * @property {number} ts              epoch ms
  * @property {string} activeApp
  * @property {string} [windowTitle]
- * @property {string} [screenshotPath] local file path; screenshots never leave the machine
+ * @property {string} [screenshotPath] local file path, from versions that kept screenshots; never set now
  *
  * @typedef {Object} ActivitySummary
  * @property {string} activity        e.g. "debugging the auth flow in VS Code and Chrome"

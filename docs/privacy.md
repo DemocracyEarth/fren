@@ -10,7 +10,7 @@ There are exactly two, and the character itself is the truth:
 
 | State | How fren looks | What is captured |
 |---|---|---|
-| Observing ON | Lit from within, eyes open, colour warm | Active app name + window title every 5s; local screenshot every ~15s |
+| Observing ON | Lit from within, eyes open, colour warm | Active app name + window title every 5s. No screenshots. |
 | Observing OFF | Light out, eyes closed, colour drained | **Nothing. No sampling, no screenshots, no summarizing, no timers.** |
 
 This is not a UI convention layered over a background process. The `observing`
@@ -166,8 +166,8 @@ to do by accident:
 - **It is refused while fren is paused.** Looking with the light off is exactly
   what the light exists to rule out.
 - **The image is never written to disk.** It is captured in memory, sent once,
-  and dropped. It is not the observed screenshots — those are a separate code
-  path that never transmits anything.
+  and dropped. It is the only picture of your screen fren ever takes: the
+  observer, which runs on a timer, takes none and cannot reach the network.
 - **The button does not exist unless a model that can see is configured.**
   DeepSeek's chat models are text-only. This needs an `ANTHROPIC_API_KEY`.
 - The model is instructed to answer your question and ignore the rest of the
@@ -219,12 +219,13 @@ Pausing stops new capture; it does not redact what you already let fren see.
 
 **Never sent, to anyone, ever:**
 
-- **Observed screenshots.** The ones fren takes on its own timer, roughly every
-  15 seconds while watching, are written as local JPEGs and pruned
-  automatically. They are not sent to the gateway, not sent to the model
-  provider, not uploaded anywhere. The summarizer works from the text timeline
-  alone. **This has not changed**, and the separation is enforced in the code:
-  the observer has no way to reach the gateway at all, and a test asserts it.
+- **A picture of your screen you did not ask for.** fren takes none. Earlier
+  versions wrote a local JPEG roughly every 15 seconds while watching, for a
+  day view that no longer exists; they were never sent anywhere, fren has
+  stopped taking them, and the ones already on disk are deleted as they pass
+  7 days. The summarizer works from the text timeline alone, and the
+  separation is enforced in the code: the observer neither captures the screen
+  nor has any way to reach the gateway, and a test asserts both.
 
   There is now one narrow exception, and it is a different code path with a
   different promise — see "Looking at your screen" below. Nothing fren captures
@@ -259,7 +260,7 @@ the same reasons the rest of this document holds:
 - **API keys.** That window belongs to the process that watches your screen, and
   that process deletes every provider key from its own environment at startup
   (`apps/desktop/main/index.js`). A field that accepted one would put a secret
-  back into it, and into the SQLite file sitting next to your screenshots. Keys
+  back into it, and into the SQLite file sitting next to your notes. Keys
   live in `.env`, which only the gateway reads.
 - **Provider addresses.** A base URL is *where the key gets sent*. Somewhere to
   send a credential is not a preference; it is the single most useful field for
@@ -336,7 +337,7 @@ anything still true in a month. If it does, one line lands in `MEMORY.md` under
 capped at 80 facts. Most answers keep nothing. Nothing else about the exchange
 is stored, and the question itself is never written to the log.
 
-**To turn it off**, open the Memory pane and untick *"Let fren interrupt you"*.
+**To turn it off**, tell fren *"stop interrupting me"* (*"you can speak up again"* undoes it).
 Pausing fren also stops it, along with everything else.
 
 ## Storage locations
@@ -352,7 +353,7 @@ Everything is local, under Electron's userData folder:
 │   └── 2026-08-22.md    # what fren observed that day
 ├── fren.db          # SQLite: observations, memories, suggestions, settings,
 │                   #         and the conversation
-└── (screenshots)    # JPEG files, max width 1280px
+└── (screenshots)    # only if an earlier version left some; they age out
 ```
 
 `<userData>` is `~/Library/Application Support/fren` on macOS,
@@ -378,7 +379,7 @@ it along with everything else, and fren will introduce itself again next time.
 | Data | Retention |
 |---|---|
 | Raw observations (app, title, timestamp) | 7 days, then pruned automatically |
-| Screenshots | Newest 200 kept, older ones deleted automatically |
+| Screenshots | None are taken. Any left by an earlier version go with the 7-day pruning |
 | Memories (semantic summaries) | Kept until you delete the data folder |
 | **The conversation** | **7 days, on the same clock as observations** |
 
@@ -482,7 +483,7 @@ decline any. Windows needs none of them for window titles; Linux needs
 
 | Permission | Used for | Without it |
 |---|---|---|
-| Screen Recording | Screenshots | No screenshots; app names + window titles only |
+| Screen Recording | The one screenshot you ask for ("look at my screen") | That look is refused; nothing else changes |
 | Accessibility | Window titles (via System Events) | App names only |
 | Microphone | The wake word, conversations, and dictating a message | No wake word, no conversations, mic button disabled; typing still works |
 

@@ -50,9 +50,15 @@ test('the hotkey is named only when it is the default AND it registered', () => 
 const listening = { listening: true, arming: false, access: 'granted', deaf: false, label: 'x' };
 const base = { observing: true, gatewayOk: true, voiceAgent: true, phrase: 'hey fren', alias: true, hotkey: '⌘⇧Space' };
 
+test('a phrase too long to print is not quoted, for the input and the hover card alike', () => {
+  const long = 'x'.repeat(PHRASE_FITS + 1);
+  assert.equal(wakeInfo({ ...base, phrase: long }).quoted, null);
+  assert.equal(wakeInfo({ ...base, phrase: long }).phrase, long, 'the explanation may still say it in full');
+});
+
 test('armed means really hearing: not loading, not deaf', () => {
   assert.deepEqual(wakeInfo({ ...base, status: listening }), {
-    armed: true, phrase: 'hey fren', alias: true, paused: false, micBlocked: false, canConverse: true, hotkey: '⌘⇧Space',
+    armed: true, phrase: 'hey fren', quoted: 'hey fren', alias: true, paused: false, micBlocked: false, canConverse: true, hotkey: '⌘⇧Space',
   });
   assert.equal(wakeInfo({ ...base, status: { ...listening, listening: false, arming: true } }).armed, false, 'loading');
   const deaf = wakeInfo({ ...base, status: { ...listening, deaf: true } });
@@ -77,7 +83,7 @@ test('paused is the light being off — and only when there is a wake word to pa
 test('a conversation can open only with the gateway up AND an agent behind it', () => {
   assert.equal(wakeInfo({ ...base, status: listening, gatewayOk: false }).canConverse, false);
   assert.equal(wakeInfo({ ...base, status: listening, voiceAgent: false }).canConverse, false);
-  assert.deepEqual(wakeInfo(), { armed: false, phrase: null, alias: false, paused: false, micBlocked: false, canConverse: false, hotkey: null });
+  assert.deepEqual(wakeInfo(), { armed: false, phrase: null, quoted: null, alias: false, paused: false, micBlocked: false, canConverse: false, hotkey: null });
 });
 
 test('the hover card: the phrase when armed, holding when paused, and nothing at all for a blocked microphone', () => {

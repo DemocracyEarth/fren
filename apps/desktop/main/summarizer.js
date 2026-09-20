@@ -1,6 +1,7 @@
 // Periodically turns raw observations into compact semantic memories via the
-// gateway, and prunes old observations and screenshot files. Only the
-// app/window timeline is sent — screenshots stay on disk, always.
+// gateway, and prunes old observations — and the screenshot files an earlier
+// version kept beside them, until the last has aged out. Only the app/window
+// timeline is sent.
 const fs = require('fs');
 const { config } = require('../../../packages/shared');
 const gateway = require('./gatewayClient');

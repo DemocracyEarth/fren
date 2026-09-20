@@ -28,7 +28,8 @@ test('the owner\'s words are read before the scheduling gate and before either m
   const body = app.slice(app.indexOf('async function sendMessage('), app.indexOf('const REDUCED ='));
   const at = (needle) => { const i = body.indexOf(needle); assert.ok(i !== -1, `sendMessage has no ${needle}`); return i; };
   const parsed = at('window.FrenOwnBusiness.parse(question');
-  assert.ok(at('if (setup) return handleSetupAnswer') < parsed, 'the interview still comes first');
+  // Reading is pure and happens at the top; DOING anything about it waits for the interview.
+  assert.ok(at('if (setup) return handleSetupAnswer') < at('window.fren.ownBusiness(deed.verb'), 'the interview still comes first');
   assert.ok(parsed < at('looksScheduled(question)'));
   assert.ok(parsed < at('askThroughRuntime(question'));
   assert.ok(parsed < at('window.fren.chat(question)'));
@@ -36,6 +37,66 @@ test('the owner\'s words are read before the scheduling gate and before either m
   assert.match(body, /if \(!deed && looksScheduled\(question\)\)/);
   // …and the parser is handed the sentence and the names — nothing a model wrote.
   assert.match(body, /parse\(question, \{ names: ownNames \}\)/);
+});
+
+test('an instruction to fren never answers a waiting proposal', () => {
+  // "please stop watching" opens with a yes-word and "don't read this site"
+  // with a no-word: read as answers, the first KEEPS an unattended automation
+  // and both lose the instruction.
+  const body = app.slice(app.indexOf('async function sendMessage('), app.indexOf('const REDUCED ='));
+  assert.ok(body.indexOf('window.FrenOwnBusiness.parse(question') < body.indexOf('if (pendingProposal)'));
+  assert.match(body, /const answer = deed \? null : readYesNo\(question\);/);
+  // …and the sentences in question really are deeds.
+  const OB = require('../renderer/own-business.js');
+  for (const s of ['please stop watching', 'ok stop watching', 'okay pause', 'please go dark', "don't read this site", 'do not read github.com', 'skip github.com', "don't interrupt me", 'cancel my stretch reminder']) {
+    assert.ok(OB.parse(s), `"${s}" is an instruction`);
+  }
+  // Wiping the conversation lets a proposal go with its bubble.
+  const wipe = app.slice(app.indexOf("c.then === 'wipe'"), app.indexOf('if (c.done)'));
+  assert.match(wipe, /if \(pendingProposal\) pendingProposal\.settle\(\{ keep: false, answer: false \}\);/);
+});
+
+test('a typed message leaves the box, and a queued one is not shown twice', () => {
+  const body = app.slice(app.indexOf('async function sendMessage('), app.indexOf('const REDUCED ='));
+  assert.match(body, /if \(text === undefined\) els\.input\.value = '';/);
+  assert.match(body, /if \(!shown\) addBubble\('user', question\);/);
+  assert.match(body, /sendMessage\(next, \{ shown: true \}\)/);
+});
+
+test('the transcript is loaded before anything can write a bubble, and only once at a time', () => {
+  // The panel fills only while EMPTY, so a hello, a recovered permission card
+  // or a spoken turn written first would keep yesterday's conversation out.
+  const init = app.slice(app.indexOf('(async function init()'));
+  const load = init.indexOf('await loadPanelHistory();');
+  assert.ok(load !== -1, 'init loads the transcript');
+  const firstListener = init.search(/window\.fren\.on[A-Z]|window\.fren\.greeting\(|window\.fren\.getState\(|voiceStatus\(/);
+  assert.ok(load < firstListener, 'before any subscription, the greeting and the first render');
+  assert.match(app, /if \(!historyLoading\) historyLoading = fillPanelFromDisk\(\)\.finally/);
+});
+
+test('the quiet voice gives way to the owner, and fren does not talk over it', () => {
+  assert.match(app, /function hush\(\) \{ if \(quietVoice && audioStop\) audioStop\(\); \}/);
+  const startsWithHush = (name) => new RegExp(`async function ${name}\\([^)]*\\) \\{\\n(?:  vlog\\([^\\n]*\\n)?  hush\\(\\);`).test(app);
+  assert.ok(startsWithHush('startTalking'), 'dictation stops it');
+  assert.ok(startsWithHush('speak'), 'a reply stops it');
+  const starts = [...app.matchAll(/voice\.start\(\)/g)].length;
+  const guarded = [...app.matchAll(/hush\(\);\s*voice\.start\(\)/g)].length;
+  assert.equal(starts - guarded, 1, 'every line the owner opens by hand hushes first; the wake word refuses instead');
+  assert.match(app, /if \(busyForSpeech\(\) \|\| quietVoice\) later\.push\(fn\);/);
+  assert.match(app, /if \(!message \|\| speaking \|\| awaitingReply \|\| quietVoice \|\| voiceActive\(\)\)/);
+});
+
+test('on the spoken line fren obeys only what makes it see or say less', () => {
+  const fn = app.slice(app.indexOf('async function obeySpoken'), app.indexOf('/** What fren is running, by name'));
+  assert.ok(fn.indexOf('reducesOnly(deed)) return null') < fn.indexOf('window.fren.ownBusiness('), 'checked before anything is done');
+  assert.match(fn, /ownBusiness\(deed\.verb, deed\.args\);/, 'no `heard`: the line writes its own transcript');
+  const session = read('renderer/voice-session.js');
+  assert.match(session, /if \(role === 'user' && heard\)/, "never fren's own words");
+  assert.match(app, /heard: obeySpoken,/);
+});
+
+test('a passing note hands a held suggestion its note back', () => {
+  assert.match(app, /hintNote = pendingSuggestion \? SUGGESTION_NOTE : null;/);
 });
 
 test('every entry a card chip names is on the chat window\'s list, and exists in preload', () => {
