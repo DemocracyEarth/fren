@@ -97,8 +97,8 @@ CREATE TABLE IF NOT EXISTS suggestions (
 --
 -- New, and the most sensitive thing in this file: until now the conversation
 -- lived only in the panel's DOM and was gone when you closed it. It is written
--- down so it can be read back in the dashboard, which means everything you say
--- to fren is now on disk.
+-- down so the chat can show it again after a relaunch, which means everything
+-- you say to fren is now on disk.
 --
 -- It is pruned on the same clock as observations. A transcript that outlives
 -- what it was about is a worse trade than one that expires with it.
@@ -212,9 +212,8 @@ function openMemory(dbPath) {
     },
 
     /**
-     * Memories inside a window, oldest first. The dashboard reads a day at a
-     * time rather than "the most recent N", because a day is the unit a person
-     * actually thinks in.
+     * Memories inside a window, oldest first. A day at a time rather than "the
+     * most recent N", because a day is the unit a person actually thinks in.
      */
     getMemoriesBetween({ fromMs, toMs, limit = 500 }) {
       const rows = db

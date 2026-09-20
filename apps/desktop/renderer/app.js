@@ -28,10 +28,7 @@ const els = {
   gatewayDot: document.getElementById('gateway-dot'),
   watch: document.getElementById('watch'),
   watchSay: document.getElementById('watch-say'),
-  dashDot: document.getElementById('dash-dot'),
   lightQuit: document.getElementById('light-quit'),
-  lightMin: document.getElementById('light-min'),
-  lightExpand: document.getElementById('light-expand'),
   gear: document.getElementById('gear'),
   messages: document.getElementById('messages'),
   empty: document.getElementById('empty'),
@@ -1323,26 +1320,25 @@ function paintPanel() {
  * Fill the panel with what has already been said.
  *
  * The panel's transcript used to be pure DOM: it started empty every launch and
- * knew nothing about the conversation stored on disk. That was survivable while
- * it was the only view, and stopped being survivable the moment the big window
- * showed the same conversation — reading it there, collapsing back, and finding
- * an empty panel makes it look as though the transcript was lost.
+ * knew nothing about the conversation stored on disk — so every relaunch looked
+ * as though the transcript had been lost, when it was sitting in the database.
  *
  * Only ever fills an EMPTY panel, so it cannot duplicate what is already on
  * screen or fight a conversation in progress.
  */
+const PANEL_HISTORY = 50;
 async function loadPanelHistory() {
-  // Gated on the panel being EMPTY rather than on a once-only flag. A flag
-  // would fill the panel on the first open and never again, so typing in the
-  // big window and collapsing back would still land on a stale transcript.
+  // Gated on the panel being EMPTY rather than on a once-only flag: after
+  // "forget this conversation" wipes it, the next open starts from disk again.
   if (setup) return;
   if (els.messages.querySelector('.bubble')) return;
   let msgs = [];
   try { msgs = await window.fren.messages(); } catch { return; }
   if (!msgs.length) return;
-  // The panel is a glance, not an archive — the big window is where you read
-  // the whole thing back.
-  for (const m of msgs.slice(-12)) {
+  // This is the only place the conversation can be read back, so it carries
+  // a real stretch of it rather than a glance. Bounded all the same: every row
+  // is a DOM node, and Markdown is rendered for each of fren's.
+  for (const m of msgs.slice(-PANEL_HISTORY)) {
     addBubble(m.role === 'fren' ? 'fren' : 'user', m.text);
   }
   scrollDown();
@@ -2177,30 +2173,12 @@ if (els.mic) {
  * made the old pair (a label saying "paused" beside a button saying "wake up")
  * something you had to stop and parse.
  */
-/**
- * A dot on the dashboard button when something is waiting there.
- *
- * The Patterns tab used to carry a count, and removing it took away the only
- * way fren could say "I found something" without speaking. It goes here
- * instead, on the one door left to the place patterns now live — a dot rather
- * than a number, because the exact count is not the point at a glance and this
- * button is 26px wide.
- */
-async function markUnread() {
-  if (!els.dashDot) return;
-  try {
-    const list = await window.fren.getSuggestions();
-    els.dashDot.hidden = !list.some((s) => s.status !== 'dismissed');
-  } catch { /* leave it as it was */ }
-}
-
 function paintWatch() {
   if (!els.watch) return;
   const on = !!state.observing;
   // ALWAYS the state, never the action. An earlier version swapped this to the
-  // verb on hover, which was wrong for a specific reason: Dashboard and quit
-  // both sit to the right of this control, so every trip to either drags the
-  // pointer across it — and a watching machine reading "pause" under a resting
+  // verb on hover, which was wrong for a specific reason: other controls share
+  // this header, so every trip to one of them drags the pointer across it — and a watching machine reading "pause" under a resting
   // cursor is exactly the misreading that merging the label and the button was
   // meant to end. It also broke Label in Name: the accessible name said
   // "Watching" while the visible word said "pause", so voice control matched
@@ -2225,27 +2203,20 @@ function paintWatch() {
   }
 }
 
-// The panel is for talking; the big window is for reading back properly. With
-// the tabs gone this is the only way through, so it is a real button rather
-// than a link tucked in a corner.
-//
-// The green light is the old Expand button: the same conversation with room to
-// read it, and main closes this panel as the other window opens — so it reads
-// as one thing growing rather than a second thing appearing.
-els.lightExpand.addEventListener('click', () => {
-  window.fren.openDashboard();
-  // Whatever was waiting is about to be on screen.
-  if (els.dashDot) els.dashDot.hidden = true;
-});
-
 els.gear.addEventListener('click', () => window.fren.openSettings());
 els.watch.addEventListener('click', () => window.fren.toggleObservation());
-// Yellow closes the CHAT, not fren — tucked away, still running, exactly what
-// minimise means. A × here that killed the whole app was the kind of thing you
-// only learn once, so the killing is red's job and red ASKS: main puts up the
-// same kind of dialog the dashboard's close button does.
-els.lightMin.addEventListener('click', () => setPanel(false));
+// Red quits fren, and ASKS first: main puts up the dialog. A control that
+// killed the whole app without a word was the kind of thing you only learn once.
 els.lightQuit.addEventListener('click', () => window.fren.quit());
+// Escape closes the CHAT, not fren. Right-clicking the orb does the same, but
+// that is a mouse gesture — without this, the only control a keyboard or a
+// screen reader could reach in this window would be the one that quits.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing) return;
+  if (!state.panelOpen) return;
+  e.preventDefault();
+  setPanel(false);
+});
 
 els.form.addEventListener('submit', (e) => {
   e.preventDefault();
@@ -2446,9 +2417,6 @@ function browserSetupCard({ storeUrl } = {}) {
 }
 
 async function onSuggestion({ message }) {
-  // Show it on the tab regardless of whether it is spoken: noticing is
-  // visible, interrupting is opt-in.
-  markUnread();
   if (!message || speaking || awaitingReply || voiceActive()) { pendingSuggestion = message; pendingAt = Date.now(); return; }
   pendingSuggestion = message;
   pendingAt = Date.now();
@@ -2572,17 +2540,15 @@ scheduleWander();
     const chosen = await window.fren.getOrbColour();
     if (chosen) wearColour(chosen);
   } catch { /* the original colour is fine */ }
-  // The setting lives in the dashboard, the orb lives here, so a change
-  // arrives as a message rather than being read again.
+  // The colour is changed by asking for it, and main does the changing, so a
+  // change arrives as a message rather than being read again.
   window.fren.onOrbColour(wearColour);
-  // The advanced look, worn at boot and whenever the dashboard changes it.
-  // A null look means "back to the shipped default" — tune() fills the gaps.
-  const wearLook = (look) => { if (face && face.tune) face.tune(look); };
+  // A look tuned in an earlier version is still worn. Nothing changes it now,
+  // so it is read once at boot.
   try {
     const look = await window.fren.getOrbLook();
-    if (look) wearLook(look);
+    if (look && face && face.tune) face.tune(look);
   } catch { /* the shipped look is already on */ }
-  window.fren.onOrbLook(wearLook);
 
   // Restore the size fren was left at. Before the greeting, so it is already
   // the right size the first time it moves.
@@ -2617,8 +2583,6 @@ scheduleWander();
   // No title attribute: the OS tooltip is retired. The hover card carries the
   // gestures now, and the screen reader gets them through aria-describedby.
   els.orb.setAttribute('aria-label', `fren — ${orbVerb()}`);
-
-  markUnread();
 
   await runSetupIfNeeded();
 })();

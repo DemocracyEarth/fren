@@ -283,7 +283,7 @@ function createBrowserSensor({ onEvent, now = Date.now } = {}) {
     };
   }
 
-  /** Everything the debug view shows; safe to ship to the dashboard. */
+  /** The sensor's state with no page content in it: safe to log or assert on. */
   function debugState() {
     return {
       connected: state.connected,

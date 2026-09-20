@@ -266,7 +266,7 @@ can open that file, rewrite it, and have it take effect on your next message.
 ## Agent automations
 
 With the secure execution environment ready (the dot in the chat header says
-so, and Settings explains what is missing when it is not), say it, spoken or
+so, and its tooltip says what is missing when it is not), say it, spoken or
 typed, the way you would to a person. Three shapes are understood: a schedule
 (*"every morning at 9, check Hacker News and give me the five most interesting
 AI stories"*), a single later moment (*"tomorrow at 3, remind me to call Ana"*,
@@ -274,9 +274,10 @@ AI stories"*), a single later moment (*"tomorrow at 3, remind me to call Ana"*,
 Figma, remind me to check the design tokens"*, *"when I'm on github.com, list
 my open pull requests"*). fren says the proposal back, the time or the trigger
 and the task in words, with a **Keep it** chip; a spoken or typed "yes" keeps
-it and a "no" lets it go. Nothing is created until you keep it. Kept
-automations live under Automations in the full window, where each can be run
-now, paused, resumed or deleted, and every run is listed with what came back.
+it and a "no" lets it go. Nothing is created until you keep it. To see what
+is kept, ask: *"what are you running?"* brings up a card for each automation
+and routine, with when it next runs, what it said last time, and chips to
+pause, resume, run now or delete. *"Pause the Hacker News one"* works too.
 What an automation finds arrives in the chat, spoken like any other reply. A
 moment comes once: after it, the automation is done and off. A *whenever*
 runs once per sighting, with half an hour between sightings, and is fed by
@@ -292,38 +293,22 @@ environment is the vendored runtime host in `vendor/nanoclaw`. On a Mac nothing
 else is needed: `npm run runtime:build -- --runner` installs the runner, and
 fren runs each agent as a process confined by macOS itself (the system
 sandbox), using the Bun and Claude Code it finds on the machine. That is
-lighter isolation than a container and Settings says so. With Docker Desktop
+lighter isolation than a container. With Docker Desktop
 running, `npm run runtime:build -- --image` builds the agent image and fren
 uses a container instead; `FREN_RUNTIME_TIER=process|container|auto` picks.
 Without either (or with `FREN_RUNTIME=mock`) a mock environment stands in, so
 the whole loop can be tried with nothing installed.
 
-## Running an automation
+## Routines, and what fren no longer runs
 
-fren can run a script it drafted, on a schedule. Three gates stand between a
-draft and it running unattended, and they are enforced in that order every
-single time — not once, at setup:
-
-1. **You read it and approve it.** Approval is bound to a hash of the exact
-   script text, so editing it voids the approval rather than inheriting it.
-2. **It ran by hand, successfully, at least once.** A schedule is a promotion
-   for something already seen working, never a start.
-3. **You turned the schedule on**, separately from both of the above.
-
-Every run is re-checked against the approval hash at the moment it runs, so a
-schedule is permission to run one specific script — not standing permission to
-run whatever later sits under that name.
-
-Beyond those: a blocklist refuses the obviously catastrophic before anything
-reaches a shell (deleting data, privilege escalation, piping a download into an
-interpreter, reading credentials, installing persistence). That is the LAST
-line, not the first — a blocklist cannot be complete and is not a sandbox. There
-is also a hard timeout, no shell interpolation anywhere, a reduced environment
-so a script sees none of this process's variables, and every run is recorded
-with its output in the dashboard.
-
-Nothing runs while fren is paused, and a missed run expires rather than firing
-hours late.
+fren used to be able to run a shell script it had drafted, on a schedule, behind
+three gates: you read and approved the exact text, it ran by hand once, and you
+turned the schedule on. Every one of those gates was a button in a second
+window, and that window is gone. A script nobody can review, stop or delete is
+not something fren should be running, so the whole lane went with it: fren does
+not run host scripts, scheduled or otherwise. Work that has to *do* something
+is an agent automation, above, which runs sandboxed and asks before it reaches
+anything it was not given.
 
 **Routines: tell fren when.** Say "every weekday at nine, tell me what I did
 yesterday" and it sets one up. At that time fren asks itself the question, works
@@ -334,19 +319,22 @@ limit: scheduling a generated script is a much larger decision than scheduling a
 question, and it is not one this quietly makes for you. A missed routine expires
 rather than arriving hours late, and none of them fire while fren is paused.
 
-**There is a second window.** Press **Open ↗** in the panel for a full-size
-dashboard: a day at a time down the left, with what you were doing, any stills
-fren stored, the patterns it drew across days, the automations it drafted, and
-your routines — where you can see when each next runs, what it said last time,
-and pause or delete it.
-The panel is for glancing; this is for reading back properly. It adds no
-capability — everything in it was already on disk.
+**There is one window: the orb and its chat.** Right-click the orb to open the
+chat (Escape, or another right-click, closes it). The header has three controls
+and no more: a red light that quits fren (it asks first), a settings button
+that opens the models pane — which model answers, which voice speaks, which
+ear listens — and the watching switch. Everything else is done by asking:
+*"what are you running?"*, *"pause the stretch one"*, *"don't read this site"*,
+*"change your colour to moss"*, *"stop interrupting me"*, *"what do you know
+about me?"*, *"what patterns have you noticed?"*, *"forget this conversation"*.
+fren does it, says what it did, and keeps the rest to itself.
 
-**To see everything fren holds about you**, open the panel and press ☰. It shows
-`SOUL.md`, `USER.md`, `MEMORY.md` and the daily logs verbatim, exactly as they
-are on disk, with a button to open the folder in your file manager. Nothing is
-summarised on the way out — a companion whose notes about you cannot be
-inspected is not a companion.
+**To see everything fren holds about you**, ask *"what do you know about
+me?"*. It lists what it has kept, and offers **Open my notes folder**: `SOUL.md`,
+`USER.md`, `MEMORY.md` and the daily logs are plain files there, exactly as fren
+reads them, to open and edit in your own editor. Nothing is summarised on the
+way out — a companion whose notes about you cannot be inspected is not a
+companion.
 
 ## How do I turn observation on and off?
 
@@ -371,10 +359,8 @@ These are designed to exist later. They are not built now, and the code does not
 pretend otherwise:
 
 - always-on listening (voice is push-to-talk only, by design)
-- fren acting on its own initiative. It will RUN an automation it drafted, but
-  only one you have read and approved, and only after it has already run
-  successfully by hand. See "Running an automation" below — the gates are the
-  feature, not an obstacle to it.
+- fren acting on its own initiative. It runs the automations and routines you
+  asked for, and it does not run scripts on your machine at all.
 - a browser extension
 - WhatsApp or mobile clients
 - multi-device sync

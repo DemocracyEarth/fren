@@ -12,9 +12,8 @@ machine; the extension talks to `127.0.0.1` and nowhere else.
 4. **Load unpacked** → choose this folder (`apps/browser-extension/`).
 5. fren pops a consent dialog — *a browser extension wants to become one of
    fren's senses*. Click **Allow**.
-6. Browse. The dashboard → Settings → **Browser awareness** shows
-   `Connected ✓`, the current page, and live sensor state. The terminal shows
-   `[browser]` log lines.
+6. Browse. fren says hello to the extension in the chat once it has paired,
+   and the terminal shows `[browser]` log lines as you move between pages.
 
 No ports, URLs, or tokens to configure: pairing mints and stores the
 credential automatically. If you reload the extension it re-pairs by itself

@@ -83,11 +83,13 @@ test('nothing fren says points at the big window any more', () => {
   assert.match(app, /Ask me what I'm running/);
 });
 
-test('main hands own-business the same functions its handlers run', () => {
+test('main hands own-business plain functions, not handler bodies', () => {
   for (const fn of ['applyBrowserSettings', 'setOrbColour', 'setWakeOnLaunch', 'setVolunteer', 'listRoutines']) {
     assert.match(index, new RegExp(`function ${fn}\\(`), `${fn} is a function`);
   }
-  assert.match(index, /ipcMain\.handle\('fren:setBrowserSettings', \(_e, patch\) => applyBrowserSettings\(patch\)\)/);
+  // The switches that used to call this are gone with their window: asking is
+  // the only way in, so there is one caller and no second door to keep in step.
+  assert.doesNotMatch(index, /fren:setBrowserSettings/);
   assert.match(index, /ipcMain\.handle\('fren:voice\.remember', \(_e, note\) => rememberNote\(note, 'voice'\)\)/);
   assert.match(index, /setBrowser: applyBrowserSettings/);
   assert.match(index, /remember: \(note\) => rememberNote\(note, 'chat'\)/);

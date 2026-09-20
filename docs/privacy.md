@@ -81,7 +81,7 @@ space is a process confined by macOS itself (the same sandbox the system uses
 for its own apps): it can read and write only the folders fren gives it,
 cannot open apps, script the desktop, read the keychain or take screenshots,
 and reaches the network only as its automation allows. That is lighter
-isolation than a container, and fren says so in Settings; when a container
+isolation than a container; when a container
 runtime is installed, fren uses a container instead. One is created only
 when you keep a proposal fren shows you first, with the schedule and the task
 in words. It does not receive what fren observed about you: not the activity
@@ -97,7 +97,7 @@ holds the connection and asks — reach this one site, once or always, or no —
 rather than failing quietly; a yes opens exactly that host (an "always" is
 remembered for next time) and nothing else, and if no one answers, the answer
 is no. What it
-sends back is kept locally, listed under Automations with every run, and
+sends back is kept locally, said in the chat when it arrives, and
 never sent anywhere by fren. An agent automation does not look at what you are
 doing, so the light does not gate it: it runs on its schedule whether fren is
 watching or paused, and stops when fren quits. If an agent asks for something
@@ -121,24 +121,13 @@ that one page from the app and hands it over — once, or always if you let it.
 Turn fren's light off, or be on a page you excluded, and there is nothing to
 hand over. The agent never sees a page you did not agree to show it.
 
-**Script automations** are the older kind, and this is the one thing fren does
-that changes your machine rather than reading it, so the constraints are worth
-stating plainly.
-
-fren only runs a script that **you** read and approved, that has already run
-successfully **by hand**, and that you separately put on a schedule. Approval is
-bound to a hash of the exact script — change one character and the approval is
-void. Every execution re-checks that hash, so a schedule cannot become a licence
-to run something else later.
-
-A script runs with a reduced environment (PATH, HOME, USER, LANG, TMPDIR only),
-so it cannot read variables this process holds. It gets a hard timeout. Its
-output is captured and stored locally so you can read afterwards what it did —
-that output is never sent anywhere.
-
-fren will not run scripts that delete data, escalate privileges, pipe a download
-into an interpreter, read credentials or keychains, or install anything
-persistent. That blocklist is a backstop for a rushed review, not a sandbox.
+**Script automations are gone.** fren used to be able to run a shell script it
+had drafted, once you had read and approved the exact text, run it by hand, and
+put it on a schedule. Each of those gates was a button in a window that no
+longer exists, and a script nobody can review or stop is not one fren should
+run — so nothing in fren runs a script on your machine any more, scheduled or
+by hand. Scripts and run output an older version stored stay in `fren.db`,
+inert, until you delete that file.
 
 ## Looking at your screen
 
@@ -232,8 +221,8 @@ different data-handling policies — read the one you pick.
 
 ## Choosing a model, a voice, an ear
 
-The Settings pane in the dashboard lets you pick which model answers, which
-ElevenLabs voice speaks, and which whisper model and language transcribe you.
+The settings button in the chat's header opens a pane that lets you pick which
+model answers, which ElevenLabs voice speaks, and which whisper model and language transcribe you.
 All of it is optional — every field empty means "whatever fren was started
 with", which is what a fresh install already has. Each field shows the live
 default as its placeholder, so leaving one alone is a visible choice.
@@ -398,16 +387,11 @@ until you say so, and the answer is stored as `wakeOnLaunch`. If you say wait,
 fren pauses immediately and starts dark from then on.
 
 If you completed setup before that question existed, the default is awake. To
-change it, open the Memory pane and untick **"Wake up when you launch me"** — it is there whether or not you did the
-interview — or
-just use the watching control in the menu to pause the session you are in.
+change it, tell fren: *"don't wake up when I launch you"* (and *"wake up when I
+launch you"* to change it back) — or just use the watching switch in the chat's
+header to pause the session you are in.
 
-One consequence worth naming: scheduled script automations only run while
-fren is watching, so a fren that starts awake can run a due automation shortly
-after launch, where before it needed you to wake it first. (Agent automations
-are not gated by the light; see "Running automations".) Scheduled runs are held for
-the first two minutes after launch so there is time to pause, and all three
-execution gates still apply — see "Running automations" above.
+Agent automations are not gated by the light; see "Running automations".
 
 To stop, right-click the orb for the menu and use the watching control there —
 a left click records now rather than pausing. The
@@ -422,7 +406,7 @@ its own section rather than a line in a table.
 
 **What changed.** Until recently the conversation existed only inside the chat
 panel. Closing the panel lost it; nothing was ever written to disk. It is now
-stored in `fren.db`, so that it can be read back in the big window — everything
+stored in `fren.db`, so that the chat can show it again after a relaunch — everything
 you say to fren, and everything it says to you, in plain text in a local SQLite
 file.
 
@@ -441,10 +425,10 @@ something you said.
 transcript that outlived the observations it discusses would leave the most
 sensitive thing here as the longest-lived, which is the wrong way round.
 
-**You can drop it at any time**, without touching anything else: the Chat
-section of the big window has *Forget this conversation*, and it does exactly
-that and nothing more. There is no confirmation dialog, because this is the
-direction you are entitled to take without being argued with.
+**You can drop it at any time**, without touching anything else: say or type
+*"forget this conversation"*. fren asks once — *Yes, forget it* or *Keep it* —
+because a sentence can be misheard in a way a button could not, and a yes
+deletes the stored transcript and nothing more.
 
 **Is this a change in kind?** Honestly, partly. fren already kept window titles,
 screenshots and daily observation logs — arguably more revealing than a chat

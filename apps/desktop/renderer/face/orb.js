@@ -61,7 +61,7 @@ const REC = (typeof window !== 'undefined' && window.FrenPalette &&
   (typeof require === 'function' && (() => { try { return require('./palette.js').RECORDING; } catch { return null; } })()) ||
   { low: 0xd93425, high: 0xff6247, rough: 0.18, sheen: 0.60 };
 // The shipped look — stops, lights, coat — owned by the palette module so the
-// dashboard's sliders, the sanitizer and these uniforms can never disagree.
+// sanitizer and these uniforms can never disagree.
 // The literal fallback matches it for the pathological no-palette boot.
 const LOOK = (typeof window !== 'undefined' && window.FrenPalette &&
   window.FrenPalette.ORB_LOOK) ||
@@ -529,8 +529,8 @@ class Orb {
   }
 
   /**
-   * Apply a look — the dashboard's "Advanced look" setting, or the shipped
-   * default when the customisation is cleared. Fields already pass through
+   * Apply a look — one tuned in an earlier version and still stored, or the
+   * shipped default. Fields already pass through
    * palette.js sanitizeLook before they get here, so this just applies.
    * Roughness and sheen are deliberately absent: the mood system owns them
    * per-expression and rewrites them every frame.

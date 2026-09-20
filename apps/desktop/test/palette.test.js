@@ -258,8 +258,8 @@ test('the pre-palette fallback wears the same bytes as the derived default', asy
 });
 
 test('a stored look is clamped, filled, and never trusted', () => {
-  // sanitizeLook is the only door stored looks come through — from the
-  // dashboard, or from a hand-edited database, which must not be able to
+  // sanitizeLook is the only door stored looks come through — one tuned in
+  // an earlier version, or a hand-edited database, which must not be able to
   // produce an invisible or blinding orb.
   const def = P.ORB_LOOK;
   assert.equal(P.sanitizeLook(null), null, 'nothing stored is the default');

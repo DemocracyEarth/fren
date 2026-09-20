@@ -11,7 +11,7 @@
  * IT BUILDS NODES, NEVER HTML STRINGS. That is not caution for its own sake:
  * fren writes MEMORY.md itself, from model output, via rememberFact(). Anything
  * that assembled a string and assigned innerHTML would turn "a model said
- * something odd" into "a model wrote markup into your dashboard". createElement
+ * something odd" into "a model wrote markup into your chat". createElement
  * and textContent make that impossible rather than unlikely.
  *
  * Deliberately NOT supported, and shown as plain text instead:

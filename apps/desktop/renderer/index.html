@@ -16,21 +16,15 @@
          when the window grows. -->
     <section id="panel" hidden>
       <header id="panel-head">
-        <!-- The window's own controls, said the way macOS says them. The old ×
-             here only hid the chat, and there was no way to QUIT fren from
-             this window at all — the one decision people most expect a red
-             light to make. Red quits (and asks first), yellow tucks the chat
-             away, green is the old Expand button: the same conversation with
-             room to read it. Hovering the group reveals the glyphs, exactly
-             like the real ones. -->
+        <!-- One light, and it is red. Red quits fren, and asks first: that is
+             the decision people expect a red light to make, and the one a 12px
+             dot must not make on a slipped click. There is nothing beside it
+             because there is nothing else to go to. Closing the chat is
+             Escape, or a right-click on the orb, the same gesture that opened
+             it. Hovering reveals the glyph, exactly like the real one. -->
         <div id="lights" role="group" aria-label="Window controls">
           <button id="light-quit" class="light" title="Quit fren"
                   aria-label="Quit fren"><span aria-hidden="true">&#215;</span></button>
-          <button id="light-min" class="light" title="Close the chat"
-                  aria-label="Close the chat — fren keeps running"><span aria-hidden="true">&#8722;</span></button>
-          <button id="light-expand" class="light" title="Open the big window"
-                  aria-label="Open the big window"><span aria-hidden="true">&#8599;</span>
-            <span id="dash-dot" hidden></span></button>
         </div>
         <span class="wordmark" role="img" aria-label="fren"></span>
         <span class="spacer"></span>
@@ -38,9 +32,9 @@
         <!-- One control, not two. Whether fren is watching is the most
              important fact in this window, and the thing you most often want to
              change about it — so saying it and changing it are the same button.
-             It sits beside the Dashboard button rather than beside the logo:
-             these are the two things you actually press, and grouping them
-             leaves the left side as identity alone. -->
+             It sits on the right with the settings button: these are the two
+             things you actually press, and grouping them leaves the left side
+             as identity alone. -->
         <!-- The door to the model settings: which brain, which voice, which
              ear. Everything else about fren answers to conversation; the
              machinery it runs ON deserves a real pane, because a mistyped
