@@ -119,3 +119,20 @@ test('a corrupt stored value degrades to the defaults instead of throwing', () =
   const throws = { getSetting: () => { throw new Error('db gone'); }, setSetting: () => {} };
   assert.deepEqual(settings.read(throws), settings.EMPTY);
 });
+
+test('the gateway is told the chosen model whenever it has not heard it', () => {
+  const stale = settings.runtimeModelStale;
+  const heard = (choice) => ({ runtimeModel: { choice, inEffect: choice || 'deepseek-chat' } });
+  // A cold start, or a gateway that restarted and forgot: it reports no
+  // choice while one is saved.
+  assert.equal(stale(heard(null), { chatModel: 'deepseek-v4-pro' }), true);
+  // In step — whether that means a choice or none.
+  assert.equal(stale(heard('deepseek-v4-pro'), { chatModel: 'deepseek-v4-pro' }), false);
+  assert.equal(stale(heard(null), { chatModel: '' }), false);
+  // The choice was cleared, or changed, while the gateway was unreachable.
+  assert.equal(stale(heard('deepseek-v4-pro'), { chatModel: '' }), true);
+  assert.equal(stale(heard('deepseek-chat'), { chatModel: 'deepseek-v4-pro' }), true);
+  // A gateway too old to say is left alone, as is no health at all.
+  assert.equal(stale({ ok: true }, { chatModel: 'deepseek-v4-pro' }), false);
+  assert.equal(stale(null, { chatModel: 'deepseek-v4-pro' }), false);
+});

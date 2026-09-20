@@ -91,4 +91,19 @@ function write(memory, patch) {
   return next;
 }
 
-module.exports = { read, write, KEY, EMPTY, clean, cleanPath, cleanLang };
+/**
+ * Has the gateway not heard the current choice of chat model?
+ *
+ * The choice lives in this app's database; the gateway only holds it in
+ * memory, so a restarted gateway has forgotten it. Its /health says which
+ * choice it last heard, and this compares — so the answer is right after a
+ * cold start, after a crash, and after a restart quick enough that no health
+ * check ever failed. A gateway too old to report it is left alone.
+ */
+function runtimeModelStale(health, chosen) {
+  const told = health && health.runtimeModel;
+  if (!told || typeof told !== 'object') return false;
+  return (told.choice || '') !== ((chosen && chosen.chatModel) || '');
+}
+
+module.exports = { read, write, KEY, EMPTY, clean, cleanPath, cleanLang, runtimeModelStale };

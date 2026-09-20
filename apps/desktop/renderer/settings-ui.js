@@ -76,9 +76,16 @@ async function load({ fields = false } = {}) {
 
   // "Running right now" means the choice where there is one, else the default.
   const model = live ? (chosen.chatModel || live.model) : null;
-  el('live-chat').textContent = live
+  let chatLine = live
     ? `${live.provider} · ${model}`
     : 'the gateway is not answering — saved choices still apply when it is back';
+  // The agent that answers typed chat takes the same choice, but only when it
+  // talks to the same provider. If it is on something else, say so rather
+  // than let the line above speak for it.
+  if (live && live.runtimeModel && live.runtimeModel !== model) {
+    chatLine += ` — typed chat is on ${live.runtimeModel}`;
+  }
+  el('live-chat').textContent = chatLine;
   el('live-chat').classList.toggle('off', !live);
   suggest('chatModel-list', live && KNOWN_MODELS[live.provider]
     ? KNOWN_MODELS[live.provider]

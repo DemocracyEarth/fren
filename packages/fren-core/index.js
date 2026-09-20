@@ -25,7 +25,7 @@ const HTTP_STATUS = Symbol('httpStatus');
 const accepted = (payload) => ({ ...payload, [HTTP_STATUS]: 202 });
 const PRUNE_AFTER_MS = 30 * 24 * 3600 * 1000;
 
-function createCore({ runTimeoutMs, scheduleTimeoutMs, store, runtime, complete = null, now = Date.now, log = console.log, reprobeMs = REPROBE_MS, egress = {} }) {
+function createCore({ runTimeoutMs, scheduleTimeoutMs, store, runtime, complete = null, now = Date.now, log = console.log, reprobeMs = REPROBE_MS, egress = {}, model = {} }) {
   if (runtime) assertRuntime(runtime);
   const events = createEventLog({ store, now, log });
   const observations = createObservationBus();
@@ -53,6 +53,23 @@ function createCore({ runTimeoutMs, scheduleTimeoutMs, store, runtime, complete 
     trustedDomains.push(h);
     store.setSetting('egress.trusted', JSON.stringify(trustedDomains));
     pushEgress(automations.egressPolicy());
+  }
+
+  // The model the environment thinks with. Its default is fixed when the
+  // gateway starts; the person's choice arrives later, from the desktop's
+  // settings, and is held on the sandbox proxy (`model.set`) because that is
+  // where every agent call is rewritten. The choice is remembered here only so
+  // the desktop can see whether this process has heard it yet — a restarted
+  // gateway has not, and says so by reporting `choice: null`.
+  const applyModel = model.set || (() => {});
+  const modelInEffect = model.inEffect || (() => null);
+  let modelChoice = null;
+  const runtimeModel = () => ({ choice: modelChoice, inEffect: modelInEffect() });
+  function setModel(id) {
+    modelChoice = typeof id === 'string' && id ? id : null;
+    applyModel(modelChoice);
+    log(`[core] the environment thinks with ${modelInEffect() || 'no model'}${modelChoice && modelInEffect() === modelChoice ? ' (chosen in settings)' : ''}`);
+    return runtimeModel();
   }
 
   const runs = createRunService({ store, events, getRuntime: () => runtime, now, log, runTimeoutMs, scheduleTimeoutMs });
@@ -387,6 +404,7 @@ function createCore({ runTimeoutMs, scheduleTimeoutMs, store, runtime, complete 
     handle, owns, start, stop, startRuntime, stopRuntime,
     runtimeStatus: () => runtimeStatus,
     runtimeKind: () => (runtime ? runtime.kind : null),
+    setModel, runtimeModel,
     capabilities: () => (runtime ? runtime.getCapabilities() : null),
   };
 }

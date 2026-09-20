@@ -83,6 +83,54 @@ test('an upstream with one model gets that model whatever the agent asked for', 
   fake.close();
 });
 
+test('a chosen model overrides the upstream\'s own, per request, and null gives it back', async () => {
+  const seen = [];
+  const fake = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (d) => { body += d; });
+    req.on('end', () => { seen.push({ body: JSON.parse(body), length: req.headers['content-length'] }); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"ok":true}'); });
+  });
+  fake.listen(0, '127.0.0.1');
+  await once(fake, 'listening');
+  const ask = (proxyPort) => fetch(`http://127.0.0.1:${proxyPort}/anthropic/v1/messages`, {
+    method: 'POST', headers: { authorization: 'Bearer t', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-haiku-4-5', max_tokens: 10, messages: [] }),
+  });
+
+  const upstream = { kind: 'deepseek', baseUrl: `http://127.0.0.1:${fake.address().port}`, headers: { 'x-api-key': 'sk-d' }, model: 'deepseek-chat' };
+  const proxy = createSandboxProxy({ upstream, token: 't', log: () => {} });
+  const addr = await proxy.listen(0);
+  assert.equal(proxy.model(), 'deepseek-chat');
+
+  proxy.setModel('x');
+  assert.equal(proxy.model(), 'x');
+  await ask(addr.port);
+  assert.equal(seen[0].body.model, 'x');
+  assert.equal(seen[0].body.max_tokens, 10);
+  assert.equal(Number(seen[0].length), Buffer.byteLength(JSON.stringify(seen[0].body)));
+
+  proxy.setModel(null);
+  assert.equal(proxy.model(), 'deepseek-chat');
+  await ask(addr.port);
+  assert.equal(seen[1].body.model, 'deepseek-chat');
+  await proxy.close();
+
+  // An upstream with no model of its own forwards what was asked — until a
+  // model is chosen, and again once the choice is taken back.
+  const open = createSandboxProxy({ upstream: { ...upstream, kind: 'anthropic', model: null }, token: 't', log: () => {} });
+  const openAddr = await open.listen(0);
+  await ask(openAddr.port);
+  assert.equal(seen[2].body.model, 'claude-haiku-4-5');
+  open.setModel('claude-sonnet-5');
+  await ask(openAddr.port);
+  assert.equal(seen[3].body.model, 'claude-sonnet-5');
+  open.setModel(null);
+  await ask(openAddr.port);
+  assert.equal(seen[4].body.model, 'claude-haiku-4-5');
+  await open.close();
+  fake.close();
+});
+
 test('without a credential the proxy says so instead of forwarding', async () => {
   const proxy = createSandboxProxy({ upstream: chooseUpstream({}), token: 't', log: () => {} });
   const addr = await proxy.listen(0);

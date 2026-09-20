@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { once } = require('node:events');
-const { createServer } = require('../server');
+const { createServer, sandboxModelFor } = require('../server');
 const { createMockProvider } = require('../providers/mock');
 const { createCore } = require('../../../packages/fren-core');
 const { openCoreStore } = require('../../../packages/fren-core/store');
@@ -192,4 +192,59 @@ test('an unavailable runtime is reported with its hint and does not block Core',
   await assert.rejects(() => c.runs.start({ text: 'hi' }), /not available/);
   await c.stop();
   store.close();
+});
+
+test('POST /v1/runtime/model sets the chosen model, refuses a bad id, and needs the bearer token', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fren-core-model-'));
+  const store = openCoreStore(path.join(dir, 'core.db'));
+  // Stands in for the sandbox proxy: holds the override over a default.
+  let held = null;
+  const model = { set: (id) => { held = id; }, inEffect: () => held || 'the-default' };
+  const c = createCore({ store, runtime: createMockRuntime(), log: () => {}, reprobeMs: 0, model });
+  const srv = createServer(createMockProvider(), null, null, { core: c });
+  srv.listen(0, '127.0.0.1');
+  await once(srv, 'listening');
+  const url = `http://127.0.0.1:${srv.address().port}`;
+  const send = (body, headers = JSON_HEADERS) => fetch(`${url}/v1/runtime/model`, { method: 'POST', headers, body: JSON.stringify(body) });
+  const health = async () => (await (await fetch(`${url}/health`)).json()).runtimeModel;
+
+  // A gateway that has heard nothing says so: this is what the desktop reads
+  // to know it must say the choice again after a restart.
+  assert.deepEqual(await health(), { choice: null, inEffect: 'the-default' });
+
+  const unauth = await send({ model: 'deepseek-v4-pro' }, { 'content-type': 'application/json' });
+  assert.equal(unauth.status, 401);
+  assert.equal(held, null);
+
+  for (const bad of ['https://evil.example/v1', 'a b', 'x'.repeat(65), 42, { id: 'x' }]) {
+    const res = await send({ model: bad });
+    assert.equal(res.status, 400, `${JSON.stringify(bad)} should be refused`);
+    assert.equal(held, null);
+  }
+
+  const ok = await send({ model: 'deepseek-v4-pro' });
+  assert.equal(ok.status, 200);
+  assert.deepEqual(await ok.json(), { model: { choice: 'deepseek-v4-pro', inEffect: 'deepseek-v4-pro' } });
+  assert.equal(held, 'deepseek-v4-pro');
+  assert.deepEqual(await health(), { choice: 'deepseek-v4-pro', inEffect: 'deepseek-v4-pro' });
+
+  // Null and empty both mean "back to the default".
+  for (const none of [null, '']) {
+    await send({ model: 'deepseek-v4-pro' });
+    const back = await send({ model: none });
+    assert.equal(back.status, 200);
+    assert.deepEqual(await back.json(), { model: { choice: null, inEffect: 'the-default' } });
+    assert.equal(held, null);
+  }
+
+  await new Promise((resolve) => srv.close(resolve));
+  store.close();
+});
+
+test('the chosen model only crosses to the environment when it talks to the same provider', () => {
+  assert.equal(sandboxModelFor('deepseek-v4-pro', 'deepseek', 'deepseek'), 'deepseek-v4-pro');
+  // Both keys present: the fast lane is DeepSeek, the environment is Anthropic.
+  // A DeepSeek id there would fail every agent run, so it keeps its default.
+  assert.equal(sandboxModelFor('deepseek-v4-pro', 'anthropic', 'deepseek'), null);
+  assert.equal(sandboxModelFor(null, 'deepseek', 'deepseek'), null);
 });

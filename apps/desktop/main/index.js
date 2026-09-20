@@ -1043,11 +1043,21 @@ app.whenReady().then(() => {
       const canSee = !!(health && health.vision);
       if (state.get().canSeeScreen !== canSee) state.set({ canSeeScreen: canSee });
       noteRuntime(health && health.runtime);
+      // The agent behind typed chat takes the chosen model from the gateway's
+      // memory, which a gateway restart empties. Say it again whenever the
+      // gateway has not heard it: at launch, and after any restart.
+      if (providerSettings.runtimeModelStale(health, providerSettings.read(memory))) tellRuntimeModel();
     } catch {
       if (state.get().gatewayOk) state.set({ gatewayOk: false });
       noteRuntime(null);
     }
   };
+  function tellRuntimeModel() {
+    return gateway.setRuntimeModel(providerSettings.read(memory).chatModel)
+      // Not fatal and not retried here: the next health check sees the gateway
+      // still has not heard, and says it again.
+      .catch((err) => log(`[settings] the chosen model did not reach the gateway (${err.message})`));
+  }
   /** The environment's state, only when it changed — this fires every 30 s. */
   function noteRuntime(status) {
     const runtime = status && status.state ? status.state : 'unavailable';
@@ -1748,14 +1758,24 @@ app.whenReady().then(() => {
       inEffect: live ? {
         provider: live.provider, model: live.model, voice: live.voice,
         voiceId: live.voiceId, voiceModel: live.voiceModel,
+        // What the agent behind typed chat is answering with right now —
+        // only while there IS such an agent: with the environment not ready,
+        // typed chat is answered by the model above.
+        runtimeModel: live.runtimeModel && live.runtime && live.runtime.state === 'ready'
+          ? live.runtimeModel.inEffect : null,
       } : null,
       whisper: whisper.detect(),
     };
   });
 
-  ipcMain.handle('fren:setProviders', (_e, patch) => {
+  ipcMain.handle('fren:setProviders', async (_e, patch) => {
+    const before = providerSettings.read(memory).chatModel;
     const saved = providerSettings.write(memory, patch);
     gateway.setOverrides(saved);
+    // The fast lane has it from the line above. The agent that answers typed
+    // chat runs inside the gateway and has to be told — waited for, so the
+    // pane's next read of "what is running" already shows it.
+    if (saved.chatModel !== before) await tellRuntimeModel();
     whisper.setPreferences(saved);
     // PRIVACY: which fields changed, never their values.
     log(`[settings] providers updated (${Object.keys(patch || {}).join(', ') || 'nothing'})`);

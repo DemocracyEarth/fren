@@ -87,6 +87,11 @@ const ASK_HOLD_MS = 90 * 1000;
 function createSandboxProxy({ upstream, token = crypto.randomBytes(16).toString('hex'), log = () => {}, requestImpl = null, askEgress = null }) {
   const prefix = '/anthropic';
   let askEgressFn = askEgress;
+  // The model the person chose, when they chose one. The upstream's own model
+  // is fixed when the gateway starts; this is what lets the settings pane mean
+  // something for the agent too, without a restart. Null means "the upstream's".
+  let chosenModel = null;
+  const modelInEffect = () => chosenModel || (upstream && upstream.model) || null;
   // The FREN tools lane (/mcp): a handler that runs a named tool for the agent
   // and a manifest describing them. Injected by Core, which gates each tool.
   let toolHandler = null;
@@ -225,9 +230,12 @@ function createSandboxProxy({ upstream, token = crypto.randomBytes(16).toString(
       else req.pipe(out);
       req.on('aborted', () => out.destroy());
     };
-    // An upstream that serves one model gets that model, whatever was asked.
+    // An upstream that serves one model gets that model, whatever was asked —
+    // and a model the person chose wins over both. Read per request, so a
+    // change takes effect on the agent's very next call.
+    const model = modelInEffect();
     const isJson = /json/i.test(String(req.headers['content-type'] || ''));
-    if (upstream.model && isJson && (req.method === 'POST' || req.method === 'PUT')) {
+    if (model && isJson && (req.method === 'POST' || req.method === 'PUT')) {
       const chunks = [];
       let size = 0;
       req.on('data', (c) => { size += c.length; if (size <= MAX_JSON_BODY) chunks.push(c); });
@@ -236,8 +244,8 @@ function createSandboxProxy({ upstream, token = crypto.randomBytes(16).toString(
         let body = raw;
         try {
           const parsed = JSON.parse(raw);
-          if (parsed && typeof parsed === 'object' && parsed.model !== upstream.model) {
-            parsed.model = upstream.model;
+          if (parsed && typeof parsed === 'object' && parsed.model !== model) {
+            parsed.model = model;
             body = JSON.stringify(parsed);
           }
         } catch { /* not JSON after all: forward as is */ }
@@ -399,6 +407,16 @@ function createSandboxProxy({ upstream, token = crypto.randomBytes(16).toString(
       sessionAllow.delete(sessionId);
       sessionGrantedHosts.delete(sessionId);
     },
+    /**
+     * Choose the model every forwarded call is rewritten to, or null to go
+     * back to the upstream's own. The caller has already checked the id's
+     * shape; this only holds it.
+     */
+    setModel(id) {
+      chosenModel = typeof id === 'string' && id ? id : null;
+    },
+    /** The model forwarded calls carry right now, or null when none is forced. */
+    model: modelInEffect,
     /** Wire (or replace) the asker Core answers refused hosts with. */
     setAskEgress(fn) {
       askEgressFn = fn;
