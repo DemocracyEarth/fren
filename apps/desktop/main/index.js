@@ -33,6 +33,7 @@ const { createRoutineRunner, nextRunAt, isDue } = require('./routines');
 const executor = require('./executor');
 const whisper = require('./whisper');
 const soul = require('./soul');
+const { createOwnBusiness } = require('./own-business');
 const screenCapture = require('./screen');
 const audioOutput = require('./audio-output');
 
@@ -458,6 +459,36 @@ function showHint(info) {
   hintWin.once('ready-to-show', () => {
     if (hintWin && !hintWin.isDestroyed()) hintWin.showInactive();
   });
+}
+
+/**
+ * The models pane, in its own small window, opened from the chat's header.
+ *
+ * Everything else about fren answers to conversation; the machinery it runs ON
+ * gets a real pane, because a mistyped model id with no feedback is a silent
+ * outage. One window, reused: pressing the button twice brings it forward.
+ */
+let settingsWin = null;
+function openSettingsWin() {
+  if (settingsWin && !settingsWin.isDestroyed()) { settingsWin.show(); return; }
+  settingsWin = new BrowserWindow({
+    // The page's own size, not the frame's: the three cards measure 720 px
+    // tall at this width with every line at its longest, and a settings pane
+    // that scrolls by a few pixels looks broken rather than long.
+    useContentSize: true,
+    width: 460,
+    height: 732,
+    resizable: false,
+    title: 'fren — models & voice',
+    backgroundColor: '#FBF6EC',
+    webPreferences: {
+      preload: path.join(__dirname, '..', 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  settingsWin.loadURL(`${SCHEME}://app/settings.html`);
+  settingsWin.on('closed', () => { settingsWin = null; });
 }
 
 function createWindow() {
@@ -1013,11 +1044,21 @@ app.whenReady().then(() => {
       const canSee = !!(health && health.vision);
       if (state.get().canSeeScreen !== canSee) state.set({ canSeeScreen: canSee });
       noteRuntime(health && health.runtime);
+      // The agent behind typed chat takes the chosen model from the gateway's
+      // memory, which a gateway restart empties. Say it again whenever the
+      // gateway has not heard it: at launch, and after any restart.
+      if (providerSettings.runtimeModelStale(health, providerSettings.read(memory))) tellRuntimeModel();
     } catch {
       if (state.get().gatewayOk) state.set({ gatewayOk: false });
       noteRuntime(null);
     }
   };
+  function tellRuntimeModel() {
+    return gateway.setRuntimeModel(providerSettings.read(memory).chatModel)
+      // Not fatal and not retried here: the next health check sees the gateway
+      // still has not heard, and says it again.
+      .catch((err) => log(`[settings] the chosen model did not reach the gateway (${err.message})`));
+  }
   /** The environment's state, only when it changed — this fires every 30 s. */
   function noteRuntime(status) {
     const runtime = status && status.state ? status.state : 'unavailable';
@@ -1173,7 +1214,9 @@ app.whenReady().then(() => {
     exclusions: safeParse(memory.getSetting('browserExclusions'), []),
     sensor: browserSensor ? browserSensor.debugState() : null,
   }));
-  ipcMain.handle('fren:setBrowserSettings', (_e, patch) => {
+  // A function rather than a handler body: saying "don't read this site" in
+  // the chat has to mean exactly what flipping the switch meant.
+  function applyBrowserSettings(patch) {
     const p = patch || {};
     if (typeof p.awareness === 'boolean') memory.setSetting('browserAwareness', p.awareness ? 'on' : 'off');
     if (typeof p.readPage === 'boolean') memory.setSetting('browserReadPage', p.readPage ? 'on' : 'off');
@@ -1184,7 +1227,8 @@ app.whenReady().then(() => {
     }
     syncBrowserPolicy();
     return safeParse(memory.getSetting('browserExclusions'), []);
-  });
+  }
+  ipcMain.handle('fren:setBrowserSettings', (_e, patch) => applyBrowserSettings(patch));
   // "Enable" / "Add to Chrome": once the extension is on the Web Store this
   // opens its listing (one click); until then it opens the unpacked folder so
   // the developer path can load it. One flag decides which.
@@ -1416,33 +1460,33 @@ app.whenReady().then(() => {
     } else {
       lines.push('No recent activity noted (the light may have been off).');
     }
-    let facts = [];
-    try {
-      const text = fs.readFileSync(path.join(userDataDir(), 'MEMORY.md'), 'utf8');
-      const at = text.indexOf('## Days');
-      facts = (at === -1 ? text : text.slice(0, at)).split('\n').filter((l) => l.startsWith('- '));
-    } catch { /* no notes yet */ }
+    const facts = soul.readFacts(userDataDir());
     const matching = words.length ? facts.filter((f) => words.some((w) => f.toLowerCase().includes(w))) : [];
     if (matching.length) lines.push('', 'Notes that seem relevant:', ...matching.slice(-8));
     else if (facts.length) lines.push('', `No notes match that (fren keeps ${facts.length} notes about them).`);
     return lines.join('\n');
   });
 
-  /** remember: something they said, weighed the same way a curiosity answer is. */
-  ipcMain.handle('fren:voice.remember', async (_e, note) => {
+  /**
+   * remember: something they said, weighed the same way a curiosity answer is.
+   * One function for the spoken line and for a typed "remember that …", so a
+   * note is kept by the same judgement however it was said.
+   */
+  async function rememberNote(note, tag) {
     const said = String(note || '').trim().slice(0, 500);
     if (!said) return { kept: false };
     try {
       const { worthKeeping, fact } = await gateway.learn({ question: 'Something they said in conversation', answer: said });
       if (!worthKeeping || !fact) return { kept: false };
       const kept = soul.rememberFact(userDataDir(), fact);
-      if (kept) log('[voice] kept one thing from the conversation');
+      if (kept) log(`[${tag}] kept one thing from the conversation`);   // PRIVACY: that, never what
       return { kept };
     } catch (err) {
-      log(`[voice] could not weigh that: ${err.message}`);
+      log(`[${tag}] could not weigh that: ${err.message}`);
       return { kept: false };
     }
-  });
+  }
+  ipcMain.handle('fren:voice.remember', (_e, note) => rememberNote(note, 'voice'));
 
   /** A turn of the conversation, into the same transcript as typed chat. */
   ipcMain.handle('fren:voice.said', async (_e, role, text) => {
@@ -1697,6 +1741,8 @@ app.whenReady().then(() => {
 
   ipcMain.handle('fren:getOrbScale', () => ({ scale: orbScale, min: SCALE_MIN, max: SCALE_MAX }));
 
+  ipcMain.handle('fren:openSettings', () => openSettingsWin());
+
   /**
    * The model, the voice and the ear.
    *
@@ -1716,14 +1762,24 @@ app.whenReady().then(() => {
       inEffect: live ? {
         provider: live.provider, model: live.model, voice: live.voice,
         voiceId: live.voiceId, voiceModel: live.voiceModel,
+        // What the agent behind typed chat is answering with right now —
+        // only while there IS such an agent: with the environment not ready,
+        // typed chat is answered by the model above.
+        runtimeModel: live.runtimeModel && live.runtime && live.runtime.state === 'ready'
+          ? live.runtimeModel.inEffect : null,
       } : null,
       whisper: whisper.detect(),
     };
   });
 
-  ipcMain.handle('fren:setProviders', (_e, patch) => {
+  ipcMain.handle('fren:setProviders', async (_e, patch) => {
+    const before = providerSettings.read(memory).chatModel;
     const saved = providerSettings.write(memory, patch);
     gateway.setOverrides(saved);
+    // The fast lane has it from the line above. The agent that answers typed
+    // chat runs inside the gateway and has to be told — waited for, so the
+    // pane's next read of "what is running" already shows it.
+    if (saved.chatModel !== before) await tellRuntimeModel();
     whisper.setPreferences(saved);
     // PRIVACY: which fields changed, never their values.
     log(`[settings] providers updated (${Object.keys(patch || {}).join(', ') || 'nothing'})`);
@@ -1752,7 +1808,7 @@ app.whenReady().then(() => {
     return colour;
   });
 
-  ipcMain.handle('fren:setOrbColour', (_e, hex) => {
+  function setOrbColour(hex) {
     const n = Number(hex);
     const value = Number.isFinite(n) && n >= 0 && n <= 0xffffff ? Math.round(n) : null;
     if (value === null) return { colour: null };
@@ -1760,34 +1816,37 @@ app.whenReady().then(() => {
     if (win && !win.isDestroyed()) win.webContents.send('fren:orbColour', value);
     log(`[orb] colour set to #${value.toString(16).padStart(6, '0')}`);
     return { colour: value };
-  });
+  }
+  ipcMain.handle('fren:setOrbColour', (_e, hex) => setOrbColour(hex));
 
   ipcMain.handle('fren:getWakeOnLaunch', () => wakeOnLaunchFrom(memory.getSetting('wakeOnLaunch')));
-  ipcMain.handle('fren:setWakeOnLaunch', (_e, on) => {
+  function setWakeOnLaunch(on) {
     memory.setSetting('wakeOnLaunch', !!on);
     log(`[state] launches ${on ? 'awake' : 'paused'} from now on`);
     return { wakeOnLaunch: !!on };
-  });
+  }
+  ipcMain.handle('fren:setWakeOnLaunch', (_e, on) => setWakeOnLaunch(on));
 
   ipcMain.handle('fren:getProfile', () => memory.getSetting('profile'));
 
   /**
    * The one switch that decides whether fren may interrupt you.
    *
-   * Set from the setup interview, and changeable afterwards from the Memory
-   * pane — because an answer given once to a question you barely remember is
-   * not consent you can withdraw, and this is the setting people will want to
-   * withdraw. Merged rather than replaced, so flipping it cannot lose the rest
-   * of the profile.
+   * Set from the setup interview, and changeable afterwards by saying so
+   * ("stop interrupting me") — because an answer given once to a question you
+   * barely remember is not consent you can withdraw, and this is the setting
+   * people will want to withdraw. Merged rather than replaced, so flipping it
+   * cannot lose the rest of the profile.
    */
-  ipcMain.handle('fren:setVolunteer', (_e, on) => {
+  function setVolunteer(on) {
     const current = memory.getSetting('profile');
     if (!current || typeof current !== 'object') return { volunteer: false };
     const next = { ...current, volunteer: !!on };
     memory.setSetting('profile', next);
     log(`[setup] interruptions ${next.volunteer ? 'allowed' : 'turned off'}`);
     return { volunteer: next.volunteer };
-  });
+  }
+  ipcMain.handle('fren:setVolunteer', (_e, on) => setVolunteer(on));
   ipcMain.handle('fren:setProfile', (_e, profile) => {
     const clean = profile && typeof profile === 'object' ? profile : null;
     memory.setSetting('profile', clean);
@@ -2080,10 +2139,49 @@ app.whenReady().then(() => {
   });
 
   // ---- routines ----------------------------------------------------------
-  ipcMain.handle('fren:routines', () => {
+  function listRoutines() {
     try {
       return memory.getRoutines().map((r) => ({ ...r, nextRun: nextRunAt(r) }));
     } catch { return []; }
+  }
+  ipcMain.handle('fren:routines', () => listRoutines());
+
+  /**
+   * fren's own business: what the owner told fren to do about itself, already
+   * recognised from their own words by the chat window (renderer/own-business.js)
+   * — never from anything a model wrote. Every deed is one of the functions the
+   * handlers around here run; this only hands them over. See main/own-business.js.
+   *
+   * `heard` is the owner's sentence when there was one, '' for a chip, and
+   * absent for the chat window's own housekeeping (redrawing a card), which
+   * is not conversation and is not written down.
+   */
+  const ownBusiness = createOwnBusiness({
+    watching: () => state.get().observing,
+    setWatching: (on) => (on ? startObserving() : stopObserving()),
+    routines: listRoutines,
+    automations: async () => (await gateway.agentAutomations()).automations,
+    browser: () => ({ exclusions: safeParse(memory.getSetting('browserExclusions'), []) }),
+    setBrowser: applyBrowserSettings,
+    currentDomain: () => { const b = currentBrowserContext(); return (b && b.tab && b.tab.domain) || ''; },
+    setColour: setOrbColour,
+    setWakeOnLaunch,
+    setVolunteer,
+    remember: (note) => rememberNote(note, 'chat'),
+    facts: () => soul.readFacts(userDataDir()),
+    forgetFact: (fact) => soul.forgetFact(userDataDir(), fact),
+    patterns: () => { try { return memory.getSuggestions(); } catch { return []; } },
+  });
+  ipcMain.handle('fren:ownBusiness', async (_e, verb, args, heard) => {
+    const spoken = typeof heard === 'string';
+    if (spoken && heard.trim()) {
+      lastChatAt = Date.now();
+      remember('you', heard.trim().slice(0, 2000));
+    }
+    const res = await ownBusiness.apply(String(verb || ''), args);
+    if (spoken && res.say) remember('fren', res.say);
+    if (spoken) log(`[own] ${String(verb || '').slice(0, 24)}`);  // PRIVACY: which deed, never the words
+    return res;
   });
 
   /** Is this a routine request? If so, create it and say what was created. */

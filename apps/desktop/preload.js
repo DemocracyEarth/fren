@@ -89,6 +89,8 @@ contextBridge.exposeInMainWorld('fren', {
   greeting: () => ipcRenderer.invoke('fren:greeting'),
   getOrbScale: () => ipcRenderer.invoke('fren:getOrbScale'),
   setOrbScale: (s) => ipcRenderer.invoke('fren:setOrbScale', s),
+  // The models pane: its own small window, opened from the chat's header.
+  openSettings: () => ipcRenderer.invoke('fren:openSettings'),
   getProviders: () => ipcRenderer.invoke('fren:getProviders'),
   setProviders: (p) => ipcRenderer.invoke('fren:setProviders', p),
   getOrbColour: () => ipcRenderer.invoke('fren:getOrbColour'),
@@ -116,4 +118,7 @@ contextBridge.exposeInMainWorld('fren', {
   // request is a no.
   permissionRequests: (status) => ipcRenderer.invoke('fren:permissionRequests', status),
   decidePermission: (id, decision, opts) => ipcRenderer.invoke('fren:decidePermission', id, decision, opts),
+  // fren's own business, already recognised from the owner's own words by the
+  // chat window (renderer/own-business.js): do it, and say what happened.
+  ownBusiness: (verb, args, heard) => ipcRenderer.invoke('fren:ownBusiness', verb, args, heard),
 });

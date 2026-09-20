@@ -491,6 +491,10 @@ async function handle(provider, voice, vision, core, req, res, pathname) {
       // kind for the About box. Never a product name in the state itself.
       runtime: core ? core.runtimeStatus() : null,
       runtimeKind: core ? core.runtimeKind() : null,
+      // The model the agent in that environment is answering with, and the
+      // choice this process was last told about (null after a restart — which
+      // is how the desktop knows to say it again).
+      runtimeModel: core ? core.runtimeModel() : null,
     });
   }
 
@@ -508,6 +512,18 @@ async function handle(provider, voice, vision, core, req, res, pathname) {
       } catch (err) {
         return send(res, err.status || 400, { error: err.message });
       }
+    }
+    // The chosen model, for the agent lane. Handled here rather than in Core's
+    // router because this file is where an id's shape is checked: the value
+    // ends up in a JSON body sent to the provider. Empty or null means "go
+    // back to the default"; anything else must look like an id or is refused —
+    // refused, not dropped, because the caller is fren's own settings and a
+    // silent fallback here is a choice that quietly does nothing.
+    if (req.method === 'POST' && pathname === '/v1/runtime/model') {
+      const asked = body ? body.model : null;
+      const none = asked === null || asked === undefined || asked === '';
+      if (!none && !safeId(asked)) return send(res, 400, { error: 'that does not look like a model id' });
+      return send(res, 200, { model: core.setModel(none ? null : asked) });
     }
     const query = Object.fromEntries(new URL(req.url || '/', 'http://127.0.0.1').searchParams);
     return core.handle(req, res, pathname, body, query);
@@ -734,6 +750,20 @@ function pickRuntime(provider, { sandboxUrl, sandboxToken, model }) {
   });
 }
 
+/**
+ * The chosen model, as far as the agent lane may use it.
+ *
+ * The settings hold ONE model id, and it names a model at the fast lane's
+ * provider. The environment usually talks to the same provider — but with both
+ * keys present the fast lane prefers DeepSeek and the sandbox prefers
+ * Anthropic, and a DeepSeek id sent to Anthropic is not a preference, it is
+ * every agent run failing. So the choice only crosses when the two agree;
+ * otherwise the environment keeps its own default, and /health says which.
+ */
+function sandboxModelFor(id, upstreamKind, providerName) {
+  return id && upstreamKind === providerName ? id : null;
+}
+
 function buildCore(provider) {
   fs.mkdirSync(config.DATA_DIR, { recursive: true });
   const store = openCoreStore(path.join(config.DATA_DIR, 'core.db'));
@@ -762,7 +792,11 @@ function buildCore(provider) {
     ),
     grantSessionHost: (sessionId, host) => sandbox.grantSessionHost(sessionId, host),
   };
-  const core = createCore({ store, runtime, complete: (request) => provider.complete(request), log: console.log, egress });
+  const model = {
+    set: (id) => sandbox.setModel(sandboxModelFor(id, upstream.kind, provider.name)),
+    inEffect: () => sandbox.model(),
+  };
+  const core = createCore({ store, runtime, complete: (request) => provider.complete(request), log: console.log, egress, model });
   // When the proxy refuses a host, it asks Core, which may raise an ask-card.
   sandbox.setAskEgress(core.askEgress);
   // The tools lane (/mcp): the agent's tool calls run through Core, gated.
@@ -772,4 +806,4 @@ function buildCore(provider) {
   return core;
 }
 
-module.exports = { createServer };
+module.exports = { createServer, sandboxModelFor };

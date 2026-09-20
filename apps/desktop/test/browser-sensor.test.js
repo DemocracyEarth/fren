@@ -96,6 +96,23 @@ test('closing some other tab changes nothing', () => {
   assert.ok(sensor.getContext(), 'the active page survives');
 });
 
+test('excluding the site you are looking at drops the page already held', () => {
+  // "Don't read this site" is said while on the site. The promise has to be
+  // true at once, not from the next navigation.
+  const { sensor } = harness();
+  sensor.ingest(page());
+  sensor.ingest({ type: 'selection', text: 'some selected words' });
+  assert.ok(sensor.getContext().page.content, 'held before');
+  sensor.configure({ exclusions: ['example.com'] });
+  const ctx = sensor.getContext();
+  assert.equal(ctx.page.excluded, true);
+  assert.equal(ctx.page.content, undefined);
+  assert.equal(ctx.tab.url, '');
+  assert.equal(ctx.tab.title, '');
+  assert.equal(ctx.tab.domain, 'example.com', 'the domain stays: it is how "this site" is undone');
+  assert.equal(ctx.selection, null);
+});
+
 test('an excluded domain keeps its content out even if the extension sent it', () => {
   // The second enforcement: a stale extension config must not be enough to
   // leak a banking page into fren.

@@ -126,3 +126,68 @@ test('a fact is flattened to one harmless line, however it arrives', () => {
   assert.equal(facts.length, 1, `expected one fact line, got ${facts.length}`);
   assert.ok(!/\n/.test(facts[0]));
 });
+
+// ---- forgetting -------------------------------------------------------------
+
+function notebook() {
+  const dir = tmp();
+  soul.writeSoul(dir, ANSWERS, Date.UTC(2026, 7, 22, 12));
+  soul.rememberFact(dir, 'Takes the 8:15 train to work', Date.UTC(2026, 7, 22, 12));
+  soul.rememberFact(dir, 'Sister is called Ana', Date.UTC(2026, 7, 23, 12));
+  soul.rememberFact(dir, 'Takes sugar in coffee', Date.UTC(2026, 7, 24, 12));
+  return dir;
+}
+
+test('readFacts returns the bullets under Facts and nothing from the day index', () => {
+  const dir = notebook();
+  fs.appendFileSync(soul.paths(dir).memory, '- 2026-08-22: a day, not a fact\n');
+  const facts = soul.readFacts(dir);
+  assert.equal(facts.length, 3);
+  assert.match(facts[1], /^- Sister is called Ana _\(2026-08-23\)_$/);
+  assert.deepEqual(soul.readFacts(tmp()), [], 'no file is no facts, not a throw');
+});
+
+test('forgetFact removes exactly the one bullet it was handed', () => {
+  const dir = notebook();
+  const before = fs.readFileSync(soul.paths(dir).memory, 'utf8');
+  const [, ana] = soul.readFacts(dir);
+  const res = soul.forgetFact(dir, ana);
+  assert.equal(res.removed, true);
+  assert.equal(res.fact, ana);
+  const after = fs.readFileSync(soul.paths(dir).memory, 'utf8');
+  // The file is the same file minus that line: every other byte survives.
+  assert.equal(after, before.replace(ana + '\n', ''));
+  assert.equal(soul.readFacts(dir).length, 2);
+});
+
+test('forgetFact by words, when the words point at one note', () => {
+  const dir = notebook();
+  assert.equal(soul.forgetFact(dir, 'sister').removed, true);
+  assert.ok(!soul.readFacts(dir).some((f) => /Ana/.test(f)));
+});
+
+test('forgetFact refuses when nothing matches, and when more than one does', () => {
+  const dir = notebook();
+  const before = fs.readFileSync(soul.paths(dir).memory, 'utf8');
+  assert.deepEqual(soul.forgetFact(dir, 'my dog'), { removed: false, matches: 0 });
+  assert.deepEqual(soul.forgetFact(dir, 'takes'), { removed: false, matches: 2 });
+  assert.deepEqual(soul.forgetFact(dir, ''), { removed: false, matches: 0 });
+  assert.deepEqual(soul.forgetFact(tmp(), 'anything'), { removed: false, matches: 0 });
+  assert.equal(fs.readFileSync(soul.paths(dir).memory, 'utf8'), before, 'a refusal writes nothing');
+});
+
+test('forgetFact never reaches past the Facts section', () => {
+  const dir = notebook();
+  const p = soul.paths(dir).memory;
+  fs.appendFileSync(p, '- 2026-08-22: talked about Ana all day\n');
+  const before = fs.readFileSync(p, 'utf8');
+  // "all day" is only in the day index; it is not a fact and cannot be forgotten.
+  assert.deepEqual(soul.forgetFact(dir, 'all day'), { removed: false, matches: 0 });
+  assert.equal(fs.readFileSync(p, 'utf8'), before);
+  // A hand-written heading above the facts survives a removal untouched.
+  fs.writeFileSync(p, before.replace('## Facts', '## Mine\n\nhand written\n\n## Facts'));
+  assert.equal(soul.forgetFact(dir, 'sugar').removed, true);
+  const after = fs.readFileSync(p, 'utf8');
+  assert.match(after, /## Mine\n\nhand written\n\n## Facts/);
+  assert.match(after, /talked about Ana all day/);
+});

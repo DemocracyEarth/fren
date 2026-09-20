@@ -23,14 +23,20 @@ function withOverrides(body) {
   return out;
 }
 
-async function request(pathname, { method = 'GET', body, timeoutMs = 60_000 } = {}) {
+/**
+ * `plain` sends the body exactly as given. Almost nothing wants that — but a
+ * request whose own `model` field MEANS something (telling the gateway which
+ * model was chosen, including "none") must not have the override written over
+ * it on the way out.
+ */
+async function request(pathname, { method = 'GET', body, timeoutMs = 60_000, plain = false } = {}) {
   const res = await fetch(`${config.GATEWAY_URL}${pathname}`, {
     method,
     headers: {
       'content-type': 'application/json',
       authorization: `Bearer ${config.GATEWAY_TOKEN}`,
     },
-    body: body === undefined ? undefined : JSON.stringify(withOverrides(body)),
+    body: body === undefined ? undefined : JSON.stringify(plain ? body : withOverrides(body)),
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) {
@@ -110,6 +116,10 @@ module.exports = {
 
   // ---- FREN Core: runs and the secure execution environment ----------------
   runtimeStatus: () => request('/v1/runtime/status', { timeoutMs: 5_000 }),
+  // The chosen chat model, for the agent that answers typed chat. The fast
+  // lane gets it in every POST body (withOverrides); the agent's calls never
+  // pass through here, so the gateway has to be told. Null: back to default.
+  setRuntimeModel: (model) => request('/v1/runtime/model', { method: 'POST', body: { model: model || null }, plain: true, timeoutMs: 5_000 }),
   // Accepted, not answered: the answer arrives as events.
   startRun: (payload) => request('/v1/runs', { method: 'POST', body: payload, timeoutMs: 15_000 }),
   getRun: (id) => request(`/v1/runs/${encodeURIComponent(id)}`, { timeoutMs: 10_000 }),
