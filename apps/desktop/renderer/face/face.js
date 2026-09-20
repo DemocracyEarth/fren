@@ -194,6 +194,10 @@
         ? global.matchMedia('(prefers-reduced-motion: reduce)')
         : null;
       this.reduced = !!(this.motionQuery && this.motionQuery.matches);
+      // The conversation line (setAttending): your voice level, and the hue
+      // turn it has earned so far, eased per frame.
+      this.attend = null;
+      this.attendHue = 0;
       if (this.motionQuery) {
         this._onMotion = (e) => { this.reduced = e.matches; this._wake(); };
         this.motionQuery.addEventListener('change', this._onMotion);
@@ -381,6 +385,7 @@
     _atRest() {
       if (this.thinking || this.p.dots > 0.005) return false;
       if (this.blink > 0 || this.talkPhase >= 0 || this.speechLevel !== null || this.particles.length) return false;
+      if (this.attend !== null || this.attendHue !== 0) return false;
       for (const k in this.p) {
         if (Math.abs(this.target[k] - this.p[k]) > 0.0015) return false;
         if (Math.abs(this.v[k]) > 0.0015) return false;
@@ -442,6 +447,17 @@
      * that exists precisely for machines where things go wrong.
      */
     setListening() { /* no visual equivalent in the SVG renderer */ }
+
+    /**
+     * A conversation line is open: fren is listening to YOU. The one hue this
+     * renderer ever turns — toward green, a third of the way while it waits,
+     * further as you speak — and back when the line closes or fren talks.
+     */
+    setAttending(level) {
+      const on = level !== null && level !== undefined;
+      this.attend = on ? clamp(level, 0, 1) : null;
+      this._wake();
+    }
 
     /**
      * The closest a drawn face gets to being shaken: kick the velocity springs
@@ -595,7 +611,12 @@
       );
 
       // ---- material: five layers, one hue ----
-      const h = ((p.hue + BASE.h) % 360 + 360) % 360;
+      // The line's turn toward green: eased here, per frame, on top of the
+      // mood's hue, so an expression change underneath never undoes it.
+      const attendGoal = this.attend === null ? 0 : 34 + 34 * Math.min(1, this.attend * 1.4);
+      this.attendHue += (attendGoal - this.attendHue) * 0.08;
+      if (this.attend === null && Math.abs(this.attendHue) < 0.05) this.attendHue = 0;
+      const h = ((p.hue + this.attendHue + BASE.h) % 360 + 360) % 360;
       const s = clamp(BASE.s * p.sat, 0, 1);
       const l = clamp(BASE.l + p.tone, 0.06, 0.92);
       const lit = clamp(p.lit, 0, 1);
