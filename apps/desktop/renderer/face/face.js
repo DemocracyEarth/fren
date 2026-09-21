@@ -613,12 +613,21 @@
       // ---- material: five layers, one hue ----
       // The line's turn toward green: eased here, per frame, on top of the
       // mood's hue, so an expression change underneath never undoes it.
-      const attendGoal = this.attend === null ? 0 : 58 + 28 * Math.min(1, this.attend * 1.4);   // palette.js: +58 waiting, +86 hearing
+      // The same breath as the 3D orb (attend.js, which a classic script cannot
+      // import): lighter green to darker and back every 3.2 s, deeper with your voice.
+      const attendBreath = this.reduced ? 0.5 : 0.5 - 0.5 * Math.cos((this.t / 3.2) * Math.PI * 2);
+      const attendDeep = Math.min(1, attendBreath * 0.85 + Math.min(1, (this.attend || 0) * 1.4) * 0.15);
+      const attendGoal = this.attend === null ? 0 : 58 + 28 * attendDeep;   // palette.js: +58 lighter, +86 darker
       this.attendHue += (attendGoal - this.attendHue) * 0.08;
       if (this.attend === null && Math.abs(this.attendHue) < 0.05) this.attendHue = 0;
       const h = ((p.hue + this.attendHue + BASE.h) % 360 + 360) % 360;
       const s = clamp(BASE.s * p.sat, 0, 1);
-      const l = clamp(BASE.l + p.tone, 0.06, 0.92);
+      // Lightness follows the turn too (palette.js: -7 at the lighter green,
+      // -13 at the darker), or this renderer's breath would read as a change of
+      // hue rather than lighter-to-darker. Derived from the eased hue, so it
+      // comes and goes with the line for free.
+      const attendDim = this.attendHue <= 58 ? 0.07 * this.attendHue / 58 : 0.07 + 0.06 * (this.attendHue - 58) / 28;
+      const l = clamp(BASE.l + p.tone - attendDim, 0.06, 0.92);
       const lit = clamp(p.lit, 0, 1);
       g.s0.setAttribute('stop-color', step(h, s, l, RAMP.highlight));
       g.sa.setAttribute('stop-color', step(h, s, l, RAMP.light));
