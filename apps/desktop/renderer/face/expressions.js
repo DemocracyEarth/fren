@@ -40,8 +40,9 @@ export const TONE = {
   blue:    { color: 0x758ec7, rough: 0.42, sheen: 0.26 },   // periwinkle, not slate
   red:     { color: 0xe04a24, rough: 0.30, sheen: 0.45 },   // cross
   grey:    { color: 0x6d6d73, rough: 0.54, sheen: 0.08 },   // asleep, no colour left
-  // The conversation line: the base turned to green — a calm leaf green while
-  // fren waits on you, a deeper one as your voice comes in. Worn by the orb's
+  // The conversation line: the base turned to green. While fren listens it
+  // breathes between these two — the lighter leaf green and the darker one —
+  // and your voice adds the last of the depth (attend.js). Worn by the orb's
   // setAttending, never by a mood. (Local RECORDING is semantic red.)
   attending: { color: 0x649e3d, rough: 0.24, sheen: 0.62 },
   hearing:   { color: 0x35883b, rough: 0.14, sheen: 0.95 },

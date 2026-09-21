@@ -67,8 +67,9 @@
     // LIFTED the lightness, which from orange lands on yellow-green at full
     // brightness — a lemon-lime while waiting, an apple green while hearing.
     // These turn further (past the yellows, into green proper) and go DOWN in
-    // lightness, so the waiting state is a leaf green and hearing a deeper
-    // one; `lMin` keeps a dark worn colour from sinking under the face.
+    // lightness: a leaf green and a deeper one, the two ends of the breath
+    // fren listens with (attend.js); `lMin` keeps a dark worn colour from
+    // sinking under the face.
     attending: { dH: 58, sMul: 0.44, sMin: 30, dL: -7, lMin: 34 },
     hearing:   { dH: 86, sMul: 0.44, sMin: 30, dL: -13, lMin: 34 },
   };
