@@ -267,8 +267,9 @@ Two ways, both deliberate — a line never opens on its own:
 
 Either way it closes itself after 25 seconds of silence, at a 20-minute cap, or
 when the agent ends the conversation. While it is open the orb turns from its
-own colour to green — a calm leaf green while it waits on you, a deeper one as
-you speak — and back to orange while it talks, so you can see whose turn it is.
+own orange out to a lime green and back — slowly, and further out as you speak
+— and settles on its orange while it talks, so you can see whose turn it is. It
+never leaves the orb's own family of colour.
 No glow, no fading: the same solid orb.
 
 - **The wake word**, spoken — the spontaneous way. See §9.
@@ -282,7 +283,7 @@ you, and the agent's greeting follows. Nothing to set up, no account, no key:
 the detector runs **on this machine** and answers one question per few
 milliseconds of microphone audio — "was that the phrase?" — and nothing else.
 No audio leaves, nothing is transcribed, nothing is kept. Audio starts to travel
-only once the line is open, deliberately, with the orb turned green.
+only once the line is open, deliberately, with the orb breathing toward lime.
 
 It is on by default; `FREN_WAKE_WORD=off` switches it off outright.
 

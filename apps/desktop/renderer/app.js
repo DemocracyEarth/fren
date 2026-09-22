@@ -92,7 +92,7 @@ let reactionTimer = null;
  * gesture gives a different face each time.
  */
 function react(trigger) {
-  if (speaking) return;
+  if (speaking || voiceActive()) return;   // on a line the face is the conversation's; a shake picking "annoyed" would breathe red
   if (!state.observing) {
     // Asleep: it stirs when you touch it, but the light stays off — motion is
     // honest here, an expression would not be.
@@ -2091,6 +2091,9 @@ function listening(level) {
 async function startTalking() {
   vlog('startTalking:enter');
   hush();                          // or the recording opens over fren's own voice
+  // No local recording over a live line: the agent has the microphone, and
+  // record red painted under the listening breath would swing red to lime.
+  if (voiceActive()) { vlog('startTalking:BLOCKED', { reason: 'line open' }); return; }
   if (!mic || !voiceReady) {
     vlog('startTalking:BLOCKED', { reason: !mic ? 'no mic' : 'voice not ready' });
     return;

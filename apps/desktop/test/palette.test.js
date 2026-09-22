@@ -29,37 +29,29 @@ test('the default colour reproduces the shipped palette exactly', () => {
   // vivid; at the default's 100% it simply clamps and brightness leads.
   assert.equal(hx(t.warm.color), '#ffa914');
   assert.equal(hx(t.excited.color), '#ffad1f');
-  // The conversation line: turned toward green, softer than the moods.
-  assert.equal(hx(t.attending.color), '#649e3d');
-  assert.equal(hx(t.hearing.color), '#35883b');
+  // The far end of the listening breath: a lime, softer than the moods.
+  assert.equal(hx(t.lime.color), '#68be37');
   assert.equal(hx(P.sheenColorFrom(P.DEFAULT_HEX)), '#ffce6a');
 });
 
-test('the conversation line turns the hue to green — calm, never lime — at every worn colour', () => {
-  // Attending is the line open and fren waiting on you; hearing is your voice
-  // coming in. Both leave the base hue — the only tones that do — by fixed
-  // turns, so "fren has turned green" means the same thing whatever it wears.
+test('the listening breath reaches a lime sixty degrees from the base — softer, a touch darker — at every worn colour', () => {
+  // The breath runs from the orb's own colour out to this and back, so the
+  // far end is a fixed turn from the base: from orange it is a lime, and
+  // "fren is breathing toward lime" means the same thing whatever it wears.
   for (const preset of [...P.PRESETS, { name: 'a custom teal', hex: 0x11a8a8 }]) {
     const t = P.tonesFrom(preset.hex);
     const hue = (c) => P.toHsl(c).h;
     const turn = (c) => ((hue(c) - hue(t.base.color)) % 360 + 360) % 360;
-    // 8-bit colour gives hue only so much precision at low saturation; the
-    // turn is exact for the shipped orange and within a few degrees for a
-    // muted worn colour.
-    assert.ok(Math.abs(turn(t.attending.color) - 58) < 3, `${preset.name}: attending turned ${turn(t.attending.color).toFixed(1)}deg`);
-    assert.ok(Math.abs(turn(t.hearing.color) - 86) < 3, `${preset.name}: hearing turned ${turn(t.hearing.color).toFixed(1)}deg`);
-    // Softer than the base, never louder — but never colourless either: a
-    // green with no saturation has no hue to turn (the Moss preset found this).
-    assert.ok(P.toHsl(t.attending.color).s <= P.toHsl(t.base.color).s + 0.5, `${preset.name}: attending louder than base`);
-    assert.ok(P.toHsl(t.hearing.color).s <= P.toHsl(t.attending.color).s + 0.5, `${preset.name}: hearing louder than attending`);
-    assert.ok(P.toHsl(t.hearing.color).s >= 28, `${preset.name}: hearing has only ${P.toHsl(t.hearing.color).s.toFixed(0)}% saturation left`);
-    // Calm means DARKER than the base, not brighter — brighter is how it went
-    // lime — but never so dark the emissive face has nothing to sit on.
-    for (const line of ['attending', 'hearing']) {
-      const l = P.toHsl(t[line].color).l;
-      assert.ok(l <= P.toHsl(t.base.color).l + 0.5, `${preset.name}: ${line} is brighter than the base`);
-      assert.ok(l >= 33, `${preset.name}: ${line} sank to ${l.toFixed(0)}% lightness`);
-    }
+    // 8-bit colour gives hue only so much precision at low saturation.
+    assert.ok(Math.abs(turn(t.lime.color) - 60) < 3, `${preset.name}: lime turned ${turn(t.lime.color).toFixed(1)}deg`);
+    // Softer than the base, never louder — but never colourless either (the
+    // Moss preset found this); and never brighter than the base, which is how
+    // an earlier lime went neon, nor so dark the face has nothing to sit on.
+    const s = P.toHsl(t.lime.color).s, l = P.toHsl(t.lime.color).l;
+    assert.ok(s <= P.toHsl(t.base.color).s + 0.5, `${preset.name}: lime louder than base`);
+    assert.ok(s >= 28, `${preset.name}: lime has only ${s.toFixed(0)}% saturation left`);
+    assert.ok(l <= P.toHsl(t.base.color).l + 0.5, `${preset.name}: lime is brighter than the base`);
+    assert.ok(l >= 33, `${preset.name}: lime sank to ${l.toFixed(0)}% lightness`);
   }
 });
 
@@ -73,7 +65,7 @@ test('no mood wears the listening colours', () => {
                         { name: 'a custom pink', hex: 0xff2fa0 }]) {
     const t = P.tonesFrom(preset.hex);
     const hue = (c) => P.toHsl(c).h;
-    for (const line of ['attending', 'hearing']) {
+    for (const line of ['lime']) {
       const listening = hue(t[line].color);
       for (const mood of ['base', 'warm', 'excited']) {
         const d = Math.abs(hue(t[mood].color) - listening);
@@ -106,7 +98,7 @@ test('surface qualities belong to the mood, not the hue', () => {
     const t = P.tonesFrom(preset.hex);
     assert.equal(t.base.rough, 0.34);
     assert.equal(t.excited.rough, 0.20);
-    assert.ok(t.hearing.sheen > t.base.sheen);
+    assert.ok(t.lime.sheen > t.base.sheen);
   }
 });
 
@@ -280,7 +272,7 @@ test('the pre-palette fallback wears the same bytes as the derived default', asy
   // after boot — the kind of flash nobody can debug from a report.
   const { TONE } = await import('../renderer/face/expressions.js');
   const t = P.tonesFrom(P.DEFAULT_HEX);
-  for (const name of ['base', 'warm', 'excited', 'hearing']) {
+  for (const name of ['base', 'warm', 'excited', 'lime']) {
     assert.equal(hx(TONE[name].color), hx(t[name].color), `${name} drifted from the palette`);
   }
   for (const name of ['blue', 'red', 'grey']) {

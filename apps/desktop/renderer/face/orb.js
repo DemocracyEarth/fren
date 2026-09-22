@@ -22,6 +22,7 @@
  */
 import * as THREE from '../vendor/three.module.min.js';
 import { drawFace, glowFrom } from './face-texture.js';
+import { attendDepth } from './attend.js';
 import { TONE, EXPRESSIONS } from './expressions.js';
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -56,8 +57,8 @@ const REC_HZ = 0.62;
 // chosen palette; see the note beside it.
 const _recLow = new THREE.Color();
 const _recHigh = new THREE.Color();
-// Scratch colours for the conversation line: attending (waiting on you) and
-// hearing (your voice coming in), from the worn palette.
+// Scratch colours for the listening breath: its near end (whatever the orb
+// wears) and its far end (the worn palette's lime).
 const _attend = new THREE.Color();
 const _attendDeep = new THREE.Color();
 const REC = (typeof window !== 'undefined' && window.FrenPalette &&
@@ -73,11 +74,11 @@ const LOOK = (typeof window !== 'undefined' && window.FrenPalette &&
     ambient: 2.6, key: 0.7, fill: 1.0, clearcoat: 0.24, coatRough: 0.29 };
 
 
-/** Has a colour moved enough to be seen? Any channel by four steps or more. */
-function colourMoved(a, b) {
-  return Math.abs(((a >> 16) & 255) - ((b >> 16) & 255)) >= 4
-      || Math.abs(((a >> 8) & 255) - ((b >> 8) & 255)) >= 4
-      || Math.abs((a & 255) - (b & 255)) >= 4;
+/** Has a colour moved enough to be seen? Any channel by `steps` or more. */
+function colourMoved(a, b, steps = 4) {
+  return Math.abs(((a >> 16) & 255) - ((b >> 16) & 255)) >= steps
+      || Math.abs(((a >> 8) & 255) - ((b >> 8) & 255)) >= steps
+      || Math.abs((a & 255) - (b & 255)) >= steps;
 }
 
 /** Parameters that cross-fade when the expression changes. */
@@ -121,6 +122,7 @@ class Orb {
     this.attendSmooth = 0;
     this.attendMix = 0;
     this.attendWasOn = false;   // one more frame after the mix reaches 0, to restore the look exactly
+    this.attendFor = 0;         // seconds fren has been listening this turn: the phase of its breath
     // The body colour the face's glow was last painted in (see the loop).
     this.glowHex = null;
     this.nextBlink = 2 + Math.random() * 3;
@@ -499,7 +501,7 @@ class Orb {
     this.tones = P.tonesFrom(hex);
     this.material.sheenColor.setHex(P.sheenColorFrom(hex));
     this.sheenBase = new THREE.Color(P.sheenColorFrom(hex));
-    this.sheenAttend = new THREE.Color(P.sheenColorFrom(this.tones.hearing.color));
+    this.sheenAttend = new THREE.Color(P.sheenColorFrom(this.tones.lime.color));
     const tone = this.tone(this.target.tone || 'base');
     this.toneTo.setHex(tone.color);
     this.matTo.rough = tone.rough;
@@ -592,14 +594,22 @@ class Orb {
    * A conversation line is open and fren is listening to YOU. `level` is your
    * voice, 0..1; null when the line closes or the agent takes its turn.
    *
-   * Said in colour, nothing else: the body turns from its own hue toward
-   * green — a third of the way while it waits, further as you speak — and
-   * turns back while it talks. No beat, no glow, no fading: the same solid
-   * orb, its light steady, turned toward you. Distinct from setListening,
-   * which is the LOCAL microphone recording and wears record red.
+   * Said in colour, nothing else: the body BREATHES from its own colour out
+   * to a lime green and back — orange, through the yellows, to lime — your
+   * voice adding the last of the reach (attend.js); and settles on its own
+   * colour while fren talks. It stays in the orb's own family. No beat in
+   * size or light, no glow, no fading: the same solid orb; only its colour
+   * breathes. Distinct from setListening, which is the LOCAL microphone
+   * recording and wears record red.
    */
   setAttending(level) {
     const on = level !== null && level !== undefined;
+    // A new turn of listening opens at the orb's own colour and breathes out
+    // from there — but only once the last turn's breath has actually faded.
+    // After a very short agent turn (a "mm-hm", a barge-in) the lime is still
+    // half worn, and restarting the breath then would snap it back to orange
+    // in one frame; resuming the breath where it froze is continuous.
+    if (on && this.attendLevel === null && this.attendMix < 0.05) this.attendFor = 0;
     this.attendLevel = on ? clamp(level, 0, 1) : null;
     this._wake();
   }
@@ -786,7 +796,7 @@ class Orb {
       this.material.color.copy(_recLow.setHex(REC.low)).lerp(_recHigh.setHex(REC.high), beat);
     }
     // The conversation line: fren is listening to you, and says so in colour.
-    // The turn toward green eases in and out with the line; within it, the
+    // The breath toward lime eases in and out with the line; within it, the
     // colour follows your voice — quick to hear you, slow to let go, so it
     // rides the phrase rather than flickering with every syllable. Gated by
     // `lit` like the body colour: a drained orb stays drained.
@@ -794,6 +804,7 @@ class Orb {
     this.attendMix += ((attendOn ? 1 : 0) - this.attendMix) * Math.min(1, dt * 3.4);
     if (!attendOn && this.attendMix < 0.002) this.attendMix = 0;
     if (attendOn) {
+      this.attendFor += dt;
       const rise = this.attendLevel > this.attendSmooth;
       this.attendSmooth += (this.attendLevel - this.attendSmooth) * Math.min(1, dt * (rise ? 10 : 2.2));
     } else if (this.attendSmooth > 0) {
@@ -801,28 +812,38 @@ class Orb {
       if (this.attendSmooth < 0.002) this.attendSmooth = 0;
     }
     if (this.attendMix > 0 || this.attendWasOn) {
-      const quiet = this.tone('attending');
-      const heard = this.tone('hearing');
-      _attend.setHex(quiet.color).lerp(_attendDeep.setHex(heard.color), Math.min(1, this.attendSmooth * 1.4));
+      // The near end is whatever the orb wears right now — its own colour, the
+      // one it talks in — so the breath is orange-out-to-lime-and-back, not a
+      // change of state; the far end is the palette's lime. Your voice pushes
+      // it further out (attend.js); reduced motion holds a steady midway.
+      const lime = this.tone('lime');
+      const depth = attendDepth(this.attendFor, Math.min(1, this.attendSmooth * 1.4), this.reduced);
+      _attend.copy(this.material.color).lerp(_attendDeep.setHex(lime.color), depth);
       this.material.color.lerp(_attend, this.attendMix * Math.min(1, this.p.lit * 1.05));
       // The body gradient pushes saturation up by half or more — the orange's
-      // blaze — which would render the green neon. Eased off with the mix, and
-      // the sheen follows the green rather than laying its gold over it. Both
-      // return exactly to the worn look when the line closes.
+      // blaze — which renders the lime neon. Eased off with how far OUT the
+      // breath is (at the orange end the orange keeps its blaze, so it looks
+      // exactly as it does while talking), and the sheen follows the lime
+      // rather than laying its gold over it. Both return exactly to the worn
+      // look when the line closes.
       const look = this.look || LOOK;
-      const push = 1 - 0.9 * this.attendMix;   // nearly off: even a quarter of it brightened the green toward lime
+      const out = this.attendMix * depth;
+      const push = 1 - 0.9 * out;
       this.uGoldOff.value.y = (look.goldS / 100) * push;
       this.uCoralOff.value.y = (look.coralS / 100) * push;
-      if (this.sheenBase && this.sheenAttend) this.material.sheenColor.copy(this.sheenBase).lerp(this.sheenAttend, this.attendMix);
+      if (this.sheenBase && this.sheenAttend) this.material.sheenColor.copy(this.sheenBase).lerp(this.sheenAttend, out);
       this.attendWasOn = this.attendMix > 0;
     }
     // The light around the eyes and mouth is the body's own colour, whatever
-    // the body is wearing this frame — a mood, the listening green, record red,
+    // the body is wearing this frame — a mood, the listening lime, record red,
     // a colour the owner chose. It used to be five fixed ambers, which left an
     // orange halo on a green face. Repainted only when the colour has visibly
     // moved, so an easing tone costs a few paints, not one per frame.
     const bodyHex = this.material.color.getHex();
-    if (this.glowHex === null || colourMoved(bodyHex, this.glowHex)) {
+    // While the line is open the colour breathes continuously; the blurred
+    // halo does not need every small step of it, so it follows more coarsely
+    // (about 2.5 face paints a second instead of 6, and none of it visible).
+    if (this.glowHex === null || colourMoved(bodyHex, this.glowHex, this.attendMix > 0.5 ? 8 : 4)) {
       this.glowHex = bodyHex;
       this.p.glow = glowFrom(bodyHex);
       dirty = true;
