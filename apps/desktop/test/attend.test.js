@@ -1,8 +1,9 @@
 'use strict';
 /**
- * The listening breath: while fren listens in a spoken conversation its green
- * swings from the lighter leaf green to the darker one and back, and the
- * owner's voice pushes it deeper. 0 is the lighter green, 1 the darker.
+ * The listening breath: while fren listens in a spoken conversation its
+ * colour swings from the orb's own orange out to a lime green and back, and
+ * the owner's voice pushes it further out. 0 is the orb's own colour, 1 the
+ * lime.
  */
 const test = require('node:test');
 const assert = require('node:assert');
@@ -11,7 +12,7 @@ const path = require('node:path');
 
 const load = () => import('../renderer/face/attend.js');
 
-test('a turn opens at the lighter green, reaches its darkest half a breath in, and comes back', async () => {
+test('a turn opens at the orb\'s own colour, reaches the lime half a breath in, and comes back', async () => {
   const { attendDepth, BREATH_S } = await load();
   assert.equal(attendDepth(0, 0), 0);
   assert.ok(Math.abs(attendDepth(BREATH_S / 2, 0) - 0.85) < 1e-9, 'the breath alone goes most of the way: it has to be felt');
@@ -24,7 +25,7 @@ test('it is a slow breath — the pace of listening, not of loading', async () =
   assert.ok(BREATH_S >= 2.5 && BREATH_S <= 4.5, `${BREATH_S}s`);
 });
 
-test('it moves smoothly: darker all the way down the first half, lighter all the way back', async () => {
+test('it moves smoothly: out all the way through the first half, back all the way through the second', async () => {
   const { attendDepth, BREATH_S } = await load();
   let last = -1;
   for (let t = 0; t <= BREATH_S / 2; t += 0.05) { const d = attendDepth(t, 0); assert.ok(d >= last - 1e-12); last = d; }
@@ -34,7 +35,7 @@ test('it moves smoothly: darker all the way down the first half, lighter all the
   for (let t = 0; t < BREATH_S; t += 1 / 60) assert.ok(Math.abs(attendDepth(t + 1 / 60, 0) - attendDepth(t, 0)) < 0.02);
 });
 
-test('your voice pushes it deeper, and it never leaves the two greens', async () => {
+test('your voice pushes it further out, and it never leaves the span between the two', async () => {
   const { attendDepth, BREATH_S } = await load();
   assert.equal(attendDepth(0, 1), 0.15);
   assert.equal(attendDepth(BREATH_S / 2, 1), 1);
@@ -45,7 +46,7 @@ test('your voice pushes it deeper, and it never leaves the two greens', async ()
   assert.ok(attendDepth(1, 0.8) > attendDepth(1, 0.1));
 });
 
-test('reduced motion: no breath — a steady middle green that still answers the voice', async () => {
+test('reduced motion: no breath — a steady colour midway to the lime that still answers the voice', async () => {
   const { attendDepth } = await load();
   assert.equal(attendDepth(0, 0, true), attendDepth(1.3, 0, true));
   assert.equal(attendDepth(0, 0, true), 0.425);
@@ -57,10 +58,12 @@ test('nonsense times are the start of a breath, not a broken colour', async () =
   for (const t of [NaN, -5, undefined, Infinity]) assert.equal(attendDepth(t, 0), 0);
 });
 
-test('the orb breathes through it; a new turn starts a new breath only once the last green has gone', () => {
+test('the orb breathes through it, from its own colour; a new turn starts a new breath only once the last one has faded', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'face', 'orb.js'), 'utf8');
   assert.match(src, /import \{ attendDepth \} from '\.\/attend\.js'/);
   assert.match(src, /attendDepth\(\s*this\.attendFor\b[\s\S]{0,120}?this\.reduced\s*\)/);
+  // The near end is the colour the orb already wears, the far end the palette's lime.
+  assert.match(src, /_attend\.copy\(this\.material\.color\)\.lerp\(_attendDeep\.setHex\(lime\.color\), depth\)/);
   // Restarting mid-fade snaps dark to light in one frame (a short "mm-hm" from the agent).
   assert.match(src, /attendLevel === null[^;\n]*attendMix < 0\.05[^;\n]*\)\s*\{?\s*this\.attendFor = 0/);
   // Only the colour moves: nothing under the voice attribute fades, scales or glows.

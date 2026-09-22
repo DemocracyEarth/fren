@@ -501,7 +501,7 @@ class Orb {
     this.tones = P.tonesFrom(hex);
     this.material.sheenColor.setHex(P.sheenColorFrom(hex));
     this.sheenBase = new THREE.Color(P.sheenColorFrom(hex));
-    this.sheenAttend = new THREE.Color(P.sheenColorFrom(this.tones.hearing.color));
+    this.sheenAttend = new THREE.Color(P.sheenColorFrom(this.tones.lime.color));
     const tone = this.tone(this.target.tone || 'base');
     this.toneTo.setHex(tone.color);
     this.matTo.rough = tone.rough;
@@ -594,20 +594,21 @@ class Orb {
    * A conversation line is open and fren is listening to YOU. `level` is your
    * voice, 0..1; null when the line closes or the agent takes its turn.
    *
-   * Said in colour, nothing else: the body turns from its own hue to green
-   * and BREATHES there — the lighter green ('attending') to the darker
-   * ('hearing') and back, your voice adding the last of the depth (attend.js)
-   * — and turns back while fren talks. No beat in size or light, no glow, no
-   * fading: the same solid orb; only its colour breathes. Distinct from
-   * setListening, which is the LOCAL microphone recording and wears record red.
+   * Said in colour, nothing else: the body BREATHES from its own colour out
+   * to a lime green and back — orange, through the yellows, to lime — your
+   * voice adding the last of the reach (attend.js); and settles on its own
+   * colour while fren talks. It stays in the orb's own family. No beat in
+   * size or light, no glow, no fading: the same solid orb; only its colour
+   * breathes. Distinct from setListening, which is the LOCAL microphone
+   * recording and wears record red.
    */
   setAttending(level) {
     const on = level !== null && level !== undefined;
-    // A new turn of listening opens at the lighter green and breathes from
-    // there — but only once the last turn's green has actually gone. After a
-    // very short agent turn (a "mm-hm", a barge-in) the green is still half
-    // worn, and restarting the breath then would snap it from dark to light in
-    // one frame; resuming the breath where it froze is continuous.
+    // A new turn of listening opens at the orb's own colour and breathes out
+    // from there — but only once the last turn's breath has actually faded.
+    // After a very short agent turn (a "mm-hm", a barge-in) the lime is still
+    // half worn, and restarting the breath then would snap it back to orange
+    // in one frame; resuming the breath where it froze is continuous.
     if (on && this.attendLevel === null && this.attendMix < 0.05) this.attendFor = 0;
     this.attendLevel = on ? clamp(level, 0, 1) : null;
     this._wake();
@@ -811,26 +812,30 @@ class Orb {
       if (this.attendSmooth < 0.002) this.attendSmooth = 0;
     }
     if (this.attendMix > 0 || this.attendWasOn) {
-      const quiet = this.tone('attending');
-      const heard = this.tone('hearing');
-      // It breathes between the two greens while it listens, and your voice
-      // pushes it deeper (attend.js); reduced motion holds a steady middle.
+      // The near end is whatever the orb wears right now — its own colour, the
+      // one it talks in — so the breath is orange-out-to-lime-and-back, not a
+      // change of state; the far end is the palette's lime. Your voice pushes
+      // it further out (attend.js); reduced motion holds a steady midway.
+      const lime = this.tone('lime');
       const depth = attendDepth(this.attendFor, Math.min(1, this.attendSmooth * 1.4), this.reduced);
-      _attend.setHex(quiet.color).lerp(_attendDeep.setHex(heard.color), depth);
+      _attend.copy(this.material.color).lerp(_attendDeep.setHex(lime.color), depth);
       this.material.color.lerp(_attend, this.attendMix * Math.min(1, this.p.lit * 1.05));
       // The body gradient pushes saturation up by half or more — the orange's
-      // blaze — which would render the green neon. Eased off with the mix, and
-      // the sheen follows the green rather than laying its gold over it. Both
-      // return exactly to the worn look when the line closes.
+      // blaze — which renders the lime neon. Eased off with how far OUT the
+      // breath is (at the orange end the orange keeps its blaze, so it looks
+      // exactly as it does while talking), and the sheen follows the lime
+      // rather than laying its gold over it. Both return exactly to the worn
+      // look when the line closes.
       const look = this.look || LOOK;
-      const push = 1 - 0.9 * this.attendMix;   // nearly off: even a quarter of it brightened the green toward lime
+      const out = this.attendMix * depth;
+      const push = 1 - 0.9 * out;
       this.uGoldOff.value.y = (look.goldS / 100) * push;
       this.uCoralOff.value.y = (look.coralS / 100) * push;
-      if (this.sheenBase && this.sheenAttend) this.material.sheenColor.copy(this.sheenBase).lerp(this.sheenAttend, this.attendMix);
+      if (this.sheenBase && this.sheenAttend) this.material.sheenColor.copy(this.sheenBase).lerp(this.sheenAttend, out);
       this.attendWasOn = this.attendMix > 0;
     }
     // The light around the eyes and mouth is the body's own colour, whatever
-    // the body is wearing this frame — a mood, the listening green, record red,
+    // the body is wearing this frame — a mood, the listening lime, record red,
     // a colour the owner chose. It used to be five fixed ambers, which left an
     // orange halo on a green face. Repainted only when the colour has visibly
     // moved, so an easing tone costs a few paints, not one per frame.

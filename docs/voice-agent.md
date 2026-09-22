@@ -267,9 +267,9 @@ Two ways, both deliberate — a line never opens on its own:
 
 Either way it closes itself after 25 seconds of silence, at a 20-minute cap, or
 when the agent ends the conversation. While it is open the orb turns from its
-own colour to green and breathes there — from a lighter leaf green to a darker
-one and back, slowly, deeper as you speak — and returns to orange while it talks,
-so you can see whose turn it is.
+own orange out to a lime green and back — slowly, and further out as you speak
+— and settles on its orange while it talks, so you can see whose turn it is. It
+never leaves the orb's own family of colour.
 No glow, no fading: the same solid orb.
 
 - **The wake word**, spoken — the spontaneous way. See §9.

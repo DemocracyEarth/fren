@@ -4,10 +4,10 @@
  *
  * The tone palette in expressions.js is not a list of colours, it is a set of
  * RELATIONSHIPS. `warm` is the base lifted in lightness and `excited` lifted
- * more, both at the base hue exactly. Only the conversation line leaves the
- * hue, and it leaves it toward GREEN: `attending` a third of the way (the line
- * is open, fren is waiting on you), `hearing` two thirds (your voice is coming
- * in). Those numbers are what make the moods read as the same character in
+ * more, both at the base hue exactly. Only the listening breath leaves the
+ * hue: `lime`, fifty degrees on, is the far end of the swing the orb makes
+ * from its own colour while it listens in a conversation (attend.js). Those
+ * numbers are what make the moods read as the same character in
  * different states rather than as different characters, so re-colouring means
  * moving the base and reapplying the offsets — not picking new colours.
  *
@@ -52,26 +52,23 @@
     base:    { dH: 0, dS: 0, dL: 0 },
     warm:    { dH: 0, dS: 8, dL: 4 },
     excited: { dH: 0, dS: 14, dL: 6 },
-    // The conversation line. From the shipped orange: attending is a warm
-    // yellow-green, hearing a leaf green — softer in saturation than the moods,
-    // because a fully saturated green next to the orange interface shouts, and
+    // The listening breath's far end — softer in saturation than the moods,
+    // because a fully saturated lime next to the orange interface shouts, and
     // this is meant to be noticed, not announced.
-    // Their saturation is a FRACTION of the base's, with a floor — not an
+    // Its saturation is a FRACTION of the base's, with a floor — not an
     // offset. An offset that softens the orange to sixty percent takes a
-    // muted worn colour to nothing, and a green with no saturation has no hue
+    // muted worn colour to nothing, and a lime with no saturation has no hue
     // left to turn. (The body shader also pushes every colour's saturation up
     // for its gradient — eased off while the line is open, or these would
     // render neon; see orb.js — so they read softer than their numbers.)
     //
-    // Calm, not lime. The first pair turned only a third of the way and
-    // LIFTED the lightness, which from orange lands on yellow-green at full
-    // brightness — a lemon-lime while waiting, an apple green while hearing.
-    // These turn further (past the yellows, into green proper) and go DOWN in
-    // lightness: a leaf green and a deeper one, the two ends of the breath
-    // fren listens with (attend.js); `lMin` keeps a dark worn colour from
-    // sinking under the face.
-    attending: { dH: 58, sMul: 0.44, sMin: 30, dL: -7, lMin: 34 },
-    hearing:   { dH: 86, sMul: 0.44, sMin: 30, dL: -13, lMin: 34 },
+    // The far end of the listening breath. While fren listens in a spoken
+    // conversation the body swings from its OWN colour out to this and back
+    // (attend.js), so the breath stays in the orb's own family: from the
+    // shipped orange, out through the yellows to a lime green. Softer in
+    // saturation than the base and a touch darker, never neon; `lMin` keeps a
+    // dark worn colour from sinking under the face.
+    lime: { dH: 50, sMul: 0.55, sMin: 30, dL: -2, lMin: 34 },
   };
   const SHEEN = { dH: 2.160, dL: 20.784 };
 
@@ -107,8 +104,7 @@
     base:      { rough: 0.34, sheen: 0.40 },
     warm:      { rough: 0.28, sheen: 0.55 },
     excited:   { rough: 0.20, sheen: 0.75 },
-    attending: { rough: 0.24, sheen: 0.62 },
-    hearing:   { rough: 0.14, sheen: 0.95 },
+    lime:    { rough: 0.20, sheen: 0.70 },
   };
 
   const MIN_SAT = 45;   // below this, awake stops reading as different from asleep
