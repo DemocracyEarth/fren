@@ -39,7 +39,7 @@
     // excited fren and a listening fren were the same yellow, and the only
     // difference was how bright. So the moods differ by BRIGHTNESS and GLOSS,
     // and listening went somewhere a mood never goes: a real turn of the hue,
-    // toward green, far enough that "fren has turned green" means exactly one
+    // to lime, far enough that "fren is breathing toward lime" means exactly one
     // thing — it is listening to you — at every colour it can wear.
     // Brightness comes WITH saturation now, not instead of it. The original
     // offsets were measured against a base at 100% saturation, where lightness
@@ -68,7 +68,7 @@
     // shipped orange, out through the yellows to a lime green. Softer in
     // saturation than the base and a touch darker, never neon; `lMin` keeps a
     // dark worn colour from sinking under the face.
-    lime: { dH: 50, sMul: 0.55, sMin: 30, dL: -2, lMin: 34 },
+    lime: { dH: 60, sMul: 0.55, sMin: 30, dL: -2, lMin: 34 },
   };
   const SHEEN = { dH: 2.160, dL: 20.784 };
 

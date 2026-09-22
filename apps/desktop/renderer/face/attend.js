@@ -27,11 +27,13 @@ const clamp01 = (v) => Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0));
 /**
  * @param {number} listeningFor seconds since fren started listening (this turn)
  * @param {number} level        your voice, 0..1, already smoothed
- * @param {boolean} still       reduced motion: no breath, a steady colour midway to the lime
+ * @param {boolean} still       reduced motion: no breath, held at the breath's own far end
  */
 export function attendDepth(listeningFor, level = 0, still = false) {
   const t = Math.max(0, Number.isFinite(listeningFor) ? listeningFor : 0);
   // Starts at the orb's own colour, so a turn opens where fren already was.
-  const breath = still ? 0.5 : 0.5 - 0.5 * Math.cos((t / BREATH_S) * Math.PI * 2);
+  // Held still, it sits at the breath's own peak — the lime — not at a
+  // midway that lands on mustard and never reaches anything green.
+  const breath = still ? 1 : 0.5 - 0.5 * Math.cos((t / BREATH_S) * Math.PI * 2);
   return clamp01(breath * BREATH_REACH + clamp01(level) * VOICE_REACH);
 }

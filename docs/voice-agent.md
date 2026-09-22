@@ -283,7 +283,7 @@ you, and the agent's greeting follows. Nothing to set up, no account, no key:
 the detector runs **on this machine** and answers one question per few
 milliseconds of microphone audio — "was that the phrase?" — and nothing else.
 No audio leaves, nothing is transcribed, nothing is kept. Audio starts to travel
-only once the line is open, deliberately, with the orb turned green.
+only once the line is open, deliberately, with the orb breathing toward lime.
 
 It is on by default; `FREN_WAKE_WORD=off` switches it off outright.
 

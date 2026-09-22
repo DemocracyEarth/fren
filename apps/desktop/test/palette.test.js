@@ -30,11 +30,11 @@ test('the default colour reproduces the shipped palette exactly', () => {
   assert.equal(hx(t.warm.color), '#ffa914');
   assert.equal(hx(t.excited.color), '#ffad1f');
   // The far end of the listening breath: a lime, softer than the moods.
-  assert.equal(hx(t.lime.color), '#7fbe37');
+  assert.equal(hx(t.lime.color), '#68be37');
   assert.equal(hx(P.sheenColorFrom(P.DEFAULT_HEX)), '#ffce6a');
 });
 
-test('the listening breath reaches a lime fifty degrees from the base — softer, a touch darker — at every worn colour', () => {
+test('the listening breath reaches a lime sixty degrees from the base — softer, a touch darker — at every worn colour', () => {
   // The breath runs from the orb's own colour out to this and back, so the
   // far end is a fixed turn from the base: from orange it is a lime, and
   // "fren is breathing toward lime" means the same thing whatever it wears.
@@ -43,7 +43,7 @@ test('the listening breath reaches a lime fifty degrees from the base — softer
     const hue = (c) => P.toHsl(c).h;
     const turn = (c) => ((hue(c) - hue(t.base.color)) % 360 + 360) % 360;
     // 8-bit colour gives hue only so much precision at low saturation.
-    assert.ok(Math.abs(turn(t.lime.color) - 50) < 3, `${preset.name}: lime turned ${turn(t.lime.color).toFixed(1)}deg`);
+    assert.ok(Math.abs(turn(t.lime.color) - 60) < 3, `${preset.name}: lime turned ${turn(t.lime.color).toFixed(1)}deg`);
     // Softer than the base, never louder — but never colourless either (the
     // Moss preset found this); and never brighter than the base, which is how
     // an earlier lime went neon, nor so dark the face has nothing to sit on.

@@ -57,8 +57,8 @@ const REC_HZ = 0.62;
 // chosen palette; see the note beside it.
 const _recLow = new THREE.Color();
 const _recHigh = new THREE.Color();
-// Scratch colours for the conversation line: attending (waiting on you) and
-// hearing (your voice coming in), from the worn palette.
+// Scratch colours for the listening breath: its near end (whatever the orb
+// wears) and its far end (the worn palette's lime).
 const _attend = new THREE.Color();
 const _attendDeep = new THREE.Color();
 const REC = (typeof window !== 'undefined' && window.FrenPalette &&
@@ -796,7 +796,7 @@ class Orb {
       this.material.color.copy(_recLow.setHex(REC.low)).lerp(_recHigh.setHex(REC.high), beat);
     }
     // The conversation line: fren is listening to you, and says so in colour.
-    // The turn toward green eases in and out with the line; within it, the
+    // The breath toward lime eases in and out with the line; within it, the
     // colour follows your voice — quick to hear you, slow to let go, so it
     // rides the phrase rather than flickering with every syllable. Gated by
     // `lit` like the body colour: a drained orb stays drained.

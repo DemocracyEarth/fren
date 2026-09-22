@@ -36,7 +36,7 @@ test('the shipped orange still gives off the hand-tuned ambers', async () => {
 
 test('a green body gives off green light, a red one red, a teal one teal — never amber', async () => {
   const { glowFrom } = await load();
-  for (const [name, body, bodyHue] of [['lime', 0x7fbe37, 88], ['a leaf green', 0x35883b, 124], ['recording', 0xd93425, 5], ['lagoon', 0x11a8a8, 180], ['sad', 0x758ec7, 222]]) {
+  for (const [name, body, bodyHue] of [['lime', 0x68be37, 98], ['a leaf green', 0x35883b, 124], ['recording', 0xd93425, 5], ['lagoon', 0x11a8a8, 180], ['sad', 0x758ec7, 222]]) {
     const layers = glowFrom(body);
     for (const c of layers.slice(0, 3)) {                // the coloured layers; the bloom is nearly white
       assert.ok(near(hue(c), bodyHue, 6), `${name}: ${c} is at ${hue(c).toFixed(0)}deg, the body at ${bodyHue}`);

@@ -35,7 +35,7 @@ html, body {
    than a box-shadow, so the glow hugs the sphere's own silhouette instead of
    the square button around it; it breathes slowly, and not at all under
    reduced motion. */
-/* A line is open: the orb says so in its own colour — it turns toward green
+/* A line is open: the orb says so in its own colour — it breathes toward lime
    while it listens to you (orb.js setAttending), and back while it talks.
    No CSS effect: no glow, no fade, the same solid orb. */
 

@@ -46,10 +46,12 @@ test('your voice pushes it further out, and it never leaves the span between the
   assert.ok(attendDepth(1, 0.8) > attendDepth(1, 0.1));
 });
 
-test('reduced motion: no breath — a steady colour midway to the lime that still answers the voice', async () => {
+test('reduced motion: no breath — held at the breath\'s own far end, the lime, still answering the voice', async () => {
   const { attendDepth } = await load();
   assert.equal(attendDepth(0, 0, true), attendDepth(1.3, 0, true));
-  assert.equal(attendDepth(0, 0, true), 0.425);
+  // Not a midway: 0.425 of the way from orange lands on mustard and never
+  // reaches anything green. The far end is the point of the state.
+  assert.equal(attendDepth(0, 0, true), 0.85);
   assert.ok(attendDepth(0, 1, true) > attendDepth(0, 0, true));
 });
 
@@ -81,8 +83,13 @@ test('the SVG fallback breathes the same breath (it cannot import the module, so
   const deep = face.split('\n').find((l) => l.includes('const attendDeep ='));
   assert.ok(breath && deep, 'the fallback has its breath');
   assert.ok(breath.includes(`/ ${BREATH_S})`), 'same period');
-  assert.ok(breath.includes('this.reduced ? 0.5'), 'reduced motion holds the middle');
+  assert.ok(breath.includes('this.reduced ? 1'), 'reduced motion holds the far end');
   assert.ok(deep.includes('* 0.85') && deep.includes('* 0.15') && deep.includes('* 1.4'), 'same reach, same voice');
   // And it darkens as it turns, so it reads lighter-to-darker, not only as a change of hue.
   assert.match(face, /const l = clamp\(BASE\.l \+ p\.tone - attendDim/);
+  // No local recording over a live line: record red under the breath would swing red to lime.
+  const app = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'app.js'), 'utf8');
+  assert.match(app, /async function startTalking\(\) \{[\s\S]{0,400}?if \(voiceActive\(\)\) \{ vlog\([^)]*\); return; \}/);
+  // And softens as it turns, or a full-saturation lime is neon — the look the owner turned down.
+  assert.match(face, /const s = clamp\(BASE\.s \* p\.sat \* \(1 - 0\.45 \* this\.attendHue \/ 60\)/);
 });

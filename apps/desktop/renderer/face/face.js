@@ -450,8 +450,9 @@
 
     /**
      * A conversation line is open: fren is listening to YOU. The one hue this
-     * renderer ever turns — toward green, a third of the way while it waits,
-     * further as you speak — and back when the line closes or fren talks.
+     * renderer ever turns: it breathes from its own colour out to lime and
+     * back, further out as you speak, and settles when the line closes or
+     * fren talks.
      */
     setAttending(level) {
       const on = level !== null && level !== undefined;
@@ -615,16 +616,18 @@
       // mood's hue, so an expression change underneath never undoes it.
       // The same breath as the 3D orb (attend.js, which a classic script cannot
       // import): the orb's own colour out to lime and back every 3.2 s, further with your voice.
-      const attendBreath = this.reduced ? 0.5 : 0.5 - 0.5 * Math.cos((this.t / 3.2) * Math.PI * 2);
+      const attendBreath = this.reduced ? 1 : 0.5 - 0.5 * Math.cos((this.t / 3.2) * Math.PI * 2);
       const attendDeep = Math.min(1, attendBreath * 0.85 + Math.min(1, (this.attend || 0) * 1.4) * 0.15);
-      const attendGoal = this.attend === null ? 0 : 50 * attendDeep;   // palette.js: +50 at the lime
+      const attendGoal = this.attend === null ? 0 : 60 * attendDeep;   // palette.js: +60 at the lime
       this.attendHue += (attendGoal - this.attendHue) * 0.08;
       if (this.attend === null && Math.abs(this.attendHue) < 0.05) this.attendHue = 0;
       const h = ((p.hue + this.attendHue + BASE.h) % 360 + 360) % 360;
-      const s = clamp(BASE.s * p.sat, 0, 1);
+      // Softer as it turns (palette.js: the lime is 0.55 of the base's
+      // saturation), or a full-saturation lime at the same lightness is neon.
+      const s = clamp(BASE.s * p.sat * (1 - 0.45 * this.attendHue / 60), 0, 1);
       // A touch darker at the lime end (palette.js: -2), derived from the
       // eased hue so it comes and goes with the line for free.
-      const attendDim = 0.02 * this.attendHue / 50;
+      const attendDim = 0.02 * this.attendHue / 60;
       const l = clamp(BASE.l + p.tone - attendDim, 0.06, 0.92);
       const lit = clamp(p.lit, 0, 1);
       g.s0.setAttribute('stop-color', step(h, s, l, RAMP.highlight));

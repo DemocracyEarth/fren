@@ -44,7 +44,7 @@ export const TONE = {
   // conversation the body swings from its own colour out to this lime and
   // back (attend.js). Worn by the orb's setAttending, never by a mood. (Local
   // RECORDING is semantic red.)
-  lime:    { color: 0x7fbe37, rough: 0.20, sheen: 0.70 },
+  lime:    { color: 0x68be37, rough: 0.20, sheen: 0.70 },
 };
 
 const E = (tone, lidTop, eyeScale, mouthW, mouthOpen, mouthCurve, extra) =>
