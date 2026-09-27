@@ -40,11 +40,11 @@ export const TONE = {
   blue:    { color: 0x758ec7, rough: 0.42, sheen: 0.26 },   // periwinkle, not slate
   red:     { color: 0xe04a24, rough: 0.30, sheen: 0.45 },   // cross
   grey:    { color: 0x6d6d73, rough: 0.54, sheen: 0.08 },   // asleep, no colour left
-  // The conversation line: the base turned to green — a calm leaf green while
-  // fren waits on you, a deeper one as your voice comes in. Worn by the orb's
-  // setAttending, never by a mood. (Local RECORDING is semantic red.)
-  attending: { color: 0x649e3d, rough: 0.24, sheen: 0.62 },
-  hearing:   { color: 0x35883b, rough: 0.14, sheen: 0.95 },
+  // The far end of the listening breath: while fren listens in a spoken
+  // conversation the body swings from its own colour out to this lime and
+  // back (attend.js). Worn by the orb's setAttending, never by a mood. (Local
+  // RECORDING is semantic red.)
+  lime:    { color: 0x68be37, rough: 0.20, sheen: 0.70 },
 };
 
 const E = (tone, lidTop, eyeScale, mouthW, mouthOpen, mouthCurve, extra) =>

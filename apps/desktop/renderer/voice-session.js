@@ -61,7 +61,7 @@ export function createVoiceSession({ getFace, addBubble, setFace, heard = null, 
 
   /**
    * The mouth follows the agent's audio; the colour follows yours. While fren
-   * listens the orb turns toward green, deeper as you speak (setAttending —
+   * listens the orb breathes from its own colour out to lime, further as you speak (setAttending —
    * the conversation's own state, not the local recording's red); while it
    * talks it turns back to its own colour, so the turn-taking is visible.
    */
